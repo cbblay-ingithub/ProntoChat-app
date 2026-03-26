@@ -3,6 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart'; // Make sure this import exists
 import './pages/login_page.dart';
 import './services/snackbar_service.dart';
+import './pages/registration_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,7 +37,7 @@ class MyApp extends StatelessWidget {
       ),
       // ✅ FIX: Use the service's scaffoldMessengerKey
       scaffoldMessengerKey: snackbarService.scaffoldMessengerKey,
-      home: const LoginPage(),
+      home: const RegistrationPage(),
       debugShowCheckedModeBanner: false,
     );
   }
