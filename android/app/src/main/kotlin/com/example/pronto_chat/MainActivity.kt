@@ -1,0 +1,5 @@
+package com.example.pronto_chat
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity : FlutterActivity()
