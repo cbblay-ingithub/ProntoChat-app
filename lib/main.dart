@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart'; // Make sure this import exists
 import './pages/login_page.dart';
+import './services/snackbar_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,6 +20,9 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Get SnackbarService instance
+    final snackbarService = SnackbarService();
+    
     return MaterialApp(
       title: 'ProntoChat',
       theme: ThemeData(
@@ -30,7 +34,10 @@ class MyApp extends StatelessWidget {
         ),
         scaffoldBackgroundColor: const Color.fromRGBO(28, 27, 27, 1),
       ),
+      // ✅ FIX: Use the service's scaffoldMessengerKey
+      scaffoldMessengerKey: snackbarService.scaffoldMessengerKey,
       home: const LoginPage(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }

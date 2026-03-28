@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:pronto_chat/providers/auth_provider.dart'; 
+import 'package:pronto_chat/providers/auth_provider.dart';
+import '../services/snackbar_service.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -14,15 +15,21 @@ class LoginPageState extends State<LoginPage> {
   late double _deviceHeight;
   late double _deviceWidth;
 
+  // Form key for validation
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  
+  // Text controllers for email and password fields
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
-  String? _emailError;
-  String? _passwordError;
+  // Loading state for button
+  bool _isLoading = false;
   
-  // ✅ MOVE THIS INSIDE THE CLASS
+  // Auth provider instance
   final AuthProvider _authProvider = AuthProvider.instance;
+  
+  // Snackbar service instance
+  final SnackbarService _snackbarService = SnackbarService();
 
   @override
   Widget build(BuildContext context) {
@@ -53,6 +60,7 @@ class LoginPageState extends State<LoginPage> {
     );
   }
 
+  /// Builds the heading widget with welcome text
   Widget _headingWidget() {
     return SizedBox(
       width: _deviceWidth,
@@ -68,7 +76,7 @@ class LoginPageState extends State<LoginPage> {
               color: Colors.white,
             ),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           Text(
             "Please login to your account",
             textAlign: TextAlign.center,
@@ -83,6 +91,7 @@ class LoginPageState extends State<LoginPage> {
     );
   }
 
+  /// Builds the input form with email and password fields
   Widget _inputForm() {
     return Container(
       child: Form(
@@ -90,7 +99,7 @@ class LoginPageState extends State<LoginPage> {
         child: Column(
           children: <Widget>[
             _emailTextField(),
-            SizedBox(height: 20),
+            const SizedBox(height: 20),
             _passwordTextField(),
           ],
         ),
@@ -98,12 +107,14 @@ class LoginPageState extends State<LoginPage> {
     );
   }
 
+  /// Builds the email text field
   Widget _emailTextField() {
     return TextFormField(
       controller: _emailController,
       autocorrect: false,
       keyboardType: TextInputType.emailAddress,
       style: const TextStyle(color: Colors.white),
+      enabled: !_isLoading, // Disable when loading
       validator: (input) {
         if (input == null || input.isEmpty) {
           return 'Please enter your email';
@@ -138,12 +149,14 @@ class LoginPageState extends State<LoginPage> {
     );
   }
 
+  /// Builds the password text field with visibility toggle
   Widget _passwordTextField() {
     return TextFormField(
       controller: _passwordController,
       obscureText: true,
       autocorrect: false,
       style: const TextStyle(color: Colors.white),
+      enabled: !_isLoading, // Disable when loading
       validator: (input) {
         if (input == null || input.isEmpty) {
           return 'Please enter your password';
@@ -176,7 +189,7 @@ class LoginPageState extends State<LoginPage> {
         prefixIcon: const Icon(Icons.lock_outline, color: Colors.grey),
         suffixIcon: IconButton(
           icon: const Icon(Icons.visibility_outlined, color: Colors.grey),
-          onPressed: () {
+          onPressed: _isLoading ? null : () {
             // TODO: Add password visibility toggle
           },
         ),
@@ -184,11 +197,12 @@ class LoginPageState extends State<LoginPage> {
     );
   }
 
+  /// Builds the login button with loading state
   Widget _loginButton() {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton(
-        onPressed: _login,
+        onPressed: _isLoading ? null : _login, // Disable button when loading
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color.fromRGBO(41, 116, 188, 1),
           foregroundColor: Colors.white,
@@ -197,15 +211,27 @@ class LoginPageState extends State<LoginPage> {
             borderRadius: BorderRadius.circular(12),
           ),
           elevation: 0,
+          // Add disabled style
+          disabledBackgroundColor: const Color.fromRGBO(41, 116, 188, 0.6),
         ),
-        child: const Text(
-          "Login",
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-        ),
+        child: _isLoading
+            ? const SizedBox(
+                height: 20,
+                width: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              )
+            : const Text(
+                "Login",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
       ),
     );
   }
 
+  /// Builds the register text widget
   Widget _registerText() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -215,13 +241,15 @@ class LoginPageState extends State<LoginPage> {
           style: TextStyle(color: Colors.grey[400], fontSize: 16),
         ),
         GestureDetector(
-          onTap: () {
+          onTap: _isLoading ? null : () {
             // TODO: Navigate to registration page
           },
-          child: const Text(
+          child: Text(
             "Register",
             style: TextStyle(
-              color: Color.fromRGBO(41, 116, 188, 1),
+              color: _isLoading 
+                  ? Colors.grey[600] 
+                  : const Color.fromRGBO(41, 116, 188, 1),
               fontSize: 16,
               fontWeight: FontWeight.w600,
             ),
@@ -231,45 +259,38 @@ class LoginPageState extends State<LoginPage> {
     );
   }
 
-  // ✅ SINGLE _login() METHOD - KEEP ONLY THIS ONE
+  /// Handles the login process with button loading state
   void _login() async {
     if (_formKey.currentState!.validate()) {
-      // Show loading indicator
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Logging in...'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-
+      // Set loading state
+      setState(() {
+        _isLoading = true;
+      });
+      
+      // Attempt login
       bool success = await _authProvider.loginUserWithEmailAndPassword(
         _emailController.text.trim(),
         _passwordController.text,
       );
       
-      if (success) {
-        // Navigate to home screen
+      // Reset loading state
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+      
+      // Navigate on success
+      if (success && mounted) {
+        // TODO: Navigate to home screen
         // Navigator.pushReplacementNamed(context, '/home');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Login successful!'),
-            backgroundColor: Color.fromRGBO(41, 116, 188, 1),
-          ),
-        );
-      } else {
-        // Show error message
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_authProvider.errorMessage ?? 'Login failed'),
-            backgroundColor: Colors.red,
-          ),
-        );
       }
     }
   }
 
   @override
   void dispose() {
+    // Clean up controllers
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();

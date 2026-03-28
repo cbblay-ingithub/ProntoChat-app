@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../services/snackbar_service.dart';
 
 // Enum to track authentication status throughout the app
 enum AuthStatus {
@@ -22,12 +23,15 @@ class AuthProvider extends ChangeNotifier {
   
   // Error message for displaying to users
   String? errorMessage;
+  
+  // Snackbar service instance
+  final SnackbarService _snackbarService = SnackbarService();
 
   // Singleton instance
-  static AuthProvider instance = AuthProvider();
+  static final AuthProvider instance = AuthProvider._internal();
 
   // Private constructor
-  AuthProvider() : _auth = FirebaseAuth.instance {
+  AuthProvider._internal() : _auth = FirebaseAuth.instance {
     // Listen to auth state changes
     _auth.authStateChanges().listen(_onAuthStateChanged);
   }
@@ -39,12 +43,12 @@ class AuthProvider extends ChangeNotifier {
       user = firebaseUser;
       status = AuthStatus.Authenticated;
       errorMessage = null;
-      print('User authenticated: ${firebaseUser.email}');
+      debugPrint('User authenticated: ${firebaseUser.email}');
     } else {
       // User is signed out
       user = null;
       status = AuthStatus.NotAuthenticated;
-      print('User signed out');
+      debugPrint('User signed out');
     }
     notifyListeners();
   }
@@ -58,7 +62,7 @@ class AuthProvider extends ChangeNotifier {
       errorMessage = null;
       notifyListeners();
       
-      print('Attempting login for: $email');
+      debugPrint('Attempting login for: $email');
       
       // Attempt to sign in with Firebase
       UserCredential credential = await _auth.signInWithEmailAndPassword(
@@ -73,13 +77,15 @@ class AuthProvider extends ChangeNotifier {
         // Login successful
         status = AuthStatus.Authenticated;
         errorMessage = null;
-        print('Login successful for: ${user!.email}');
+        // ✅ Success message with SnackbarService's success color (green)
+        _snackbarService.showSnackBarSuccess("Welcome ${user!.email}!");
         notifyListeners();
         return true;
       } else {
         // User is null (shouldn't happen, but handle anyway)
         status = AuthStatus.Error;
-        errorMessage = 'Login failed - user data not found';
+        // ✅ Error message with SnackbarService's error color (red accent)
+        _snackbarService.showSnackBarError("Authentication error. Please try again.");
         notifyListeners();
         return false;
       }
@@ -88,28 +94,35 @@ class AuthProvider extends ChangeNotifier {
       // Handle Firebase specific authentication errors
       status = AuthStatus.Error;
       
+      // ✅ All error messages use SnackbarService's error styling
       switch (e.code) {
         case 'user-not-found':
           errorMessage = 'No user found with this email address.';
+          _snackbarService.showSnackBarError(errorMessage!);
           status = AuthStatus.UserNotFound;
           break;
         case 'wrong-password':
           errorMessage = 'Incorrect password. Please try again.';
+          _snackbarService.showSnackBarError(errorMessage!);
           break;
         case 'invalid-email':
           errorMessage = 'Invalid email format. Please enter a valid email.';
+          _snackbarService.showSnackBarError(errorMessage!);
           break;
         case 'user-disabled':
           errorMessage = 'This account has been disabled. Please contact support.';
+          _snackbarService.showSnackBarError(errorMessage!);
           break;
         case 'too-many-requests':
           errorMessage = 'Too many failed attempts. Please try again later.';
+          _snackbarService.showSnackBarError(errorMessage!);
           break;
         default:
           errorMessage = 'Login failed: ${e.message}';
+          _snackbarService.showSnackBarError(errorMessage!);
       }
       
-      print('Login error: ${e.code} - ${e.message}');
+      debugPrint('Login error: ${e.code} - ${e.message}');
       notifyListeners();
       return false;
       
@@ -117,7 +130,9 @@ class AuthProvider extends ChangeNotifier {
       // Handle any other unexpected errors
       status = AuthStatus.Error;
       errorMessage = 'An unexpected error occurred. Please try again.';
-      print('Unexpected login error: $e');
+      // ✅ Generic error with SnackbarService's error styling
+      _snackbarService.showSnackBarError(errorMessage!);
+      debugPrint('Unexpected login error: $e');
       notifyListeners();
       return false;
     }
@@ -131,7 +146,7 @@ class AuthProvider extends ChangeNotifier {
       errorMessage = null;
       notifyListeners();
       
-      print('Attempting registration for: $email');
+      debugPrint('Attempting registration for: $email');
       
       // Attempt to create user with Firebase
       UserCredential credential = await _auth.createUserWithEmailAndPassword(
@@ -146,12 +161,16 @@ class AuthProvider extends ChangeNotifier {
         // Registration successful
         status = AuthStatus.Authenticated;
         errorMessage = null;
-        print('Registration successful for: ${user!.email}');
+        // ✅ Success message with SnackbarService's success color
+        _snackbarService.showSnackBarSuccess("Account created successfully! Welcome ${user!.email}!");
+        debugPrint('Registration successful for: ${user!.email}');
         notifyListeners();
         return true;
       } else {
         status = AuthStatus.Error;
         errorMessage = 'Registration failed - user data not found';
+        // ✅ Error message with SnackbarService's error styling
+        _snackbarService.showSnackBarError(errorMessage!);
         notifyListeners();
         return false;
       }
@@ -160,24 +179,30 @@ class AuthProvider extends ChangeNotifier {
       // Handle Firebase specific registration errors
       status = AuthStatus.Error;
       
+      // ✅ All registration errors use SnackbarService's error styling
       switch (e.code) {
         case 'email-already-in-use':
           errorMessage = 'An account already exists with this email address.';
+          _snackbarService.showSnackBarError(errorMessage!);
           break;
         case 'invalid-email':
           errorMessage = 'Invalid email format. Please enter a valid email.';
+          _snackbarService.showSnackBarError(errorMessage!);
           break;
         case 'weak-password':
           errorMessage = 'Password is too weak. Please use at least 6 characters.';
+          _snackbarService.showSnackBarError(errorMessage!);
           break;
         case 'operation-not-allowed':
           errorMessage = 'Email/password accounts are not enabled.';
+          _snackbarService.showSnackBarError(errorMessage!);
           break;
         default:
           errorMessage = 'Registration failed: ${e.message}';
+          _snackbarService.showSnackBarError(errorMessage!);
       }
       
-      print('Registration error: ${e.code} - ${e.message}');
+      debugPrint('Registration error: ${e.code} - ${e.message}');
       notifyListeners();
       return false;
       
@@ -185,7 +210,9 @@ class AuthProvider extends ChangeNotifier {
       // Handle any other unexpected errors
       status = AuthStatus.Error;
       errorMessage = 'An unexpected error occurred. Please try again.';
-      print('Unexpected registration error: $e');
+      // ✅ Generic error with SnackbarService's error styling
+      _snackbarService.showSnackBarError(errorMessage!);
+      debugPrint('Unexpected registration error: $e');
       notifyListeners();
       return false;
     }
@@ -198,11 +225,15 @@ class AuthProvider extends ChangeNotifier {
       user = null;
       status = AuthStatus.NotAuthenticated;
       errorMessage = null;
-      print('User signed out successfully');
+      // ✅ Info message with SnackbarService's info color (blue)
+      _snackbarService.showSnackBarInfo("Signed out successfully");
+      debugPrint('User signed out successfully');
       notifyListeners();
     } catch (e) {
-      print('Sign out error: $e');
+      debugPrint('Sign out error: $e');
       errorMessage = 'Failed to sign out. Please try again.';
+      // ✅ Error message with SnackbarService's error styling
+      _snackbarService.showSnackBarError(errorMessage!);
       notifyListeners();
     }
   }
@@ -211,10 +242,12 @@ class AuthProvider extends ChangeNotifier {
   Future<bool> sendPasswordResetEmail(String email) async {
     try {
       await _auth.sendPasswordResetEmail(email: email.trim());
-      print('Password reset email sent to: $email');
+      // ✅ Success message with SnackbarService's success color
+      _snackbarService.showSnackBarSuccess("Password reset email sent to $email");
+      debugPrint('Password reset email sent to: $email');
       return true;
     } on FirebaseAuthException catch (e) {
-      print('Password reset error: ${e.code} - ${e.message}');
+      debugPrint('Password reset error: ${e.code} - ${e.message}');
       
       if (e.code == 'user-not-found') {
         errorMessage = 'No user found with this email address.';
@@ -222,11 +255,15 @@ class AuthProvider extends ChangeNotifier {
         errorMessage = 'Failed to send reset email. Please try again.';
       }
       
+      // ✅ Error message with SnackbarService's error styling
+      _snackbarService.showSnackBarError(errorMessage!);
       notifyListeners();
       return false;
     } catch (e) {
-      print('Unexpected password reset error: $e');
+      debugPrint('Unexpected password reset error: $e');
       errorMessage = 'An unexpected error occurred. Please try again.';
+      // ✅ Error message with SnackbarService's error styling
+      _snackbarService.showSnackBarError(errorMessage!);
       notifyListeners();
       return false;
     }
