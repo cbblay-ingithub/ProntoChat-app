@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pronto_chat/providers/auth_provider.dart';
 import '../services/snackbar_service.dart';
+import '../services/navigation_service.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -242,7 +243,7 @@ class LoginPageState extends State<LoginPage> {
         ),
         GestureDetector(
           onTap: _isLoading ? null : () {
-            // TODO: Navigate to registration page
+            NavigationService.instance.navigateTo('/register');// TODO: Navigate to registration page
           },
           child: Text(
             "Register",

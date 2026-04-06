@@ -4,6 +4,7 @@ import 'firebase_options.dart'; // Make sure this import exists
 import './pages/login_page.dart';
 import './services/snackbar_service.dart';
 import './pages/registration_page.dart';
+import './services/navigation_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,9 +36,15 @@ class MyApp extends StatelessWidget {
         ),
         scaffoldBackgroundColor: const Color.fromRGBO(28, 27, 27, 1),
       ),
+      initialRoute: "/login",
+      routes: {
+       '/login': (context) => const LoginPage(),
+        '/register': (context) => const RegistrationPage(),
+
+      },
       // ✅ FIX: Use the service's scaffoldMessengerKey
+      navigatorKey: NavigationService.instance.navigatorKey,
       scaffoldMessengerKey: snackbarService.scaffoldMessengerKey,
-      home: const RegistrationPage(),
       debugShowCheckedModeBanner: false,
     );
   }

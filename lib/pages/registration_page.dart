@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import './login_page.dart'; // Import the login page for navigation
+import '../services/navigation_service.dart';
 
 // ─────────────────────────────────────────────
 //  LAUNCH ORBS  –  Custom animated illustration
