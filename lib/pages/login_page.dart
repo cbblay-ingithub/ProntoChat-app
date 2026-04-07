@@ -15,6 +15,7 @@ class LoginPage extends StatefulWidget {
 class LoginPageState extends State<LoginPage> {
   late double _deviceHeight;
   late double _deviceWidth;
+  bool _isPasswordVisible = false;
 
   // Form key for validation
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
@@ -152,51 +153,56 @@ class LoginPageState extends State<LoginPage> {
 
   /// Builds the password text field with visibility toggle
   Widget _passwordTextField() {
-    return TextFormField(
-      controller: _passwordController,
-      obscureText: true,
-      autocorrect: false,
-      style: const TextStyle(color: Colors.white),
-      enabled: !_isLoading, // Disable when loading
-      validator: (input) {
-        if (input == null || input.isEmpty) {
-          return 'Please enter your password';
-        }
-        if (input.length < 6) {
-          return 'Password must be at least 6 characters';
-        }
-        return null;
-      },
-      decoration: InputDecoration(
-        hintText: "Password",
-        hintStyle: const TextStyle(color: Colors.grey),
-        filled: true,
-        fillColor: Colors.grey[900]!.withOpacity(0.5),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(
-            color: Color.fromRGBO(41, 116, 188, 1),
-            width: 2,
-          ),
-        ),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 14,
-        ),
-        prefixIcon: const Icon(Icons.lock_outline, color: Colors.grey),
-        suffixIcon: IconButton(
-          icon: const Icon(Icons.visibility_outlined, color: Colors.grey),
-          onPressed: _isLoading ? null : () {
-            // TODO: Add password visibility toggle
-          },
+  return TextFormField(
+    controller: _passwordController,
+    obscureText: !_isPasswordVisible,
+    autocorrect: false,
+    style: const TextStyle(color: Colors.white),
+    enabled: !_isLoading,
+    validator: (input) {
+      if (input == null || input.isEmpty) {
+        return 'Please enter your password';
+      }
+      if (input.length < 6) {
+        return 'Password must be at least 6 characters';
+      }
+      return null;
+    },
+    decoration: InputDecoration(
+      hintText: "Password",
+      hintStyle: const TextStyle(color: Colors.grey),
+      filled: true,
+      fillColor: Colors.grey[900]!.withOpacity(0.5),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(
+          color: Color.fromRGBO(41, 116, 188, 1),
+          width: 2,
         ),
       ),
-    );
-  }
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: 14,
+      ),
+      prefixIcon: const Icon(Icons.lock_outline, color: Colors.grey),
+      suffixIcon: IconButton(
+        icon: Icon(
+          _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+          color: Colors.grey,
+        ),
+        onPressed: _isLoading ? null : () {
+          setState(() {
+            _isPasswordVisible = !_isPasswordVisible;
+          });
+        },
+      ),
+    ),
+  );
+}
 
   /// Builds the login button with loading state
   Widget _loginButton() {
