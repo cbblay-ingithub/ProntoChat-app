@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
-import './login_page.dart'; // Import the login page for navigation
+import 'package:firebase_auth/firebase_auth.dart';
+import './login_page.dart';
 import '../services/navigation_service.dart';
-import './animation_switch.dart'; // 4 tappable animated illustrations
+import '../services/db_service.dart';
+import './animation_switch.dart';
 
 class RegistrationPage extends StatefulWidget {
   const RegistrationPage({super.key});
@@ -16,9 +18,9 @@ class _RegPageState extends State<RegistrationPage> {
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
-  final TextEditingController _nameController            = TextEditingController();
-  final TextEditingController _emailController           = TextEditingController();
-  final TextEditingController _passwordController        = TextEditingController();
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController = TextEditingController();
 
   bool _isLoading = false;
@@ -27,10 +29,14 @@ class _RegPageState extends State<RegistrationPage> {
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
 
+  // Firebase instances
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final DBService _dbService = DBService.instance;
+
   @override
   Widget build(BuildContext context) {
     _deviceHeight = MediaQuery.of(context).size.height;
-    _deviceWidth  = MediaQuery.of(context).size.width;
+    _deviceWidth = MediaQuery.of(context).size.width;
 
     return Scaffold(
       backgroundColor: const Color.fromRGBO(28, 27, 27, 1),
@@ -88,7 +94,6 @@ class _RegPageState extends State<RegistrationPage> {
     );
   }
 
-  /// Tap to cycle through 4 custom animations
   Widget _animatedPictureWidget() {
     final animSize = _deviceHeight * 0.17;
     return AnimatedOrbSwitcher(size: animSize);
@@ -263,17 +268,82 @@ class _RegPageState extends State<RegistrationPage> {
 
   void _register() async {
     if (_formKey.currentState!.validate()) {
+      String name = _nameController.text.trim();
+      String email = _emailController.text.trim();
+      String password = _passwordController.text;
+      
       setState(() => _isLoading = true);
-      await Future.delayed(const Duration(seconds: 2));
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Registration successful! Please login.'),
-            backgroundColor: Colors.green,
-          ),
+      
+      try {
+        // 1. Create user in Firebase Authentication
+        UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
+          email: email,
+          password: password,
         );
-        _navigateToLogin();
+        
+        String uid = userCredential.user!.uid;
+        
+        // 2. Update user profile with display name
+        await userCredential.user!.updateDisplayName(name);
+        
+        // 3. Create user document in Firestore
+        // Using a default avatar URL (you can replace with actual image upload later)
+        String defaultAvatarUrl = 'https://ui-avatars.com/api/?background=2974BC&color=fff&name=${Uri.encodeComponent(name)}';
+        
+        await _dbService.createUserInDB(
+          uid,
+          name,
+          email,
+          defaultAvatarUrl,
+        );
+        
+        // 4. Show success message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Registration successful! Please login.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          _navigateToLogin();
+        }
+      } on FirebaseAuthException catch (e) {
+        String errorMessage;
+        switch (e.code) {
+          case 'email-already-in-use':
+            errorMessage = 'This email is already registered. Please login instead.';
+            break;
+          case 'invalid-email':
+            errorMessage = 'Please enter a valid email address.';
+            break;
+          case 'weak-password':
+            errorMessage = 'Password is too weak. Please use a stronger password.';
+            break;
+          default:
+            errorMessage = 'Registration failed: ${e.message}';
+        }
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(errorMessage),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Registration failed: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
       }
     }
   }

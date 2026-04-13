@@ -5,6 +5,7 @@ import './pages/login_page.dart';
 import './services/snackbar_service.dart';
 import './pages/registration_page.dart';
 import './services/navigation_service.dart';
+import './services/db_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
