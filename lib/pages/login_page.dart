@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart'; // Add this import
 import 'package:pronto_chat/providers/auth_provider.dart';
 import '../services/snackbar_service.dart';
 import '../services/navigation_service.dart';
@@ -27,8 +28,8 @@ class LoginPageState extends State<LoginPage> {
   // Loading state for button
   bool _isLoading = false;
   
-  // Auth provider instance
-  final AuthProvider _authProvider = AuthProvider.instance;
+  // Remove this line - we'll get AuthProvider from context instead
+  // final AuthProvider _authProvider = AuthProvider.instance;
   
   // Snackbar service instance
   final SnackbarService _snackbarService = SnackbarService();
@@ -116,7 +117,7 @@ class LoginPageState extends State<LoginPage> {
       autocorrect: false,
       keyboardType: TextInputType.emailAddress,
       style: const TextStyle(color: Colors.white),
-      enabled: !_isLoading, // Disable when loading
+      enabled: !_isLoading,
       validator: (input) {
         if (input == null || input.isEmpty) {
           return 'Please enter your email';
@@ -153,63 +154,63 @@ class LoginPageState extends State<LoginPage> {
 
   /// Builds the password text field with visibility toggle
   Widget _passwordTextField() {
-  return TextFormField(
-    controller: _passwordController,
-    obscureText: !_isPasswordVisible,
-    autocorrect: false,
-    style: const TextStyle(color: Colors.white),
-    enabled: !_isLoading,
-    validator: (input) {
-      if (input == null || input.isEmpty) {
-        return 'Please enter your password';
-      }
-      if (input.length < 6) {
-        return 'Password must be at least 6 characters';
-      }
-      return null;
-    },
-    decoration: InputDecoration(
-      hintText: "Password",
-      hintStyle: const TextStyle(color: Colors.grey),
-      filled: true,
-      fillColor: Colors.grey[900]!.withOpacity(0.5),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide.none,
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(
-          color: Color.fromRGBO(41, 116, 188, 1),
-          width: 2,
+    return TextFormField(
+      controller: _passwordController,
+      obscureText: !_isPasswordVisible,
+      autocorrect: false,
+      style: const TextStyle(color: Colors.white),
+      enabled: !_isLoading,
+      validator: (input) {
+        if (input == null || input.isEmpty) {
+          return 'Please enter your password';
+        }
+        if (input.length < 6) {
+          return 'Password must be at least 6 characters';
+        }
+        return null;
+      },
+      decoration: InputDecoration(
+        hintText: "Password",
+        hintStyle: const TextStyle(color: Colors.grey),
+        filled: true,
+        fillColor: Colors.grey[900]!.withOpacity(0.5),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(
+            color: Color.fromRGBO(41, 116, 188, 1),
+            width: 2,
+          ),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
+        prefixIcon: const Icon(Icons.lock_outline, color: Colors.grey),
+        suffixIcon: IconButton(
+          icon: Icon(
+            _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+            color: Colors.grey,
+          ),
+          onPressed: _isLoading ? null : () {
+            setState(() {
+              _isPasswordVisible = !_isPasswordVisible;
+            });
+          },
         ),
       ),
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: 14,
-      ),
-      prefixIcon: const Icon(Icons.lock_outline, color: Colors.grey),
-      suffixIcon: IconButton(
-        icon: Icon(
-          _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
-          color: Colors.grey,
-        ),
-        onPressed: _isLoading ? null : () {
-          setState(() {
-            _isPasswordVisible = !_isPasswordVisible;
-          });
-        },
-      ),
-    ),
-  );
-}
+    );
+  }
 
   /// Builds the login button with loading state
   Widget _loginButton() {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton(
-        onPressed: _isLoading ? null : _login, // Disable button when loading
+        onPressed: _isLoading ? null : _login,
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color.fromRGBO(41, 116, 188, 1),
           foregroundColor: Colors.white,
@@ -218,7 +219,6 @@ class LoginPageState extends State<LoginPage> {
             borderRadius: BorderRadius.circular(12),
           ),
           elevation: 0,
-          // Add disabled style
           disabledBackgroundColor: const Color.fromRGBO(41, 116, 188, 0.6),
         ),
         child: _isLoading
@@ -249,7 +249,7 @@ class LoginPageState extends State<LoginPage> {
         ),
         GestureDetector(
           onTap: _isLoading ? null : () {
-            NavigationService.instance.navigateTo('/register');// TODO: Navigate to registration page
+            NavigationService.instance.navigateTo('/register');
           },
           child: Text(
             "Register",
@@ -274,8 +274,11 @@ class LoginPageState extends State<LoginPage> {
         _isLoading = true;
       });
       
+      // Get AuthProvider from context instead of using instance
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      
       // Attempt login
-      bool success = await _authProvider.loginUserWithEmailAndPassword(
+      bool success = await authProvider.loginUserWithEmailAndPassword(
         _emailController.text.trim(),
         _passwordController.text,
       );
@@ -287,10 +290,13 @@ class LoginPageState extends State<LoginPage> {
         });
       }
       
-      // Navigate on success
+      // Navigate on success — clear the entire navigation stack so the
+      // user cannot swipe back to the login page.
       if (success && mounted) {
-        // TODO: Navigate to home screen
-        // Navigator.pushReplacementNamed(context, '/home');
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/home',
+          (route) => false,
+        );
       }
     }
   }

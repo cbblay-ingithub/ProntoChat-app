@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart'; // Make sure this import exists
+import 'package:provider/provider.dart';
+import 'firebase_options.dart';
+import './pages/auth_gate.dart';
+import './pages/home_page.dart';
 import './pages/login_page.dart';
-import './services/snackbar_service.dart';
 import './pages/registration_page.dart';
+import './pages/convo_page.dart';
+import './pages/search_page.dart';
+import './providers/auth_provider.dart';
 import './services/navigation_service.dart';
-import './services/db_service.dart';
+import './services/snackbar_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,16 +20,23 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
   
-  runApp(const MyApp());
+  runApp(
+    ChangeNotifierProvider(
+      create: (_) => AuthProvider(),
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
+  // Instantiated once at the class level — not inside build() — so the same
+  // scaffoldMessengerKey is reused across every rebuild.
+  static final SnackbarService _snackbarService = SnackbarService();
+
   @override
   Widget build(BuildContext context) {
-    // Get SnackbarService instance
-    final snackbarService = SnackbarService();
     
     return MaterialApp(
       title: 'ProntoChat',
@@ -37,15 +49,20 @@ class MyApp extends StatelessWidget {
         ),
         scaffoldBackgroundColor: const Color.fromRGBO(28, 27, 27, 1),
       ),
-      initialRoute: "/login",
+      // AuthGate is the root — it watches AuthProvider and renders
+      // HomePage (authenticated) or LoginPage (not authenticated).
+      // This handles both cold-starts with an existing session and
+      // explicit login/logout flows without any manual navigation.
+      home: const AuthGate(),
       routes: {
-       '/login': (context) => const LoginPage(),
+        '/login':    (context) => const LoginPage(),
         '/register': (context) => const RegistrationPage(),
-
+        '/home':     (context) => const HomePage(),
+        '/search':   (context) => const UserSearchPage(),
       },
       // ✅ FIX: Use the service's scaffoldMessengerKey
       navigatorKey: NavigationService.instance.navigatorKey,
-      scaffoldMessengerKey: snackbarService.scaffoldMessengerKey,
+      scaffoldMessengerKey: _snackbarService.scaffoldMessengerKey,
       debugShowCheckedModeBanner: false,
     );
   }
