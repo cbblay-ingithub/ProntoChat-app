@@ -6,16 +6,11 @@ import 'login_page.dart';
 
 /// AuthGate sits at the root of the widget tree and watches AuthProvider.
 ///
-/// Why this exists:
-///   Firebase restores a previous session automatically on cold-start.
-///   Without a gate, the app would always open on the login page and then
-///   need to detect and redirect — causing a flash of the wrong screen.
-///   AuthGate renders the correct screen immediately on every launch.
-///
 /// Flow:
-///   Authenticating (profile loading)  → neutral splash
-///   Authenticated                      → HomePage
-///   NotAuthenticated / Error           → LoginPage
+///   isInitializing (token validation + profile load) → splash
+///   isAuthenticating (explicit login in progress)    → splash
+///   Authenticated                                    → HomePage
+///   NotAuthenticated / Error                         → LoginPage
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
@@ -23,9 +18,18 @@ class AuthGate extends StatelessWidget {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
 
-    // While Firebase re-establishes a session on cold-start, show a branded
-    // splash so there is no flash of the login page for returning users.
-    if (auth.isAuthenticating) {
+    // FIX: Check isInitializing (not just isAuthenticating) for the splash.
+    //
+    // isAuthenticating is only true during an explicit login() call.
+    // On cold-start, Firebase restores a persisted session via
+    // _onAuthStateChanged — status stays notAuthenticated until the full
+    // async sequence completes, so the old isAuthenticating check was
+    // ALWAYS false on app launch.
+    //
+    // isInitializing is true from the moment _onAuthStateChanged fires
+    // until the ID token is validated + profile is loaded — exactly the
+    // window we need to block to prevent premature Firestore streams.
+    if (auth.isInitializing || auth.isAuthenticating) {
       return const Scaffold(
         backgroundColor: Color.fromRGBO(28, 27, 27, 1),
         body: Center(

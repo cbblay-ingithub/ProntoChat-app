@@ -6,12 +6,27 @@ import '../services/db_service.dart';
 import 'convo_page.dart';
 import 'search_page.dart';
 
-class HomePage extends StatelessWidget {
+// ─────────────────────────────────────────────────────────────────────────────
+// FIX: Converted from StatelessWidget → StatefulWidget so that context.watch()
+// can rebuild the widget whenever auth state changes (e.g. token becomes ready
+// after login). context.read() in a StatelessWidget only runs once at build
+// time, meaning the Firestore stream could launch before the auth token has
+// propagated — causing permission-denied errors.
+// ─────────────────────────────────────────────────────────────────────────────
+
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
   @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  @override
   Widget build(BuildContext context) {
-    final auth = context.read<AuthProvider>();
+    // FIX: watch() instead of read() — rebuilds when auth state changes
+    final auth = context.watch<AuthProvider>();
+    final uid  = auth.currentUserId;
 
     return Scaffold(
       backgroundColor: const Color.fromRGBO(28, 27, 27, 1),
@@ -42,77 +57,106 @@ class HomePage extends StatelessWidget {
           ),
         ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: DBService.instance.streamConversations(auth.currentUserId!),
-        builder: (context, snapshot) {
-          // ── Loading ──────────────────────────────────────────────────
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
+      // FIX: Guard — don't open the Firestore stream until auth is FULLY
+      // initialized. Checking uid == null alone isn't enough: Firebase can
+      // fire _onAuthStateChanged with a user object before the token is
+      // validated by Firestore, causing permission-denied. isInitializing
+      // stays true until the full async sequence in _onAuthStateChanged
+      // completes (profile load + lastSeen), guaranteeing the token is ready.
+      body: uid == null || auth.isInitializing
+          ? const Center(
               child: CircularProgressIndicator(
                 color: Color.fromRGBO(41, 116, 188, 1),
               ),
-            );
-          }
-
-          // ── Error ────────────────────────────────────────────────────
-          if (snapshot.hasError) {
-            return Center(
-              child: Text(
-                'Something went wrong.\nPlease restart the app.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey[500]),
-              ),
-            );
-          }
-
-          final docs = snapshot.data?.docs ?? [];
-
-          // ── Empty state ──────────────────────────────────────────────
-          if (docs.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.chat_bubble_outline,
-                      size: 64, color: Colors.grey[700]),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No conversations yet',
-                    style: TextStyle(
-                      color: Colors.grey[500],
-                      fontSize: 18,
-                      fontWeight: FontWeight.w500,
+            )
+          : StreamBuilder<QuerySnapshot>(
+              stream: DBService.instance.streamConversations(uid),
+              builder: (context, snapshot) {
+                // ── Loading ────────────────────────────────────────────
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(
+                      color: Color.fromRGBO(41, 116, 188, 1),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Tap the search icon to start one',
-                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                  ),
-                ],
-              ),
-            );
-          }
+                  );
+                }
 
-          // ── Conversation list ────────────────────────────────────────
-          return ListView.separated(
-            itemCount: docs.length,
-            separatorBuilder: (_, __) => Divider(
-              color: Colors.grey[850],
-              height: 1,
-              indent: 76,
+                // ── Error ──────────────────────────────────────────────
+                if (snapshot.hasError) {
+                    debugPrint('🔥 FULL ERROR: ${snapshot.error}');
+                    debugPrint('📚 FULL STACK:\n${snapshot.stackTrace}');
+                    FlutterError.reportError(FlutterErrorDetails(
+                      exception: snapshot.error!,
+                      stack: snapshot.stackTrace,
+                    ));
+
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.error_outline,
+                            color: Colors.red[300], size: 48),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Error: ${snapshot.error.toString().split('\n').first}',
+                          style: const TextStyle(
+                              color: Colors.white70, fontSize: 14),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                final docs = snapshot.data?.docs ?? [];
+
+                // ── Empty state ────────────────────────────────────────
+                if (docs.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.chat_bubble_outline,
+                            size: 64, color: Colors.grey[700]),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No conversations yet',
+                          style: TextStyle(
+                            color: Colors.grey[500],
+                            fontSize: 18,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Tap the search icon to start one',
+                          style:
+                              TextStyle(color: Colors.grey[600], fontSize: 14),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                // ── Conversation list ──────────────────────────────────
+                return ListView.separated(
+                  itemCount: docs.length,
+                  separatorBuilder: (_, __) => Divider(
+                    color: Colors.grey[850],
+                    height: 1,
+                    indent: 76,
+                  ),
+                  itemBuilder: (context, index) {
+                    final data =
+                        docs[index].data() as Map<String, dynamic>;
+                    return _ConversationTile(
+                      data: data,
+                      currentUid: uid, // FIX: uid is guaranteed non-null here
+                    );
+                  },
+                );
+              },
             ),
-            itemBuilder: (context, index) {
-              final data = docs[index].data() as Map<String, dynamic>;
-              return _ConversationTile(
-                data: data,
-                currentUid: auth.currentUserId!,
-              );
-            },
-          );
-        },
-      ),
-      // FAB duplicates the search icon for discoverability
       floatingActionButton: FloatingActionButton(
         backgroundColor: const Color.fromRGBO(41, 116, 188, 1),
         child: const Icon(Icons.edit, color: Colors.white),
@@ -124,12 +168,14 @@ class HomePage extends StatelessWidget {
     );
   }
 
-  Future<void> _confirmSignOut(BuildContext context, AuthProvider auth) async {
+  Future<void> _confirmSignOut(
+      BuildContext context, AuthProvider auth) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: const Color.fromRGBO(40, 40, 40, 1),
-        title: const Text('Sign out', style: TextStyle(color: Colors.white)),
+        title:
+            const Text('Sign out', style: TextStyle(color: Colors.white)),
         content: const Text(
           'Are you sure you want to sign out?',
           style: TextStyle(color: Colors.grey),
@@ -138,12 +184,13 @@ class HomePage extends StatelessWidget {
           TextButton(
             onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancel',
-                style: TextStyle(color: Color.fromRGBO(41, 116, 188, 1))),
+                style:
+                    TextStyle(color: Color.fromRGBO(41, 116, 188, 1))),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child:
-                const Text('Sign out', style: TextStyle(color: Colors.redAccent)),
+            child: const Text('Sign out',
+                style: TextStyle(color: Colors.redAccent)),
           ),
         ],
       ),
@@ -153,7 +200,7 @@ class HomePage extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Conversation tile
+// Conversation tile — unchanged
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _ConversationTile extends StatelessWidget {
@@ -241,7 +288,7 @@ class _ConversationTile extends StatelessWidget {
               ),
             )
           else
-            const SizedBox(height: 18), // keeps tile height consistent
+            const SizedBox(height: 18),
         ],
       ),
       onTap: () => Navigator.push(
@@ -258,8 +305,6 @@ class _ConversationTile extends StatelessWidget {
     );
   }
 
-  /// Conversation IDs are formed as "uid1_uid2" (sorted). Given one uid,
-  /// extract the other. Falls back to empty string if the format changes.
   String _otherUid(String conversationId, String myUid) {
     final parts = conversationId.split('_');
     if (parts.length != 2) return '';
@@ -277,7 +322,6 @@ class _ConversationTile extends StatelessWidget {
       return '${dt.hour.toString().padLeft(2, '0')}:'
           '${dt.minute.toString().padLeft(2, '0')}';
     }
-    // Show day/month for older conversations
     return '${dt.day.toString().padLeft(2, '0')}/'
         '${dt.month.toString().padLeft(2, '0')}';
   }

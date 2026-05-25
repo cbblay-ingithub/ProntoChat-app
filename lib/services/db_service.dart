@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class DBService {
@@ -130,6 +131,16 @@ class DBService {
   ///
   /// A WriteBatch is used so all three writes (master doc + both user previews)
   /// either all succeed or all fail — no partial state on network errors.
+  /// FIX 1: Named parameters + String return type to match search_page.dart.
+  /// FIX 2: Sorted UID pair for deterministic conversation ID — A→B and B→A
+  ///         always resolve to the same document.
+  /// FIX 3: Each user's subcollection entry now stores the OTHER person's
+  ///         name/image, so the conversation list shows the correct profile.
+  ///         Previously both entries used currentUserName/Image, meaning the
+  ///         current user always saw their own name/avatar in the list.
+  /// FIX 4: Existence check via the user's OWN subcollection (isOwner rule)
+  ///         instead of the Conversations doc (isConversationMember rule),
+  ///         which was always denied for new conversations.
   Future<String> createConversation({
     required String currentUid,
     required String otherUid,
@@ -139,62 +150,60 @@ class DBService {
     required String otherUserImage,
   }) async {
     try {
-      // ── Deterministic, collision-free conversation ID ────────────────────
+      // Deterministic ID — sort so A↔B always maps to the same document
       final List<String> ids = [currentUid, otherUid]..sort();
       final String conversationId = ids.join('_');
 
-      final conversationRef = _db
-          .collection(_conversationCollection)
-          .doc(conversationId);
+      // FIX 4: Check existence via the user's own subcollection —
+      // the isOwner rule always allows this read, unlike isConversationMember
+      // which denies reads on documents that don't exist yet.
+      final existingDoc = await _db
+          .collection(_userCollection)
+          .doc(currentUid)
+          .collection(_userConvSubcollection)
+          .doc(conversationId)
+          .get();
 
-      // ── Guard: return early if conversation already exists ───────────────
-      final existing = await conversationRef.get();
-      if (existing.exists) {
-        print('ℹ️  Conversation already exists: $conversationId');
+      if (existingDoc.exists) {
+        debugPrint('ℹ️  Conversation already exists: $conversationId');
         return conversationId;
       }
 
-      // ── Atomic batch: 3 writes ───────────────────────────────────────────
       final WriteBatch batch = _db.batch();
 
-      // 1. Master Conversations document
-      batch.set(conversationRef, {
-        'members'     : [currentUid, otherUid],
-        'owner'       : currentUid,
-        'lastMessage' : '',
-        'lastMessageSender': '',
-        'timestamp'   : FieldValue.serverTimestamp(),
-        'createdAt'   : FieldValue.serverTimestamp(),
-      });
-
-      // 2. Preview entry in current user's subcollection
+      // Master conversation document
       batch.set(
-        _db
-            .collection(_userCollection)
-            .doc(currentUid)
-            .collection(_userConvSubcollection)
-            .doc(conversationId),
+        _db.collection(_conversationCollection).doc(conversationId),
+        {
+          'members'     : [currentUid, otherUid],
+          'lastMessage' : '',
+          'timestamp'   : FieldValue.serverTimestamp(),
+          'createdAt'   : FieldValue.serverTimestamp(),
+        },
+      );
+
+      // FIX 3: Current user's entry shows the OTHER user's name/image
+      batch.set(
+        _db.collection(_userCollection).doc(currentUid)
+            .collection(_userConvSubcollection).doc(conversationId),
         {
           'chatId'      : conversationId,
-          'name'        : otherUserName,
-          'image'       : otherUserImage,
+          'name'        : otherUserName,    // ← other person's name
+          'image'       : otherUserImage,   // ← other person's image
           'lastMessage' : '',
           'timestamp'   : FieldValue.serverTimestamp(),
           'unseenCount' : 0,
         },
       );
 
-      // 3. Preview entry in other user's subcollection
+      // FIX 3: Other user's entry shows the CURRENT user's name/image
       batch.set(
-        _db
-            .collection(_userCollection)
-            .doc(otherUid)
-            .collection(_userConvSubcollection)
-            .doc(conversationId),
+        _db.collection(_userCollection).doc(otherUid)
+            .collection(_userConvSubcollection).doc(conversationId),
         {
           'chatId'      : conversationId,
-          'name'        : currentUserName,
-          'image'       : currentUserImage,
+          'name'        : currentUserName,  // ← current user's name
+          'image'       : currentUserImage, // ← current user's image
           'lastMessage' : '',
           'timestamp'   : FieldValue.serverTimestamp(),
           'unseenCount' : 0,
@@ -202,26 +211,53 @@ class DBService {
       );
 
       await batch.commit();
-      print('✅ Conversation created: $conversationId');
+      debugPrint('✅ Conversation created: $conversationId');
       return conversationId;
 
     } catch (e) {
-      print('❌ Error creating conversation: $e');
+      debugPrint('❌ Error creating conversation: $e');
       rethrow;
     }
   }
 
-  /// Check whether a conversation already exists between two users
-  /// without creating one. Useful before showing a "Message" button.
-  Future<bool> conversationExists(String uid1, String uid2) async {
-    final List<String> ids = [uid1, uid2]..sort();
-    final doc = await _db
-        .collection(_conversationCollection)
-        .doc(ids.join('_'))
-        .get();
-    return doc.exists;
-  }
+Future<void> markConversationAsSeen({
+  required String conversationId,
+  required String uid,
+}) async {
+  try {
+    await _db
+        .collection(_userCollection)
+        .doc(uid)
+        .collection(_userConvSubcollection)
+        .doc(conversationId)
+        .update({'unseenCount': 0});
 
+    // ✅ Filter client-side — Firestore has no "array does not contain" query
+    final allMessages = await _db
+        .collection(_conversationCollection)
+        .doc(conversationId)
+        .collection(_messagesSubcollection)
+        .get();
+
+    final unseenDocs = allMessages.docs.where((doc) {
+      final seenBy = List<String>.from(doc.data()['seenBy'] ?? []);
+      return !seenBy.contains(uid);
+    }).toList();
+
+    if (unseenDocs.isEmpty) return;
+
+    final WriteBatch batch = _db.batch();
+    for (final doc in unseenDocs) {
+      batch.update(doc.reference, {
+        'seenBy': FieldValue.arrayUnion([uid]),
+      });
+    }
+    await batch.commit();
+
+  } catch (e) {
+    print('❌ Error marking conversation as seen: $e');
+  }
+}
 
   // ══════════════════════════════════════════════════════════════════════════
   // MESSAGES
@@ -344,10 +380,11 @@ class DBService {
   /// Stream the current user's conversation list, newest first.
   /// Powers the conversations list screen.
   /// Each document emitted is a Users/{uid}/conversations/{chatId} preview.
-  Stream<QuerySnapshot> streamConversations(String uid) {
+// In db_service.dart
+Stream<QuerySnapshot> streamConversations(String userId) {
     return _db
         .collection(_userCollection)
-        .doc(uid)
+        .doc(userId)
         .collection(_userConvSubcollection)
         .orderBy('timestamp', descending: true)
         .snapshots();
@@ -364,52 +401,6 @@ class DBService {
         .collection(_messagesSubcollection)
         .orderBy('timestamp', descending: false)
         .snapshots(includeMetadataChanges: false);
-  }
-
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // SEEN / UNSEEN
-  // ══════════════════════════════════════════════════════════════════════════
-
-  /// Call this as soon as a user opens a chat screen.
-  /// Resets their unseenCount to 0 and stamps their UID onto every message
-  /// they haven't acknowledged yet.
-  Future<void> markConversationAsSeen({
-    required String conversationId,
-    required String uid,
-  }) async {
-    try {
-      // 1. Zero out the badge counter on the user's preview entry
-      await _db
-          .collection(_userCollection)
-          .doc(uid)
-          .collection(_userConvSubcollection)
-          .doc(conversationId)
-          .update({'unseenCount': 0});
-
-      // 2. Fetch only the messages this user hasn't seen yet
-      final unseenMessages = await _db
-          .collection(_conversationCollection)
-          .doc(conversationId)
-          .collection(_messagesSubcollection)
-          .where('seenBy', whereNotIn: [[uid]])
-          .get();
-
-      if (unseenMessages.docs.isEmpty) return;
-
-      // 3. Batch-stamp uid onto each unseen message
-      final WriteBatch batch = _db.batch();
-      for (final doc in unseenMessages.docs) {
-        batch.update(doc.reference, {
-          'seenBy': FieldValue.arrayUnion([uid]),
-        });
-      }
-      await batch.commit();
-
-    } catch (e) {
-      print('❌ Error marking conversation as seen: $e');
-      // Not rethrown — a failed seen-mark shouldn't break the chat UX
-    }
   }
 
 

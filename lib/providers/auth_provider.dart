@@ -17,63 +17,76 @@ enum AuthStatus {
 // ---------------------------------------------------------------------------
 // AuthProvider
 // ---------------------------------------------------------------------------
-// CHANGES FROM PREVIOUS VERSION
-//  1. Singleton removed — Provider package owns the single instance.
-//     AuthProvider.instance conflicted with ChangeNotifierProvider: two
-//     separate objects existed, so notifyListeners() on one never reached
-//     the other's listeners and the UI never rebuilt.
+// FIX APPLIED:
+//   Added `isInitializing` bool (starts true) that remains true until
+//   _onAuthStateChanged completes its FULL async sequence (profile load +
+//   lastSeen stamp). Previously, notifyListeners() was called after two
+//   awaited Firestore calls whose errors were silently swallowed — meaning
+//   HomePage could wake up and fire a Firestore stream before the auth token
+//   was validated, causing permission-denied.
 //
-//  2. registerUserWithEmailAndPassword now accepts name + imageURL and calls
-//     DBService.createUserInDB immediately after the Auth account is created.
-//     Previously, registration produced an Auth account with no matching
-//     Firestore document, which silently broke every downstream feature
-//     (search, conversations, avatars).
-//
-//  3. _userProfile (Map<String,dynamic>) is loaded from Firestore on every
-//     auth state change and after every successful login/registration.
-//     Convenience getters (currentUserName, currentUserImage) expose the data
-//     so screens never need their own redundant Firestore reads.
-//
-//  4. DBService.updateLastSeen is called whenever a session is established,
-//     keeping the lastSeen field current for future presence features.
+//   HomePage now guards on `auth.isInitializing` in addition to uid == null,
+//   so the stream never starts until auth is fully settled.
 // ---------------------------------------------------------------------------
 class AuthProvider extends ChangeNotifier {
   // ── Firebase ───────────────────────────────────────────────────────────
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
   // ── State ──────────────────────────────────────────────────────────────
-  User? user;
-  AuthStatus status = AuthStatus.notAuthenticated;
-  String? errorMessage;
+  User?       user;
+  AuthStatus  status       = AuthStatus.notAuthenticated;
+  String?     errorMessage;
+
+  // FIX: true until _onAuthStateChanged fully resolves on first call.
+  // Starts true so the UI waits before firing any Firestore queries.
+  bool _isInitializing = true;
 
   // Firestore profile for the signed-in user.
-  // Populated after every successful auth; cleared on sign-out.
   Map<String, dynamic>? _userProfile;
 
   // ── Services ───────────────────────────────────────────────────────────
   final SnackbarService _snackbarService = SnackbarService();
 
   // ── Constructor ────────────────────────────────────────────────────────
-  // Plain constructor — registered once via ChangeNotifierProvider in
-  // main.dart. Do NOT add a static `instance` field here.
   AuthProvider() {
     _auth.authStateChanges().listen(_onAuthStateChanged);
   }
 
   // ── Auth-state listener ────────────────────────────────────────────────
-  // Called automatically by Firebase when the session is established or
-  // destroyed (app cold-start, sign-in, sign-out, token expiry).
   Future<void> _onAuthStateChanged(User? firebaseUser) async {
+    _isInitializing = true;
+    notifyListeners();
+
     if (firebaseUser != null) {
-      user   = firebaseUser;
-      status = AuthStatus.authenticated;
+      // FIX: Validate the ID token FIRST before touching Firestore.
+      //
+      // authStateChanges() fires when a persisted session is restored on
+      // cold-start, but the ID token may not yet be accepted by Firestore
+      // (it needs a round-trip to Google's auth servers to validate).
+      // Without this, _loadUserProfile and updateLastSeen fail silently,
+      // _isInitializing drops to false, HomePage starts the stream, and
+      // Firestore rejects it with permission-denied.
+      //
+      // getIdToken() returns the cached token if fresh, or fetches a new
+      // one if expired. If the network is down and the token is expired,
+      // it throws — we catch it and bail to the login page cleanly.
+      try {
+        await firebaseUser.getIdToken();
+      } catch (e) {
+        debugPrint('[AuthProvider] token validation failed: $e');
+        user         = null;
+        _userProfile = null;
+        status       = AuthStatus.notAuthenticated;
+        _isInitializing = false;
+        notifyListeners();
+        return;
+      }
+
+      user         = firebaseUser;
+      status       = AuthStatus.authenticated;
       errorMessage = null;
 
-      // Load the Firestore profile so all screens can read name/image
-      // from the provider without their own extra network calls.
       await _loadUserProfile(firebaseUser.uid);
-
-      // Keep lastSeen current for presence / "last seen X minutes ago".
       await DBService.instance.updateLastSeen(firebaseUser.uid);
 
       debugPrint('[AuthProvider] session active: ${firebaseUser.email}');
@@ -83,11 +96,12 @@ class AuthProvider extends ChangeNotifier {
       status       = AuthStatus.notAuthenticated;
       debugPrint('[AuthProvider] session ended');
     }
+
+    _isInitializing = false;
     notifyListeners();
   }
 
   // Fetches the Firestore user document and caches it in _userProfile.
-  // Safe to call multiple times — simply overwrites the cache.
   Future<void> _loadUserProfile(String uid) async {
     try {
       _userProfile = await DBService.instance.getUserData(uid);
@@ -115,13 +129,13 @@ class AuthProvider extends ChangeNotifier {
       user = credential.user;
 
       if (user != null) {
-        // Profile + lastSeen are handled by _onAuthStateChanged, but we
-        // load the profile here too so callers can read it synchronously
+        // _onAuthStateChanged handles profile + lastSeen + notifyListeners.
+        // We load profile here too so callers can read it synchronously
         // right after this method returns true.
         await _loadUserProfile(user!.uid);
         await DBService.instance.updateLastSeen(user!.uid);
 
-        status = AuthStatus.authenticated;
+        status       = AuthStatus.authenticated;
         errorMessage = null;
         _snackbarService.showSnackBarSuccess('Welcome back, $currentUserName!');
         notifyListeners();
@@ -143,9 +157,6 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // ── Registration ───────────────────────────────────────────────────────
-  // Accepts name and imageURL so a Firestore document can be created
-  // immediately. Pass an empty string or a default avatar URL for imageURL
-  // if the registration screen doesn't have a photo picker yet.
   Future<bool> registerUserWithEmailAndPassword({
     required String email,
     required String password,
@@ -157,7 +168,6 @@ class AuthProvider extends ChangeNotifier {
       errorMessage = null;
       notifyListeners();
 
-      // Step 1: Create the Firebase Auth account.
       final credential = await _auth.createUserWithEmailAndPassword(
         email: email.trim(),
         password: password,
@@ -166,10 +176,6 @@ class AuthProvider extends ChangeNotifier {
       user = credential.user;
 
       if (user != null) {
-        // Step 2: Create the matching Firestore document.
-        // This is the critical step that was missing before — without it
-        // the user exists in Auth but not in the database, breaking search,
-        // conversations, and every avatar/name lookup.
         await DBService.instance.createUserInDB(
           user!.uid,
           name,
@@ -177,11 +183,10 @@ class AuthProvider extends ChangeNotifier {
           imageURL,
         );
 
-        // Step 3: Cache the freshly created profile locally.
         await _loadUserProfile(user!.uid);
         await DBService.instance.updateLastSeen(user!.uid);
 
-        status = AuthStatus.authenticated;
+        status       = AuthStatus.authenticated;
         errorMessage = null;
         _snackbarService.showSnackBarSuccess('Welcome, $name!');
         debugPrint('[AuthProvider] registered: ${user!.email}');
@@ -189,7 +194,7 @@ class AuthProvider extends ChangeNotifier {
         return true;
       }
 
-      status = AuthStatus.error;
+      status       = AuthStatus.error;
       errorMessage = 'Registration failed — user record not found.';
       _snackbarService.showSnackBarError(errorMessage!);
       notifyListeners();
@@ -208,7 +213,6 @@ class AuthProvider extends ChangeNotifier {
   Future<void> signOut() async {
     try {
       await _auth.signOut();
-      // _onAuthStateChanged will fire and clear user + _userProfile.
       _snackbarService.showSnackBarInfo('Signed out successfully');
       debugPrint('[AuthProvider] signed out');
     } catch (e) {
@@ -241,8 +245,6 @@ class AuthProvider extends ChangeNotifier {
   }
 
   // ── Profile refresh ────────────────────────────────────────────────────
-  // Call this after the user updates their name or avatar so the provider
-  // cache stays in sync without requiring a full sign-out/sign-in.
   Future<void> refreshUserProfile() async {
     if (user == null) return;
     await _loadUserProfile(user!.uid);
@@ -253,17 +255,16 @@ class AuthProvider extends ChangeNotifier {
   String? get currentUserId    => user?.uid;
   String? get currentUserEmail => user?.email;
 
-  // These read from the cached Firestore profile — no extra network call.
   String get currentUserName  => (_userProfile?['name']  as String?) ?? '';
   String get currentUserImage => (_userProfile?['image'] as String?) ?? '';
 
-  // Full profile map — useful for createConversation() which needs both
-  // fields at once. Returns an empty map rather than null so callers don't
-  // need null checks.
   Map<String, dynamic> get currentUserProfile => _userProfile ?? {};
 
   bool get isAuthenticated  => status == AuthStatus.authenticated;
   bool get isAuthenticating => status == AuthStatus.authenticating;
+
+  // FIX: Consumers (HomePage) check this before firing Firestore queries.
+  bool get isInitializing => _isInitializing;
 
   // ── Helpers ────────────────────────────────────────────────────────────
   void clearError() {
@@ -271,7 +272,6 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Centralised Firebase error handler used by login + registration.
   void _handleFirebaseAuthError(FirebaseAuthException e) {
     status = AuthStatus.error;
 
@@ -312,7 +312,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   void _handleUnexpectedError(String context, Object e) {
-    status = AuthStatus.error;
+    status       = AuthStatus.error;
     errorMessage = 'An unexpected error occurred. Please try again.';
     _snackbarService.showSnackBarError(errorMessage!);
     debugPrint('[AuthProvider] unexpected $context error: $e');
