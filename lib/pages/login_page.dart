@@ -289,15 +289,6 @@ class LoginPageState extends State<LoginPage> {
           _isLoading = false;
         });
       }
-      
-      // Navigate on success — clear the entire navigation stack so the
-      // user cannot swipe back to the login page.
-      if (success && mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/home',
-          (route) => false,
-        );
-      }
     }
   }
 

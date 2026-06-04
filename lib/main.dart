@@ -6,7 +6,6 @@ import './pages/auth_gate.dart';
 import './pages/home_page.dart';
 import './pages/login_page.dart';
 import './pages/registration_page.dart';
-import './pages/convo_page.dart';
 import './pages/search_page.dart';
 import './providers/auth_provider.dart';
 import './services/navigation_service.dart';

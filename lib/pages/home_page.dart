@@ -141,7 +141,7 @@ class _HomePageState extends State<HomePage> {
                 // ── Conversation list ──────────────────────────────────
                 return ListView.separated(
                   itemCount: docs.length,
-                  separatorBuilder: (_, __) => Divider(
+                  separatorBuilder: (_, _) => Divider(
                     color: Colors.grey[850],
                     height: 1,
                     indent: 76,

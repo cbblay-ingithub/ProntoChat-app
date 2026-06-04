@@ -269,7 +269,7 @@ class _LaunchOrbAnimationState extends State<_LaunchOrbAnimation>
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: Listenable.merge([_pulse, _orbit, _rocket]),
-      builder: (_, __) {
+      builder: (_, _) {
         final t = _rocket.value;
         final trailOpacity = (t > 0.05 && t < 0.92)
             ? (t < 0.5 ? (t - 0.05) / 0.45 : (0.92 - t) / 0.42)
@@ -335,7 +335,7 @@ class _ChatBubblesAnimationState extends State<_ChatBubblesAnimation>
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _ctrl,
-      builder: (_, __) => CustomPaint(
+      builder: (_, _) => CustomPaint(
         size: Size(widget.size, widget.size),
         painter: _ChatBubblesPainter(_ctrl.value),
       ),
@@ -665,7 +665,7 @@ class _StarburstState extends State<_StarburstAnimation>
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _ctrl,
-      builder: (_, __) => CustomPaint(
+      builder: (_, _) => CustomPaint(
         size: Size(widget.size, widget.size),
         painter: _StarburstPainter(_ctrl.value),
       ),

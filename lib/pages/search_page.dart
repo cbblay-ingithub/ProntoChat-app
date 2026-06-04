@@ -175,7 +175,7 @@ class _UserSearchPageState extends State<UserSearchPage> {
     // Results list
     return ListView.separated(
       itemCount: _results.length,
-      separatorBuilder: (_, __) =>
+      separatorBuilder: (_, _) =>
           Divider(color: Colors.grey[850], height: 1, indent: 72),
       itemBuilder: (context, index) {
         final user  = _results[index];

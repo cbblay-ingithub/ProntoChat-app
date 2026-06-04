@@ -339,8 +339,9 @@ class _RegPageState extends State<RegistrationPage> {
       enabled: !_isLoading,
       validator: (input) {
         if (input == null || input.isEmpty) return 'Please enter your email';
-        if (!input.contains('@') || !input.contains('.'))
+        if (!input.contains('@') || !input.contains('.')) {
           return 'Please enter a valid email';
+        }
         return null;
       },
       decoration:
