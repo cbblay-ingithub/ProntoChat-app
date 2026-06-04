@@ -196,19 +196,6 @@ class DBService {
         },
       );
 
-      // FIX 3: Other user's entry shows the CURRENT user's name/image
-      batch.set(
-        _db.collection(_userCollection).doc(otherUid)
-            .collection(_userConvSubcollection).doc(conversationId),
-        {
-          'chatId'      : conversationId,
-          'name'        : currentUserName,  // ← current user's name
-          'image'       : currentUserImage, // ← current user's image
-          'lastMessage' : '',
-          'timestamp'   : FieldValue.serverTimestamp(),
-          'unseenCount' : 0,
-        },
-      );
 
       await batch.commit();
       debugPrint('✅ Conversation created: $conversationId');
