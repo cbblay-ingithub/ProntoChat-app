@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/db_service.dart';
@@ -17,16 +18,20 @@ enum AuthStatus {
 // ---------------------------------------------------------------------------
 // AuthProvider
 // ---------------------------------------------------------------------------
-// FIX APPLIED:
-//   Added `isInitializing` bool (starts true) that remains true until
-//   _onAuthStateChanged completes its FULL async sequence (profile load +
-//   lastSeen stamp). Previously, notifyListeners() was called after two
-//   awaited Firestore calls whose errors were silently swallowed — meaning
-//   HomePage could wake up and fire a Firestore stream before the auth token
-//   was validated, causing permission-denied.
-//
-//   HomePage now guards on `auth.isInitializing` in addition to uid == null,
-//   so the stream never starts until auth is fully settled.
+// FIXES APPLIED (based on review):
+//   1. Removed duplicate profile loading from loginUserWithEmailAndPassword.
+//      _onAuthStateChanged is now the single source of truth for auth state.
+//   2. Added a Completer (_initializationCompleter) so callers (like login)
+//      can await the full initialization sequence (token validation + profile
+//      load + lastSeen update) before proceeding.
+//   3. Forced a fresh token refresh right after sign-in to ensure Firestore
+//      permissions are ready.
+//   4. loginUserWithEmailAndPassword now returns true only after the complete
+//      initialization is finished, preventing race conditions where AuthGate
+//      sees isInitializing = true and stays on loading spinner.
+//   5. Improved error handling: token validation failure or profile load
+//      failure will correctly set status = notAuthenticated and complete the
+//      completer with an error (caller can handle).
 // ---------------------------------------------------------------------------
 class AuthProvider extends ChangeNotifier {
   // ── Firebase ───────────────────────────────────────────────────────────
@@ -37,12 +42,16 @@ class AuthProvider extends ChangeNotifier {
   AuthStatus  status       = AuthStatus.notAuthenticated;
   String?     errorMessage;
 
-  // FIX: true until _onAuthStateChanged fully resolves on first call.
-  // Starts true so the UI waits before firing any Firestore queries.
+  // true until _onAuthStateChanged fully resolves on first call or after
+  // any auth state change. UI uses this to block Firestore queries.
   bool _isInitializing = true;
 
   // Firestore profile for the signed-in user.
   Map<String, dynamic>? _userProfile;
+
+  // Completer that resolves when the current initialization sequence finishes.
+  // Used by login/register to wait for the complete setup.
+  Completer<void>? _initializationCompleter;
 
   // ── Services ───────────────────────────────────────────────────────────
   final SnackbarService _snackbarService = SnackbarService();
@@ -52,66 +61,75 @@ class AuthProvider extends ChangeNotifier {
     _auth.authStateChanges().listen(_onAuthStateChanged);
   }
 
-  // ── Auth-state listener ────────────────────────────────────────────────
+  // ── Auth-state listener (SINGLE SOURCE OF TRUTH) ───────────────────────
   Future<void> _onAuthStateChanged(User? firebaseUser) async {
+    // Cancel any previous pending completer (e.g., if a new auth event
+    // arrives before the previous one finished).
+    _initializationCompleter?.completeError(
+      'New auth event interrupted previous initialization',
+    );
+    _initializationCompleter = Completer<void>();
     _isInitializing = true;
     notifyListeners();
 
-    if (firebaseUser != null) {
-      // FIX: Validate the ID token FIRST before touching Firestore.
-      //
-      // authStateChanges() fires when a persisted session is restored on
-      // cold-start, but the ID token may not yet be accepted by Firestore
-      // (it needs a round-trip to Google's auth servers to validate).
-      // Without this, _loadUserProfile and updateLastSeen fail silently,
-      // _isInitializing drops to false, HomePage starts the stream, and
-      // Firestore rejects it with permission-denied.
-      //
-      // getIdToken() returns the cached token if fresh, or fetches a new
-      // one if expired. If the network is down and the token is expired,
-      // it throws — we catch it and bail to the login page cleanly.
-      try {
-        await firebaseUser.getIdToken();
-      } catch (e) {
-        debugPrint('[AuthProvider] token validation failed: $e');
-        user         = null;
+    try {
+      if (firebaseUser != null) {
+        // 1. Validate/refresh ID token – essential for Firestore permissions
+        await firebaseUser.getIdToken(true); // force refresh
+
+        user = firebaseUser;
+        status = AuthStatus.authenticated;
+        errorMessage = null;
+
+        // 2. Load Firestore profile
+        await _loadUserProfile(firebaseUser.uid);
+
+        // 3. Update last seen timestamp
+        await DBService.instance.updateLastSeen(firebaseUser.uid);
+
+        debugPrint('[AuthProvider] session active: ${firebaseUser.email}');
+      } else {
+        // Signed out or no user
+        user = null;
         _userProfile = null;
-        status       = AuthStatus.notAuthenticated;
-        _isInitializing = false;
-        notifyListeners();
-        return;
+        status = AuthStatus.notAuthenticated;
+        debugPrint('[AuthProvider] session ended');
       }
-
-      user         = firebaseUser;
-      status       = AuthStatus.authenticated;
-      errorMessage = null;
-
-      await _loadUserProfile(firebaseUser.uid);
-      await DBService.instance.updateLastSeen(firebaseUser.uid);
-
-      debugPrint('[AuthProvider] session active: ${firebaseUser.email}');
-    } else {
-      user         = null;
+    } catch (e) {
+      debugPrint('[AuthProvider] initialization error: $e');
+      user = null;
       _userProfile = null;
-      status       = AuthStatus.notAuthenticated;
-      debugPrint('[AuthProvider] session ended');
+      status = AuthStatus.notAuthenticated;
+      errorMessage = 'Authentication initialization failed.';
+      // Complete the completer with an error so waiting callers know.
+      if (!_initializationCompleter!.isCompleted) {
+        _initializationCompleter!.completeError(e);
+      }
+    } finally {
+      _isInitializing = false;
+      if (_initializationCompleter != null &&
+          !_initializationCompleter!.isCompleted) {
+        _initializationCompleter!.complete();
+      }
+      notifyListeners();
     }
-
-    _isInitializing = false;
-    notifyListeners();
   }
 
   // Fetches the Firestore user document and caches it in _userProfile.
   Future<void> _loadUserProfile(String uid) async {
     try {
       _userProfile = await DBService.instance.getUserData(uid);
+      if (_userProfile == null) {
+        debugPrint('[AuthProvider] User profile not found for uid: $uid');
+      }
     } catch (e) {
       debugPrint('[AuthProvider] profile load failed: $e');
       _userProfile = null;
+      rethrow; // Propagate so caller knows profile couldn't be loaded.
     }
   }
 
-  // ── Login ──────────────────────────────────────────────────────────────
+  // ── Login (now waits for full initialization) ─────────────────────────
   Future<bool> loginUserWithEmailAndPassword(
     String email,
     String password,
@@ -126,27 +144,25 @@ class AuthProvider extends ChangeNotifier {
         password: password,
       );
 
-      user = credential.user;
-
-      if (user != null) {
-        // _onAuthStateChanged handles profile + lastSeen + notifyListeners.
-        // We load profile here too so callers can read it synchronously
-        // right after this method returns true.
-        await _loadUserProfile(user!.uid);
-        await DBService.instance.updateLastSeen(user!.uid);
-
-        status       = AuthStatus.authenticated;
-        errorMessage = null;
-        _snackbarService.showSnackBarSuccess('Welcome back, $currentUserName!');
-        notifyListeners();
-        return true;
+      final firebaseUser = credential.user;
+      if (firebaseUser == null) {
+        throw Exception('Sign-in succeeded but user object is null');
       }
 
-      status = AuthStatus.error;
-      _snackbarService.showSnackBarError('Authentication error. Please try again.');
-      notifyListeners();
-      return false;
+      // Force a fresh token right away (defensive – _onAuthStateChanged also
+      // does this, but we do it early to catch token issues immediately).
+      await firebaseUser.getIdToken(true);
 
+      // Wait for _onAuthStateChanged to complete its full initialization
+      // (profile load, lastSeen, etc.). This ensures that when we return
+      // true, the provider is completely ready and AuthGate will show HomePage.
+      if (_initializationCompleter != null) {
+        await _initializationCompleter!.future;
+      }
+
+      // At this point, user is fully initialized.
+      _snackbarService.showSnackBarSuccess('Welcome back, $currentUserName!');
+      return true;
     } on FirebaseAuthException catch (e) {
       _handleFirebaseAuthError(e);
       return false;
@@ -173,33 +189,31 @@ class AuthProvider extends ChangeNotifier {
         password: password,
       );
 
-      user = credential.user;
-
-      if (user != null) {
-        await DBService.instance.createUserInDB(
-          user!.uid,
-          name,
-          email.trim(),
-          imageURL,
-        );
-
-        await _loadUserProfile(user!.uid);
-        await DBService.instance.updateLastSeen(user!.uid);
-
-        status       = AuthStatus.authenticated;
-        errorMessage = null;
-        _snackbarService.showSnackBarSuccess('Welcome, $name!');
-        debugPrint('[AuthProvider] registered: ${user!.email}');
-        notifyListeners();
-        return true;
+      final firebaseUser = credential.user;
+      if (firebaseUser == null) {
+        throw Exception('Registration succeeded but user object is null');
       }
 
-      status       = AuthStatus.error;
-      errorMessage = 'Registration failed — user record not found.';
-      _snackbarService.showSnackBarError(errorMessage!);
-      notifyListeners();
-      return false;
+      // Create Firestore user document before loading profile
+      await DBService.instance.createUserInDB(
+        firebaseUser.uid,
+        name,
+        email.trim(),
+        imageURL,
+      );
 
+      // Force token refresh
+      await firebaseUser.getIdToken(true);
+
+      // Wait for _onAuthStateChanged to finish (it will load the profile we
+      // just created and update lastSeen).
+      if (_initializationCompleter != null) {
+        await _initializationCompleter!.future;
+      }
+
+      _snackbarService.showSnackBarSuccess('Welcome, $name!');
+      debugPrint('[AuthProvider] registered: ${firebaseUser.email}');
+      return true;
     } on FirebaseAuthException catch (e) {
       _handleFirebaseAuthError(e);
       return false;
@@ -247,8 +261,12 @@ class AuthProvider extends ChangeNotifier {
   // ── Profile refresh ────────────────────────────────────────────────────
   Future<void> refreshUserProfile() async {
     if (user == null) return;
-    await _loadUserProfile(user!.uid);
-    notifyListeners();
+    try {
+      await _loadUserProfile(user!.uid);
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[AuthProvider] profile refresh failed: $e');
+    }
   }
 
   // ── Getters ────────────────────────────────────────────────────────────
@@ -262,9 +280,13 @@ class AuthProvider extends ChangeNotifier {
 
   bool get isAuthenticated  => status == AuthStatus.authenticated;
   bool get isAuthenticating => status == AuthStatus.authenticating;
+  bool get isInitializing   => _isInitializing;
 
-  // FIX: Consumers (HomePage) check this before firing Firestore queries.
-  bool get isInitializing => _isInitializing;
+  // Expose the completer's future for callers who need to wait for
+  // initialization (used in login/register). For external consumers like
+  // HomePage, they can simply check isInitializing.
+  Future<void> get initializationComplete =>
+      _initializationCompleter?.future ?? Future.value();
 
   // ── Helpers ────────────────────────────────────────────────────────────
   void clearError() {
@@ -312,7 +334,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   void _handleUnexpectedError(String context, Object e) {
-    status       = AuthStatus.error;
+    status = AuthStatus.error;
     errorMessage = 'An unexpected error occurred. Please try again.';
     _snackbarService.showSnackBarError(errorMessage!);
     debugPrint('[AuthProvider] unexpected $context error: $e');

@@ -35,6 +35,7 @@ class DBService {
     try {
       await _db.collection(_userCollection).doc(uid).set({
         'name'      : name,
+        'nameLower' : name.toLowerCase(),
         'email'     : email,
         'image'     : imageURL,
         'lastSeen'  : FieldValue.serverTimestamp(), // ← use server time, not device
@@ -99,23 +100,28 @@ class DBService {
   /// Search users by name prefix — powers the "new conversation" search bar.
   /// Firestore has no native full-text search; this is a prefix match.
   /// Replace with Algolia/Typesense for production-grade search.
-  Future<List<Map<String, dynamic>>> searchUsers(String query) async {
-    try {
-      final result = await _db
-          .collection(_userCollection)
-          .where('name', isGreaterThanOrEqualTo: query)
-          .where('name', isLessThanOrEqualTo: '$query\uf8ff')
-          .limit(10)
-          .get();
+ Future<List<Map<String, dynamic>>> searchUsers(String query) async {
+  try {
+    final q = query.toLowerCase().trim();
 
-      return result.docs
-          .map((doc) => {'uid': doc.id, ...doc.data()})
-          .toList();
-    } catch (e) {
-      print('❌ Error searching users: $e');
-      return [];
-    }
+    // Guard — don't fire a query for empty input
+    if (q.isEmpty) return [];
+
+    final result = await _db
+        .collection(_userCollection)
+        .where('nameLower', isGreaterThanOrEqualTo: q)
+        .where('nameLower', isLessThanOrEqualTo: '$q\uf8ff')
+        .limit(10)
+        .get();
+
+    return result.docs
+        .map((doc) => {'uid': doc.id, ...doc.data()})
+        .toList();
+  } catch (e) {
+    debugPrint('❌ searchUsers error: $e');
+    return [];
   }
+}
 
 
   // ══════════════════════════════════════════════════════════════════════════
