@@ -202,6 +202,22 @@ class DBService {
         },
       );
 
+      // FIX: Other user's entry shows the CURRENT user's name/image.
+      // This was accidentally omitted — without it the receiver has no
+      // subcollection doc, so sendMessage's batch.update() on that path
+      // always fails with permission-denied (update on non-existent doc).
+      batch.set(
+        _db.collection(_userCollection).doc(otherUid)
+            .collection(_userConvSubcollection).doc(conversationId),
+        {
+          'chatId'      : conversationId,
+          'name'        : currentUserName,  // ← current user's name
+          'image'       : currentUserImage, // ← current user's image
+          'lastMessage' : '',
+          'timestamp'   : FieldValue.serverTimestamp(),
+          'unseenCount' : 0,
+        },
+      );
 
       await batch.commit();
       debugPrint('✅ Conversation created: $conversationId');
@@ -328,8 +344,10 @@ Future<void> markConversationAsSeen({
         },
       );
 
-      // 3. Update sender's conversation preview (no unseenCount bump)
-      batch.update(
+      // 3. Update sender's conversation preview (no unseenCount bump).
+      // FIX: set(merge:true) instead of update() — update() throws if the
+      // doc doesn't exist. merge:true creates it if missing, updates if present.
+      batch.set(
         _db
             .collection(_userCollection)
             .doc(senderId)
@@ -339,12 +357,13 @@ Future<void> markConversationAsSeen({
           'lastMessage' : preview,
           'timestamp'   : FieldValue.serverTimestamp(),
         },
+        SetOptions(merge: true),
       );
 
-      // 4. Update receiver's preview + atomically increment their unseenCount
-      // FieldValue.increment() is safe under concurrent writes — never do
-      // read-then-write for counters in Firestore.
-      batch.update(
+      // 4. Update receiver's preview + atomically increment their unseenCount.
+      // FIX: set(merge:true) instead of update() for same reason as above.
+      // FieldValue.increment() is safe under concurrent writes.
+      batch.set(
         _db
             .collection(_userCollection)
             .doc(receiverId)
@@ -355,6 +374,7 @@ Future<void> markConversationAsSeen({
           'timestamp'   : FieldValue.serverTimestamp(),
           'unseenCount' : FieldValue.increment(1),
         },
+        SetOptions(merge: true),
       );
 
       await batch.commit();
