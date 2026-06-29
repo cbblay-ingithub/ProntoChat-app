@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:pronto_chat/models/firm.dart';
 
 class DBService {
   // ══════════════════════════════════════════════════════════════════════════
@@ -14,11 +15,13 @@ class DBService {
   }
 
   // ── Collection / subcollection name constants ─────────────────────────────
-  final String _userCollection         = 'Users';
+  final String _userCollection = 'Users';
   final String _conversationCollection = 'Conversations';
-  final String _messagesSubcollection  = 'Messages';
-  final String _userConvSubcollection  = 'conversations'; // lives under Users/{uid}
-
+  final String _messagesSubcollection = 'Messages';
+  final String _userConvSubcollection =
+      'conversations'; // lives under Users/{uid}
+  final String _firmsCollection = 'Firms';
+  final String _membershipsCollection = 'Memberships';
 
   // ══════════════════════════════════════════════════════════════════════════
   // USERS
@@ -34,12 +37,13 @@ class DBService {
   ) async {
     try {
       await _db.collection(_userCollection).doc(uid).set({
-        'name'      : name,
-        'nameLower' : name.toLowerCase(),
-        'email'     : email,
-        'image'     : imageURL,
-        'lastSeen'  : FieldValue.serverTimestamp(), // ← use server time, not device
-        'createdAt' : FieldValue.serverTimestamp(),
+        'name': name,
+        'nameLower': name.toLowerCase(),
+        'email': email,
+        'image': imageURL,
+        'lastSeen':
+            FieldValue.serverTimestamp(), // ← use server time, not device
+        'createdAt': FieldValue.serverTimestamp(),
       });
       print('✅ User created in Firestore: $uid');
     } catch (e) {
@@ -100,29 +104,26 @@ class DBService {
   /// Search users by name prefix — powers the "new conversation" search bar.
   /// Firestore has no native full-text search; this is a prefix match.
   /// Replace with Algolia/Typesense for production-grade search.
- Future<List<Map<String, dynamic>>> searchUsers(String query) async {
-  try {
-    final q = query.toLowerCase().trim();
+  Future<List<Map<String, dynamic>>> searchUsers(String query) async {
+    try {
+      final q = query.toLowerCase().trim();
 
-    // Guard — don't fire a query for empty input
-    if (q.isEmpty) return [];
+      // Guard — don't fire a query for empty input
+      if (q.isEmpty) return [];
 
-    final result = await _db
-        .collection(_userCollection)
-        .where('nameLower', isGreaterThanOrEqualTo: q)
-        .where('nameLower', isLessThanOrEqualTo: '$q\uf8ff')
-        .limit(10)
-        .get();
+      final result = await _db
+          .collection(_userCollection)
+          .where('nameLower', isGreaterThanOrEqualTo: q)
+          .where('nameLower', isLessThanOrEqualTo: '$q\uf8ff')
+          .limit(10)
+          .get();
 
-    return result.docs
-        .map((doc) => {'uid': doc.id, ...doc.data()})
-        .toList();
-  } catch (e) {
-    debugPrint('❌ searchUsers error: $e');
-    return [];
+      return result.docs.map((doc) => {'uid': doc.id, ...doc.data()}).toList();
+    } catch (e) {
+      debugPrint('❌ searchUsers error: $e');
+      return [];
+    }
   }
-}
-
 
   // ══════════════════════════════════════════════════════════════════════════
   // CONVERSATIONS
@@ -178,27 +179,27 @@ class DBService {
       final WriteBatch batch = _db.batch();
 
       // Master conversation document
-      batch.set(
-        _db.collection(_conversationCollection).doc(conversationId),
-        {
-          'members'     : [currentUid, otherUid],
-          'lastMessage' : '',
-          'timestamp'   : FieldValue.serverTimestamp(),
-          'createdAt'   : FieldValue.serverTimestamp(),
-        },
-      );
+      batch.set(_db.collection(_conversationCollection).doc(conversationId), {
+        'members': [currentUid, otherUid],
+        'lastMessage': '',
+        'timestamp': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
+      });
 
       // FIX 3: Current user's entry shows the OTHER user's name/image
       batch.set(
-        _db.collection(_userCollection).doc(currentUid)
-            .collection(_userConvSubcollection).doc(conversationId),
+        _db
+            .collection(_userCollection)
+            .doc(currentUid)
+            .collection(_userConvSubcollection)
+            .doc(conversationId),
         {
-          'chatId'      : conversationId,
-          'name'        : otherUserName,    // ← other person's name
-          'image'       : otherUserImage,   // ← other person's image
-          'lastMessage' : '',
-          'timestamp'   : FieldValue.serverTimestamp(),
-          'unseenCount' : 0,
+          'chatId': conversationId,
+          'name': otherUserName, // ← other person's name
+          'image': otherUserImage, // ← other person's image
+          'lastMessage': '',
+          'timestamp': FieldValue.serverTimestamp(),
+          'unseenCount': 0,
         },
       );
 
@@ -207,66 +208,54 @@ class DBService {
       // subcollection doc, so sendMessage's batch.update() on that path
       // always fails with permission-denied (update on non-existent doc).
       batch.set(
-        _db.collection(_userCollection).doc(otherUid)
-            .collection(_userConvSubcollection).doc(conversationId),
+        _db
+            .collection(_userCollection)
+            .doc(otherUid)
+            .collection(_userConvSubcollection)
+            .doc(conversationId),
         {
-          'chatId'      : conversationId,
-          'name'        : currentUserName,  // ← current user's name
-          'image'       : currentUserImage, // ← current user's image
-          'lastMessage' : '',
-          'timestamp'   : FieldValue.serverTimestamp(),
-          'unseenCount' : 0,
+          'chatId': conversationId,
+          'name': currentUserName, // ← current user's name
+          'image': currentUserImage, // ← current user's image
+          'lastMessage': '',
+          'timestamp': FieldValue.serverTimestamp(),
+          'unseenCount': 0,
         },
       );
 
       await batch.commit();
       debugPrint('✅ Conversation created: $conversationId');
       return conversationId;
-
     } catch (e) {
       debugPrint('❌ Error creating conversation: $e');
       rethrow;
     }
   }
 
-Future<void> markConversationAsSeen({
-  required String conversationId,
-  required String uid,
-}) async {
-  try {
-    await _db
-        .collection(_userCollection)
-        .doc(uid)
-        .collection(_userConvSubcollection)
-        .doc(conversationId)
-        .update({'unseenCount': 0});
-
-    // ✅ Filter client-side — Firestore has no "array does not contain" query
-    final allMessages = await _db
-        .collection(_conversationCollection)
-        .doc(conversationId)
-        .collection(_messagesSubcollection)
-        .get();
-
-    final unseenDocs = allMessages.docs.where((doc) {
-      final seenBy = List<String>.from(doc.data()['seenBy'] ?? []);
-      return !seenBy.contains(uid);
-    }).toList();
-
-    if (unseenDocs.isEmpty) return;
-
-    final WriteBatch batch = _db.batch();
-    for (final doc in unseenDocs) {
-      batch.update(doc.reference, {
-        'seenBy': FieldValue.arrayUnion([uid]),
-      });
+  Future<void> markConversationAsSeen({
+    required String conversationId,
+    required String uid,
+  }) async {
+    try {
+      // This is a more scalable approach. Instead of reading and writing every
+      // message document, we just update the user's conversation preview.
+      // The `unseenCount` is reset, and a `lastReadTimestamp` can be added
+      // for more granular "seen" logic in the UI if needed.
+      await _db
+          .collection(_userCollection)
+          .doc(uid)
+          .collection(_userConvSubcollection)
+          .doc(conversationId)
+          .update({
+            'unseenCount': 0,
+            'lastReadTimestamp': FieldValue.serverTimestamp(),
+          });
+      // The previous implementation that updated `seenBy` on every message
+      // was removed as it does not scale well with long conversations.
+    } catch (e) {
+      print('❌ Error marking conversation as seen: $e');
     }
-    await batch.commit();
-
-  } catch (e) {
-    print('❌ Error marking conversation as seen: $e');
   }
-}
 
   // ══════════════════════════════════════════════════════════════════════════
   // MESSAGES
@@ -294,32 +283,32 @@ Future<void> markConversationAsSeen({
     required String type,
     required String content,
     String? thumbnail,
-    int?    duration,
-    int?    size,
+    int? duration,
+    int? size,
   }) async {
     try {
       // ── Build message payload ─────────────────────────────────────────────
       final Map<String, dynamic> messageData = {
-        'senderId'  : senderId,
-        'type'      : type,
-        'content'   : content,
-        'timestamp' : FieldValue.serverTimestamp(),
-        'seenBy'    : [senderId], // sender has implicitly seen their own message
+        'senderId': senderId,
+        'type': type,
+        'content': content,
+        'timestamp': FieldValue.serverTimestamp(),
+        'seenBy': [senderId], // sender has implicitly seen their own message
       };
 
       // Only write optional fields when they carry a value — keeps docs lean
       if (thumbnail != null) messageData['thumbnail'] = thumbnail;
-      if (duration  != null) messageData['duration']  = duration;
-      if (size      != null) messageData['size']       = size;
+      if (duration != null) messageData['duration'] = duration;
+      if (size != null) messageData['size'] = size;
 
       // ── Human-readable preview for the conversation list ──────────────────
       final String preview = switch (type) {
-        'text'     => content,
-        'image'    => '📷  Photo',
-        'video'    => '🎥  Video',
-        'audio'    => '🎤  Voice note',
+        'text' => content,
+        'image' => '📷  Photo',
+        'video' => '🎥  Video',
+        'audio' => '🎤  Voice note',
         'location' => '📍  Location',
-        _          => 'New message',
+        _ => 'New message',
       };
 
       // ── Atomic batch: 4 writes ────────────────────────────────────────────
@@ -335,14 +324,12 @@ Future<void> markConversationAsSeen({
       batch.set(messageRef, messageData);
 
       // 2. Update master conversation preview
-      batch.update(
-        _db.collection(_conversationCollection).doc(conversationId),
-        {
-          'lastMessage'       : preview,
-          'lastMessageSender' : senderId,
-          'timestamp'         : FieldValue.serverTimestamp(),
-        },
-      );
+      batch
+          .update(_db.collection(_conversationCollection).doc(conversationId), {
+            'lastMessage': preview,
+            'lastMessageSender': senderId,
+            'timestamp': FieldValue.serverTimestamp(),
+          });
 
       // 3. Update sender's conversation preview (no unseenCount bump).
       // FIX: set(merge:true) instead of update() — update() throws if the
@@ -353,10 +340,7 @@ Future<void> markConversationAsSeen({
             .doc(senderId)
             .collection(_userConvSubcollection)
             .doc(conversationId),
-        {
-          'lastMessage' : preview,
-          'timestamp'   : FieldValue.serverTimestamp(),
-        },
+        {'lastMessage': preview, 'timestamp': FieldValue.serverTimestamp()},
         SetOptions(merge: true),
       );
 
@@ -370,21 +354,19 @@ Future<void> markConversationAsSeen({
             .collection(_userConvSubcollection)
             .doc(conversationId),
         {
-          'lastMessage' : preview,
-          'timestamp'   : FieldValue.serverTimestamp(),
-          'unseenCount' : FieldValue.increment(1),
+          'lastMessage': preview,
+          'timestamp': FieldValue.serverTimestamp(),
+          'unseenCount': FieldValue.increment(1),
         },
         SetOptions(merge: true),
       );
 
       await batch.commit();
-
     } catch (e) {
       print('❌ Error sending message: $e');
       rethrow;
     }
   }
-
 
   // ══════════════════════════════════════════════════════════════════════════
   // REAL-TIME STREAMS
@@ -393,8 +375,8 @@ Future<void> markConversationAsSeen({
   /// Stream the current user's conversation list, newest first.
   /// Powers the conversations list screen.
   /// Each document emitted is a Users/{uid}/conversations/{chatId} preview.
-// In db_service.dart
-Stream<QuerySnapshot> streamConversations(String userId) {
+  // In db_service.dart
+  Stream<QuerySnapshot> streamConversations(String userId) {
     return _db
         .collection(_userCollection)
         .doc(userId)
@@ -415,7 +397,6 @@ Stream<QuerySnapshot> streamConversations(String userId) {
         .orderBy('timestamp', descending: false)
         .snapshots(includeMetadataChanges: false);
   }
-
 
   // ══════════════════════════════════════════════════════════════════════════
   // DELETE
@@ -438,6 +419,243 @@ Stream<QuerySnapshot> streamConversations(String userId) {
       print('✅ Conversation removed for user: $uid');
     } catch (e) {
       print('❌ Error deleting conversation: $e');
+      rethrow;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // FIRMS (Multi-Tenant Support)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /// Create a firm with its admin user and membership in a single atomic operation.
+  ///
+  /// This method ensures that all three documents (Firm, User, Membership) are
+  /// written together in a single batch. If any write fails, the entire operation
+  /// is rolled back, preventing inconsistent state.
+  ///
+  /// Parameters:
+  ///   - firmData: Firestore-compatible map (from Firm.toFirestore())
+  ///   - userData: Firestore-compatible map (from AppUser.toFirestore())
+  ///   - membershipData: Firestore-compatible map (from Membership.toFirestore())
+  ///   - firmId: Document ID for the firm (can be auto-generated or custom)
+  ///   - uid: Admin's Firebase Auth UID
+  ///   - membershipId: Document ID for the membership (can be auto-generated)
+  Future<Map<String, dynamic>> createFirmWithAdmin({
+    required String firmId,
+    required String uid,
+    required String membershipId,
+    required Map<String, dynamic> firmData,
+    required Map<String, dynamic> userData,
+    required Map<String, dynamic> membershipData,
+  }) async {
+    try {
+      final WriteBatch batch = _db.batch();
+
+      // 1. Create Firm document
+      batch.set(_db.collection(_firmsCollection).doc(firmId), firmData);
+
+      // 2. Create/Update User document with admin role
+      batch.set(
+        _db.collection(_userCollection).doc(uid),
+        userData,
+        SetOptions(merge: true), // Merge in case user already exists
+      );
+
+      // 3. Create Membership document linking user to firm
+      batch.set(
+        _db.collection(_membershipsCollection).doc(membershipId),
+        membershipData,
+      );
+
+      await batch.commit();
+      print('✅ Firm created with admin: firmId=$firmId, uid=$uid');
+
+      return {'firmId': firmId, 'uid': uid, 'membershipId': membershipId};
+    } catch (e) {
+      print('❌ Error creating firm with admin: $e');
+      rethrow;
+    }
+  }
+
+  /// Fetch a single firm by ID.
+  /// Returns a Firm object.
+  Future<Firm> getFirm(String firmId) async {
+    try {
+      final doc = await _db.collection(_firmsCollection).doc(firmId).get();
+      if (doc.exists) {
+        return FirmFirestore.fromFirestore(doc);
+      }
+      throw Exception('Firm not found: $firmId');
+    } catch (e) {
+      print('❌ Error getting firm: $e');
+      rethrow;
+    }
+  }
+
+  /// Stream all firms for a given user (by uid).
+  /// Returns a stream of Firm objects that the user is a member of.
+  Stream<List<Firm>> getUserFirms(String uid) {
+    return _db
+        .collection(_membershipsCollection)
+        .where('uid', isEqualTo: uid)
+        .snapshots()
+        .asyncMap((membershipSnapshot) async {
+          if (membershipSnapshot.docs.isEmpty) {
+            return [];
+          }
+
+          // Get unique firm IDs from memberships to avoid duplicate fetches.
+          final firmIds = membershipSnapshot.docs
+              .map((doc) => doc['firmId'] as String)
+              .toSet()
+              .toList();
+
+          if (firmIds.isEmpty) {
+            return [];
+          }
+
+          // Fetch firms in chunks to respect Firestore's 'whereIn' 30-item limit.
+          // This avoids the N+1 query problem of fetching each firm individually.
+          const int chunkSize = 30;
+          final List<Firm> firms = [];
+
+          for (var i = 0; i < firmIds.length; i += chunkSize) {
+            final chunk = firmIds.sublist(
+              i,
+              i + chunkSize > firmIds.length ? firmIds.length : i + chunkSize,
+            );
+
+            if (chunk.isEmpty) continue;
+
+            try {
+              final firmDocs = await _db
+                  .collection(_firmsCollection)
+                  .where(FieldPath.documentId, whereIn: chunk)
+                  .get();
+              for (final doc in firmDocs.docs) {
+                try {
+                  firms.add(FirmFirestore.fromFirestore(doc));
+                } catch (e) {
+                  debugPrint(
+                    '❌ Error parsing firm document ${doc.id}, skipping: $e',
+                  );
+                }
+              }
+            } catch (e) {
+              debugPrint('❌ Error fetching firms chunk: $e');
+            }
+          }
+          return firms;
+        });
+  }
+
+  /// Get a specific membership record (linking a user to a firm).
+  Future<Map<String, dynamic>> getMembership(String membershipId) async {
+    try {
+      final doc = await _db
+          .collection(_membershipsCollection)
+          .doc(membershipId)
+          .get();
+      if (doc.exists) {
+        return {'membershipId': doc.id, ...doc.data()!};
+      }
+      throw Exception('Membership not found: $membershipId');
+    } catch (e) {
+      print('❌ Error getting membership: $e');
+      rethrow;
+    }
+  }
+
+  /// Update a firm document (e.g., update brand colors).
+  Future<void> updateFirm(String firmId, Map<String, dynamic> data) async {
+    try {
+      await _db.collection(_firmsCollection).doc(firmId).update(data);
+      print('✅ Firm updated: $firmId');
+    } catch (e) {
+      print('❌ Error updating firm: $e');
+      rethrow;
+    }
+  }
+
+  /// Update a membership status (e.g., approve pending employee).
+  Future<void> updateMembership(
+    String membershipId,
+    Map<String, dynamic> data,
+  ) async {
+    try {
+      await _db
+          .collection(_membershipsCollection)
+          .doc(membershipId)
+          .update(data);
+      print('✅ Membership updated: $membershipId');
+    } catch (e) {
+      print('❌ Error updating membership: $e');
+      rethrow;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ORCHESTRATION: Firm Signup (Atomic Operations)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /// Orchestrate the complete firm signup flow:
+  /// 1. Create Firm document
+  /// 2. Create/Update User document with super_admin role
+  /// 3. Create Membership document linking user to firm (with status: approved)
+  ///
+  /// This method expects the Firebase Auth account to already exist.
+  /// Call this AFTER Firebase Auth.createUserWithEmailAndPassword() succeeds.
+  ///
+  /// Returns a map with firmId, uid, and membershipId on success.
+  Future<Map<String, dynamic>> signUpWithFirm({
+    required String uid,
+    required String email,
+    required String adminName,
+    required String firmName,
+    required String primaryColor,
+  }) async {
+    try {
+      // Generate IDs
+      final firmId = _db.collection(_firmsCollection).doc().id;
+      final membershipId = _db.collection(_membershipsCollection).doc().id;
+
+      // Build data maps
+      final firmData = {
+        'name': firmName,
+        'primaryColor': primaryColor,
+        'adminId': uid,
+        'createdAt': FieldValue.serverTimestamp(),
+      };
+
+      final userData = {
+        'name': adminName,
+        'nameLower': adminName.toLowerCase(),
+        'email': email,
+        'role': 'super_admin', // The creator is a super_admin
+        'createdAt': FieldValue.serverTimestamp(),
+        'lastSeen': FieldValue.serverTimestamp(),
+      };
+
+      final membershipData = {
+        'uid': uid,
+        'firmId': firmId,
+        'status': 'approved', // Auto-approved for the creator
+        'role': 'admin', // Creator is admin of their firm
+        'createdAt': FieldValue.serverTimestamp(),
+        'approvedAt': FieldValue.serverTimestamp(),
+      };
+
+      // Execute atomic batch
+      return await createFirmWithAdmin(
+        firmId: firmId,
+        uid: uid,
+        membershipId: membershipId,
+        firmData: firmData,
+        userData: userData,
+        membershipData: membershipData,
+      );
+    } catch (e) {
+      print('❌ Error signing up with firm: $e');
       rethrow;
     }
   }

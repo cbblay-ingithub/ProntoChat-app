@@ -2,18 +2,19 @@ import 'package:flutter/material.dart';
 
 class SnackbarService {
   static final SnackbarService _instance = SnackbarService._internal();
-  
+
   // Global key to access scaffold messenger from anywhere
-  final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
-  
+  final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
+      GlobalKey<ScaffoldMessengerState>();
+
   // Factory constructor to return the same instance
   factory SnackbarService() {
     return _instance;
   }
-  
+
   // Private constructor
   SnackbarService._internal();
-  
+
   /// Show error snackbar
   void showSnackBarError(String message) {
     scaffoldMessengerKey.currentState?.showSnackBar(
@@ -25,13 +26,11 @@ class SnackbarService {
         ),
         backgroundColor: Colors.redAccent,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }
-  
+
   /// Show success snackbar
   void showSnackBarSuccess(String message) {
     scaffoldMessengerKey.currentState?.showSnackBar(
@@ -43,13 +42,11 @@ class SnackbarService {
         ),
         backgroundColor: Colors.green,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }
-  
+
   /// Show info snackbar
   void showSnackBarInfo(String message) {
     scaffoldMessengerKey.currentState?.showSnackBar(
@@ -61,10 +58,17 @@ class SnackbarService {
         ),
         backgroundColor: Colors.blue,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
+  }
+
+  /// Generic snackbar method with isError parameter
+  void showSnackbar(String message, {bool isError = false}) {
+    if (isError) {
+      showSnackBarError(message);
+    } else {
+      showSnackBarSuccess(message);
+    }
   }
 }

@@ -2,7 +2,7 @@ name: pronto_chat
 description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+publish_to: "none" # Remove this line if you wish to publish to pub.dev
 
 # The following defines the version and build number for your application.
 # A version number is three numbers separated by dots, like 1.2.43
@@ -30,7 +30,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -43,6 +42,14 @@ dependencies:
   firebase_storage: ^12.4.10
   image_picker: ^1.2.1
 
+  # Riverpod (state management)
+  flutter_riverpod: ^2.6.1
+
+  # Models (freezed for immutability)
+  freezed_annotation: ^2.4.0
+  json_annotation: ^4.9.0
+  flutter_colorpicker: ^1.1.0
+  qr_flutter: ^4.1.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -55,12 +62,16 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   firebase_analytics: ^11.0.2
 
+  # Code generation (freezed models, Riverpod)
+  build_runner: ^2.4.0
+  freezed: ^2.4.0
+  json_serializable: ^6.8.0
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
 # The following section is specific to Flutter packages.
 flutter:
-
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.
