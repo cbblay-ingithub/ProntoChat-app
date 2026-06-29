@@ -30,6 +30,32 @@ class AdminDashboard extends ConsumerStatefulWidget {
 }
 
 class _AdminDashboardState extends ConsumerState<AdminDashboard> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadFirmIfNecessary();
+    });
+  }
+
+  Future<void> _loadFirmIfNecessary() async {
+    final currentFirm = ref.read(currentFirmProvider);
+    if (currentFirm == null) {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        try {
+          final memberships = await DBService.instance.getUserFirms(uid).first;
+          if (memberships.isNotEmpty && mounted) {
+            final firmId = memberships.first.firmId;
+            ref.read(firmNotifierProvider.notifier).loadFirm(firmId);
+          }
+        } catch (e) {
+          debugPrint('Error auto-loading firm: $e');
+        }
+      }
+    }
+  }
+
   /// Handle logout
   Future<void> _handleLogout() async {
     // It's good practice to check if the widget is still mounted before showing a dialog
