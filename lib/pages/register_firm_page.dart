@@ -1,20 +1,22 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pronto_chat/providers/firm/providers.dart';
 import 'package:pronto_chat/services/db_service.dart';
 import 'package:pronto_chat/services/snackbar_service.dart';
 
 /// Screen for registering a new firm.
 /// Collects: email, password, admin name, firm name, and brand color.
 /// After successful registration, creates the firm, admin user, and membership atomically.
-class RegisterFirmPage extends StatefulWidget {
+class RegisterFirmPage extends ConsumerStatefulWidget {
   const RegisterFirmPage({super.key});
 
   @override
-  State<RegisterFirmPage> createState() => _RegisterFirmPageState();
+  ConsumerState<RegisterFirmPage> createState() => _RegisterFirmPageState();
 }
 
-class _RegisterFirmPageState extends State<RegisterFirmPage> {
+class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -117,13 +119,19 @@ class _RegisterFirmPageState extends State<RegisterFirmPage> {
       final uid = userCredential.user!.uid;
 
       // 2. Create firm, user, and membership atomically
-      await _dbService.signUpWithFirm(
+      // FIX A: signUpWithFirm now returns the generated firmId
+      final firmId = await _dbService.signUpWithFirm(
         uid: uid,
         email: _emailController.text.trim(),
         adminName: _adminNameController.text.trim(),
         firmName: _firmNameController.text.trim(),
         primaryColor: _colorToHex(_selectedColor),
       );
+
+      // FIX B: Load the firm into the provider before navigating so the provider is warm when the dashboard first builds
+      if (mounted) {
+        await ref.read(firmNotifierProvider.notifier).loadFirm(firmId);
+      }
 
       // 3. Success — navigate to admin dashboard
       if (mounted) {

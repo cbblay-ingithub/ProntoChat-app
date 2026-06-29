@@ -606,8 +606,8 @@ class DBService {
   /// This method expects the Firebase Auth account to already exist.
   /// Call this AFTER Firebase Auth.createUserWithEmailAndPassword() succeeds.
   ///
-  /// Returns a map with firmId, uid, and membershipId on success.
-  Future<Map<String, dynamic>> signUpWithFirm({
+  /// Returns the generated firmId on success.
+  Future<String> signUpWithFirm({
     required String uid,
     required String email,
     required String adminName,
@@ -646,7 +646,7 @@ class DBService {
       };
 
       // Execute atomic batch
-      return await createFirmWithAdmin(
+      await createFirmWithAdmin(
         firmId: firmId,
         uid: uid,
         membershipId: membershipId,
@@ -654,6 +654,9 @@ class DBService {
         userData: userData,
         membershipData: membershipData,
       );
+
+      // FIX A: Return the new firmId as a String so the caller can preload it
+      return firmId;
     } catch (e) {
       print('❌ Error signing up with firm: $e');
       rethrow;

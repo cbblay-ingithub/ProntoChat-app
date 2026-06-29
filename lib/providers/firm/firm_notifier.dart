@@ -59,6 +59,11 @@ class FirmNotifier extends StateNotifier<FirmState> {
     }
   }
 
+  /// Set the loading state explicitly
+  void setLoading(bool loading) {
+    state = state.copyWith(isLoading: loading);
+  }
+
   /// Clear the current firm and reset state
   void clearFirm() {
     state = const FirmState();

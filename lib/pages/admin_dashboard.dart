@@ -33,24 +33,43 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadFirmIfNecessary();
-    });
+    // Start loading firm immediately in initState to prevent a frame with empty state
+    _loadFirmIfNecessary();
   }
 
   Future<void> _loadFirmIfNecessary() async {
     final currentFirm = ref.read(currentFirmProvider);
     if (currentFirm == null) {
+      // FIX C: Call setLoading(true) synchronously before the Firestore await
+      ref.read(firmNotifierProvider.notifier).setLoading(true);
+
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid != null) {
         try {
           final memberships = await DBService.instance.getUserFirms(uid).first;
-          if (memberships.isNotEmpty && mounted) {
+          if (memberships.isNotEmpty) {
             final firmId = memberships.first.firmId;
-            ref.read(firmNotifierProvider.notifier).loadFirm(firmId);
+            if (mounted) {
+              // loadFirm will asynchronously fetch the firm and set isLoading back to false when done or on error.
+              await ref.read(firmNotifierProvider.notifier).loadFirm(firmId);
+            }
+          } else {
+            // FIX C: No memberships found, so we must stop loading
+            if (mounted) {
+              ref.read(firmNotifierProvider.notifier).setLoading(false);
+            }
           }
         } catch (e) {
           debugPrint('Error auto-loading firm: $e');
+          // FIX C: An error occurred, so we must stop loading
+          if (mounted) {
+            ref.read(firmNotifierProvider.notifier).setLoading(false);
+          }
+        }
+      } else {
+        // No logged-in user, so we cannot load a firm
+        if (mounted) {
+          ref.read(firmNotifierProvider.notifier).setLoading(false);
         }
       }
     }
@@ -134,12 +153,12 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
           ),
         ],
       ),
-      body: firmAsync == null && !isLoading
-          ? _buildNoFirmState(context)
-          : isLoading
+      body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : error != null
           ? _buildErrorState(context, error)
+          : firmAsync == null
+          ? _buildNoFirmState(context)
           : _buildDashboardContent(context, firmAsync),
     );
   }
