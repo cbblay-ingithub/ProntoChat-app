@@ -13,6 +13,9 @@ import './pages/search_page.dart';
 import './providers/auth_provider.dart';
 import './services/navigation_service.dart';
 import './services/snackbar_service.dart';
+import './services/deep_link_service.dart';
+import './providers/deep_link_provider.dart';
+import './router/app_router.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,8 +23,21 @@ void main() async {
   // Initialize Firebase with options for the current platform
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
+  // ── PRONTOCHAT ADDITION ──
+  // Instantiate DeepLinkService inside main() before runApp()
+  final deepLinkService = DeepLinkService.instance;
+  // ─────────────────────────
+
   runApp(
     ProviderScope(
+      // ── PRONTOCHAT ADDITION ──
+      observers: [
+        AppRouteObserver(),
+      ],
+      overrides: [
+        deepLinkServiceProvider.overrideWithValue(deepLinkService),
+      ],
+      // ─────────────────────────
       child: provider.ChangeNotifierProvider(
         create: (_) => AuthProvider(),
         child: const MyApp(),
@@ -30,7 +46,8 @@ void main() async {
   );
 }
 
-class MyApp extends StatelessWidget {
+// ── PRONTOCHAT ADDITION ──
+class MyApp extends ConsumerWidget {
   const MyApp({super.key});
 
   // Instantiated once at the class level — not inside build() — so the same
@@ -38,8 +55,10 @@ class MyApp extends StatelessWidget {
   static final SnackbarService _snackbarService = SnackbarService();
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
+  Widget build(BuildContext context, WidgetRef ref) {
+    final router = ref.watch(goRouterProvider);
+
+    return MaterialApp.router(
       title: 'ProntoChat',
       theme: ThemeData(
         brightness: Brightness.dark,
@@ -50,23 +69,11 @@ class MyApp extends StatelessWidget {
         ),
         scaffoldBackgroundColor: const Color.fromRGBO(28, 27, 27, 1),
       ),
-      // AuthGate is the root — it watches AuthProvider and renders
-      // HomePage (authenticated) or LoginPage (not authenticated).
-      // This handles both cold-starts with an existing session and
-      // explicit login/logout flows without any manual navigation.
-      home: const AuthGate(),
-      routes: {
-        '/login': (context) => const LoginPage(),
-        '/register': (context) => const RegistrationPage(),
-        '/register-firm': (context) => const RegisterFirmPage(),
-        '/home': (context) => const HomePage(),
-        '/admin-dashboard': (context) => const AdminDashboard(),
-        '/search': (context) => const UserSearchPage(),
-      },
-      // ✅ FIX: Use the service's scaffoldMessengerKey
-      navigatorKey: NavigationService.instance.navigatorKey,
+      // Use the GoRouter config
+      routerConfig: router,
       scaffoldMessengerKey: _snackbarService.scaffoldMessengerKey,
       debugShowCheckedModeBanner: false,
     );
   }
 }
+// ─────────────────────────

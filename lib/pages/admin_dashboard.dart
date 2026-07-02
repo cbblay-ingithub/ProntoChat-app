@@ -1,27 +1,65 @@
+import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:pronto_chat/models/firm.dart';
 import 'package:pronto_chat/providers/firm/providers.dart';
 import 'package:pronto_chat/services/db_service.dart';
 import 'package:pronto_chat/services/snackbar_service.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+// ── PRONTOCHAT ADDITION ──
+import 'package:share_plus/share_plus.dart';
+// ─────────────────────────
+
+/// Custom Painter for dashed border around CSV upload area
+class DashedBorderPainter extends CustomPainter {
+  DashedBorderPainter({required this.color, this.strokeWidth = 2, this.gap = 4});
+  final Color color;
+  final double strokeWidth;
+  final double gap;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = strokeWidth
+      ..style = PaintingStyle.stroke;
+
+    final path = Path()
+      ..addRRect(RRect.fromRectAndRadius(
+        Rect.fromLTWH(0, 0, size.width, size.height),
+        const Radius.circular(8),
+      ));
+
+    final metrics = path.computeMetrics();
+    if (metrics.isNotEmpty) {
+      final metric = metrics.first;
+      for (double i = 0; i < metric.length; i += gap * 2) {
+        canvas.drawPath(metric.extractPath(i, i + gap), paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
 
 /// Provider to fetch the current admin's name.
-/// This encapsulates the data fetching logic and makes it available to the UI.
 final adminNameProvider = FutureProvider<String?>((ref) async {
   final uid = FirebaseAuth.instance.currentUser?.uid;
   if (uid == null) {
-    return null; // No user logged in
+    return null;
   }
   final dbService = DBService.instance;
   final userData = await dbService.getUserData(uid);
-  // Return the name, or null if not found
   return userData?['name'] as String?;
 });
 
 /// Admin Dashboard screen.
-/// Displays firm information, QR code for onboarding, and staff management placeholders.
 class AdminDashboard extends ConsumerStatefulWidget {
   const AdminDashboard({super.key});
 
@@ -30,6 +68,17 @@ class AdminDashboard extends ConsumerStatefulWidget {
 }
 
 class _AdminDashboardState extends ConsumerState<AdminDashboard> {
+  // State for search query in Active Staff list
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
+
+  // State for CSV preview and upload
+  List<Map<String, String>> _csvPreview = [];
+  bool _isUploadingCsv = false;
+
+  // Track loading state for individual action buttons (e.g. key: 'approve_uid', value: true)
+  final Map<String, bool> _actionLoading = {};
+
   @override
   void initState() {
     super.initState();
@@ -37,10 +86,15 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     _loadFirmIfNecessary();
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadFirmIfNecessary() async {
     final currentFirm = ref.read(currentFirmProvider);
     if (currentFirm == null) {
-      // FIX C: Call setLoading(true) synchronously before the Firestore await
       ref.read(firmNotifierProvider.notifier).setLoading(true);
 
       final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -50,24 +104,20 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
           if (memberships.isNotEmpty) {
             final firmId = memberships.first.firmId;
             if (mounted) {
-              // loadFirm will asynchronously fetch the firm and set isLoading back to false when done or on error.
               await ref.read(firmNotifierProvider.notifier).loadFirm(firmId);
             }
           } else {
-            // FIX C: No memberships found, so we must stop loading
             if (mounted) {
               ref.read(firmNotifierProvider.notifier).setLoading(false);
             }
           }
         } catch (e) {
           debugPrint('Error auto-loading firm: $e');
-          // FIX C: An error occurred, so we must stop loading
           if (mounted) {
             ref.read(firmNotifierProvider.notifier).setLoading(false);
           }
         }
       } else {
-        // No logged-in user, so we cannot load a firm
         if (mounted) {
           ref.read(firmNotifierProvider.notifier).setLoading(false);
         }
@@ -77,10 +127,7 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
 
   /// Handle logout
   Future<void> _handleLogout() async {
-    // It's good practice to check if the widget is still mounted before showing a dialog
     if (!mounted) return;
-
-    // Capture the Navigator before the async gap to avoid using BuildContext across async gaps.
     final navigator = Navigator.of(context);
 
     showDialog(
@@ -95,16 +142,11 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
           ),
           TextButton(
             onPressed: () async {
-              // Pop the dialog
               Navigator.pop(dialogContext);
-
               try {
                 await FirebaseAuth.instance.signOut();
-                // Use the captured navigator to push the new route
                 navigator.pushReplacementNamed('/login');
               } catch (e) {
-                // For showing a snackbar, we should still check if the widget is mounted
-                // as it depends on the Scaffold context.
                 if (mounted) {
                   SnackbarService().showSnackbar(
                     'Error logging out: ${e.toString()}',
@@ -141,10 +183,15 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     final isLoading = ref.watch(isFirmLoadingProvider);
     final error = ref.watch(firmErrorProvider);
 
+    final primaryColor = firmAsync != null
+        ? _hexToColor(firmAsync.primaryColor)
+        : const Color(0xFF295CB4);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Admin Dashboard'),
         centerTitle: true,
+        backgroundColor: primaryColor, // Theming: AppBar background = primaryColor
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
@@ -156,27 +203,24 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : error != null
-          ? _buildErrorState(context, error)
-          : firmAsync == null
-          ? _buildNoFirmState(context)
-          : _buildDashboardContent(context, firmAsync),
+              ? _buildErrorState(context, error)
+              : firmAsync == null
+                  ? _buildNoFirmState(context)
+                  : _buildDashboardContent(context, firmAsync),
     );
   }
 
   /// Build dashboard content when firm data is loaded
-  Widget _buildDashboardContent(BuildContext context, Firm? firm) {
+  Widget _buildDashboardContent(BuildContext context, Firm firm) {
+    final primaryColor = _hexToColor(firm.primaryColor);
+
     final adminNameAsync = ref.watch(adminNameProvider);
     final adminName = adminNameAsync.when(
       data: (name) => name ?? 'Not available',
       loading: () => 'Loading...',
-      error: (e, st) {
-        debugPrint('Error loading admin name: $e');
-        return 'Error';
-      },
+      error: (e, st) => 'Error',
     );
-    if (firm == null) {
-      return _buildNoFirmState(context);
-    }
+    final adminEmail = FirebaseAuth.instance.currentUser?.email ?? 'No email';
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -188,172 +232,45 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header
-                Text(
-                  firm.name,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
+                // 1. Header Card
+                _buildHeaderCard(context, firm, adminName, adminEmail, primaryColor),
+                const SizedBox(height: 16),
+
+                // 2 & 3. Stats Bar and QR Code Card (Row on desktop, Column on mobile)
+                if (isMobile) ...[
+                  _buildStatsBar(context, firm.firmId, primaryColor),
+                  const SizedBox(height: 16),
+                  // ── PRONTOCHAT ADDITION ──
+                  _buildQrCard(),
+                  // ─────────────────────────
+                ] else ...[
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: _buildStatsBar(context, firm.firmId, primaryColor)),
+                      const SizedBox(width: 16),
+                      // ── PRONTOCHAT ADDITION ──
+                      Expanded(child: _buildQrCard()),
+                      // ─────────────────────────
+                    ],
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Admin Dashboard',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodyLarge?.copyWith(color: Colors.grey[600]),
-                ),
-                const SizedBox(height: 32),
+                ],
+                const SizedBox(height: 16),
 
-                // Firm Profile Card
-                Card(
-                  elevation: 2,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Firm Information',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleMedium
-                                        ?.copyWith(fontWeight: FontWeight.bold),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  _buildInfoRow('Firm Name:', firm.name),
-                                  _buildInfoRow('Admin:', adminName),
-                                  _buildInfoRow(
-                                    'Created:',
-                                    _formatDate(firm.createdAt),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            // Color swatch
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                Container(
-                                  width: 80,
-                                  height: 80,
-                                  decoration: BoxDecoration(
-                                    color: _hexToColor(firm.primaryColor),
-                                    shape: BoxShape.circle,
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: _hexToColor(
-                                          firm.primaryColor,
-                                        ).withOpacity(0.3),
-                                        blurRadius: 8,
-                                        offset: const Offset(0, 2),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Brand Color',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                                Text(
-                                  firm.primaryColor,
-                                  style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(fontWeight: FontWeight.bold),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 32),
+                // 4. Pending Approvals list
+                _buildPendingApprovals(context, firm.firmId, primaryColor),
+                const SizedBox(height: 16),
 
-                // QR Code Section
-                Card(
-                  elevation: 2,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Text(
-                          'Employee Onboarding QR Code',
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 16),
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            border: Border.all(
-                              color: Colors.grey[300]!,
-                              width: 2,
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: QrImageView(
-                            data: 'pronto://firm/join?firmId=${firm.firmId}',
-                            version: QrVersions.auto,
-                            size: 200.0,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Share this QR code with employees to join your firm',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: Colors.grey[600]),
-                        ),
-                        const SizedBox(height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            ElevatedButton.icon(
-                              onPressed: () {
-                                // TODO: Implement in Phase 2
-                                SnackbarService().showSnackbar(
-                                  'Download QR coming in Phase 2',
-                                );
-                              },
-                              icon: const Icon(Icons.download),
-                              label: const Text('Download'),
-                            ),
-                            const SizedBox(width: 16),
-                            OutlinedButton.icon(
-                              onPressed: () {
-                                // TODO: Implement in Phase 2
-                                SnackbarService().showSnackbar(
-                                  'Copy link coming in Phase 2',
-                                );
-                              },
-                              icon: const Icon(Icons.copy),
-                              label: const Text('Copy Link'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 32),
+                // 5. Active Staff List (searchable)
+                _buildActiveStaffList(context, firm.firmId, primaryColor),
+                const SizedBox(height: 16),
 
-                // Staff Section (empty for Phase 1)
-                _buildStaffSection(context),
-                const SizedBox(height: 32),
+                // 6. CSV Bulk Upload Card
+                _buildCsvBulkUpload(context, firm.firmId, primaryColor),
+                const SizedBox(height: 16),
 
-                // Pending Requests Section (empty for Phase 1)
-                _buildPendingRequestsSection(context),
+                // 7. Danger Zone
+                _buildDangerZone(context, firm),
               ],
             ),
           ),
@@ -362,61 +279,61 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     );
   }
 
-  /// Build the active staff section
-  Widget _buildStaffSection(BuildContext context) {
+  /// 1. Header Card builder
+  Widget _buildHeaderCard(
+    BuildContext context,
+    Firm firm,
+    String adminName,
+    String adminEmail,
+    Color primaryColor,
+  ) {
     return Card(
       elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Active Staff (0)',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    // TODO: Phase 2
-                    SnackbarService().showSnackbar('Add staff in Phase 2');
-                  },
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add Staff'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
+            // Circular color swatch (48x48)
             Container(
-              height: 150,
+              width: 48,
+              height: 48,
               decoration: BoxDecoration(
-                color: Colors.grey[50],
-                border: Border.all(color: Colors.grey[300]!, width: 1),
-                borderRadius: BorderRadius.circular(8),
+                color: primaryColor,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: primaryColor.withOpacity(0.3),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
-              child: ListView(
-                physics: const NeverScrollableScrollPhysics(),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(
-                    height: 148,
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.people, size: 48, color: Colors.grey[400]),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Staff will appear here after approval',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey[600], fontSize: 14),
-                          ),
-                        ],
-                      ),
-                    ),
+                  Text(
+                    firm.name,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Admin: $adminName ($adminEmail)',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Colors.grey[400],
+                        ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Created: ${_formatDate(firm.createdAt)}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.grey[500],
+                        ),
                   ),
                 ],
               ),
@@ -427,56 +344,1367 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     );
   }
 
-  /// Build the pending requests section
-  Widget _buildPendingRequestsSection(BuildContext context) {
+  /// 2. Stats Bar builder
+  Widget _buildStatsBar(BuildContext context, String firmId, Color primaryColor) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('Firms')
+          .doc(firmId)
+          .collection('members')
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Card(
+            elevation: 2,
+            child: SizedBox(
+              height: 120,
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          );
+        }
+        if (snapshot.hasError) {
+          return Card(
+            elevation: 2,
+            child: SizedBox(
+              height: 120,
+              child: Center(
+                child: Text(
+                  'Error loading stats: ${snapshot.error}',
+                  style: const TextStyle(color: Colors.red),
+                ),
+              ),
+            ),
+          );
+        }
+
+        final docs = snapshot.data?.docs ?? [];
+        final total = docs.length;
+        final pending = docs.where((doc) => doc['status'] == 'pending').length;
+        final active = docs.where((doc) => doc['status'] == 'active').length;
+        final revoked = docs.where((doc) => doc['status'] == 'revoked').length;
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final isMobile = constraints.maxWidth < 600;
+            if (isMobile) {
+              return GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: 2,
+                childAspectRatio: 1.4,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+                children: [
+                  _buildStatTile(context, Icons.people, primaryColor, total, 'Total Staff'),
+                  _buildStatTile(context, Icons.hourglass_empty, primaryColor, pending, 'Pending'),
+                  _buildStatTile(context, Icons.check_circle_outline, primaryColor, active, 'Active'),
+                  _buildStatTile(context, Icons.block, Colors.red[600]!, revoked, 'Revoked'),
+                ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: _buildStatTile(context, Icons.people, primaryColor, total, 'Total Staff')),
+                const SizedBox(width: 8),
+                Expanded(child: _buildStatTile(context, Icons.hourglass_empty, primaryColor, pending, 'Pending')),
+                const SizedBox(width: 8),
+                Expanded(child: _buildStatTile(context, Icons.check_circle_outline, primaryColor, active, 'Active')),
+                const SizedBox(width: 8),
+                Expanded(child: _buildStatTile(context, Icons.block, Colors.red[600]!, revoked, 'Revoked')),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildStatTile(
+    BuildContext context,
+    IconData icon,
+    Color color,
+    int count,
+    String label,
+  ) {
     return Card(
       elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: color, size: 24),
+            const SizedBox(height: 6),
+            Text(
+              '$count',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.grey[400],
+                  ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── PRONTOCHAT ADDITION ──
+  Widget _buildQrCard() {
+    final firm = ref.watch(currentFirmProvider);
+    if (firm == null) {
+      return const Card(
+        elevation: 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(12)),
+        ),
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Center(
+            child: CircularProgressIndicator(),
+          ),
+        ),
+      );
+    }
+
+    final firmId = firm.firmId;
+    final primaryColor = _hexToColor(firm.primaryColor);
+    final inviteUri = 'https://YOUR_CHOTTULINK_SUBDOMAIN.chottu.link/?firmId=$firmId';
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(
+              'Onboard Your Team',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            QrImageView(
+              data: inviteUri,
+              size: 200,
+              errorCorrectionLevel: QrErrorCorrectLevel.M,
+              eyeStyle: QrEyeStyle(
+                eyeShape: QrEyeShape.square,
+                color: primaryColor,
+              ),
+              dataModuleStyle: QrDataModuleStyle(
+                dataModuleShape: QrDataModuleShape.square,
+                color: primaryColor,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: inviteUri));
+                      SnackbarService().showSnackbar('Invite link copied!');
+                    },
+                    icon: const Icon(Icons.copy, size: 18),
+                    label: const Text('Copy Link'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: primaryColor,
+                      side: BorderSide(color: primaryColor),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      await Share.share(inviteUri);
+                    },
+                    icon: const Icon(Icons.share, size: 18),
+                    label: const Text('Share'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primaryColor,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  // ─────────────────────────
+
+  /// 3. Onboarding QR Code Card builder
+  Widget _buildQrCodeCard(BuildContext context, Firm firm, Color primaryColor) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('Firms').doc(firm.firmId).snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Card(
+            elevation: 2,
+            child: SizedBox(
+              height: 350,
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          );
+        }
+
+        final data = snapshot.data?.data() ?? {};
+        final inviteToken = data['inviteToken'] as String? ?? 'default';
+        final inviteLink = 'https://prontochat.app/join?firmId=${firm.firmId}&token=$inviteToken';
+
+        return Card(
+          elevation: 2,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Text(
+                  'Employee Onboarding QR Code',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const SizedBox(height: 16),
+                // QR image container
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border.all(
+                      color: Colors.grey[300]!,
+                      width: 2,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: QrImageView(
+                    data: inviteLink,
+                    version: QrVersions.auto,
+                    size: 150.0,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Share this QR code or link with employees to join your firm',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.grey[400],
+                      ),
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        SnackbarService().showSnackbar(
+                          'Download QR code is not supported on this platform.',
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryColor,
+                        foregroundColor: Colors.white,
+                      ),
+                      icon: const Icon(Icons.download, size: 18),
+                      label: const Text('Download'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: inviteLink));
+                        SnackbarService().showSnackbar('Invite link copied to clipboard!');
+                      },
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: primaryColor,
+                        side: BorderSide(color: primaryColor),
+                      ),
+                      icon: const Icon(Icons.copy, size: 18),
+                      label: const Text('Copy Link'),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => _confirmRegenerateToken(context, firm.firmId),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.red[600],
+                      ),
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('Regenerate'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmRegenerateToken(BuildContext context, String firmId) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Regenerate Invite Link?'),
+        content: const Text(
+          'This will invalidate the existing QR code and link. Any users trying to join using the old link will fail.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red[600]),
+            child: const Text('Regenerate'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        final newToken = DateTime.now().millisecondsSinceEpoch.toString();
+        await FirebaseFirestore.instance.collection('Firms').doc(firmId).update({
+          'inviteToken': newToken,
+        });
+        SnackbarService().showSnackbar('Invite link regenerated successfully!');
+      } catch (e) {
+        SnackbarService().showSnackbar(
+          'Error regenerating invite link: $e',
+          isError: true,
+        );
+      }
+    }
+  }
+
+  /// 4. Pending Approvals list builder
+  Widget _buildPendingApprovals(
+    BuildContext context,
+    String firmId,
+    Color primaryColor,
+  ) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('Firms')
+          .doc(firmId)
+          .collection('members')
+          .where('status', isEqualTo: 'pending')
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Card(
+            elevation: 2,
+            child: SizedBox(
+              height: 150,
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          );
+        }
+        if (snapshot.hasError) {
+          return Card(
+            elevation: 2,
+            child: SizedBox(
+              height: 150,
+              child: Center(
+                child: Text(
+                  'Error loading pending approvals: ${snapshot.error}',
+                  style: const TextStyle(color: Colors.red),
+                ),
+              ),
+            ),
+          );
+        }
+
+        final docs = snapshot.data?.docs ?? [];
+        final count = docs.length;
+
+        return Card(
+          elevation: 2,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      'Pending Approvals',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    if (count > 0) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.red[600],
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '$count',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 16),
+                if (count == 0)
+                  Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Column(
+                        children: [
+                          Icon(Icons.schedule, size: 48, color: Colors.grey[600]),
+                          const SizedBox(height: 8),
+                          Text(
+                            'No pending requests — share your QR code to get started',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.grey[500], fontSize: 14),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: count,
+                    separatorBuilder: (context, index) => Divider(color: Colors.grey[800]),
+                    itemBuilder: (context, index) {
+                      final doc = docs[index];
+                      final data = doc.data() as Map<String, dynamic>;
+                      final name = data['name'] as String? ?? 'Pending Employee';
+                      final email = data['email'] as String? ?? '';
+                      final uid = doc.id;
+                      final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+
+                      String timeSince = 'Just now';
+                      if (createdAt != null) {
+                        final diff = DateTime.now().difference(createdAt);
+                        if (diff.inDays > 0) {
+                          timeSince = '${diff.inDays}d ago';
+                        } else if (diff.inHours > 0) {
+                          timeSince = '${diff.inHours}h ago';
+                        } else if (diff.inMinutes > 0) {
+                          timeSince = '${diff.inMinutes}m ago';
+                        }
+                      }
+
+                      final avatarUrl = data['avatarUrl'] as String? ??
+                          'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(name)}';
+
+                      final isApproving = _actionLoading['approve_$uid'] == true;
+                      final isRejecting = _actionLoading['reject_$uid'] == true;
+
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: CircleAvatar(
+                          backgroundImage: NetworkImage(avatarUrl),
+                        ),
+                        title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                        subtitle: Text(
+                          '$email • $timeSince',
+                          style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ElevatedButton(
+                              onPressed: (isApproving || isRejecting)
+                                  ? null
+                                  : () => _approveMember(context, firmId, uid, name),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: primaryColor,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                              ),
+                              child: isApproving
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Text('Approve'),
+                            ),
+                            const SizedBox(width: 8),
+                            OutlinedButton(
+                              onPressed: (isApproving || isRejecting)
+                                  ? null
+                                  : () => _rejectMember(context, firmId, uid, name),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.red[600],
+                                side: BorderSide(color: Colors.red[600]!),
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                              ),
+                              child: isRejecting
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.red,
+                                      ),
+                                    )
+                                  : const Text('Reject'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _approveMember(
+    BuildContext context,
+    String firmId,
+    String uid,
+    String name,
+  ) async {
+    setState(() => _actionLoading['approve_$uid'] = true);
+    try {
+      await FirebaseFirestore.instance
+          .collection('Firms')
+          .doc(firmId)
+          .collection('members')
+          .doc(uid)
+          .update({'status': 'active'});
+      SnackbarService().showSnackbar('$name approved successfully!');
+    } catch (e) {
+      SnackbarService().showSnackbar('Error approving member: $e', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() => _actionLoading['approve_$uid'] = false);
+      }
+    }
+  }
+
+  Future<void> _rejectMember(
+    BuildContext context,
+    String firmId,
+    String uid,
+    String name,
+  ) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reject Request?'),
+        content: Text('Are you sure you want to reject $name\'s request?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red[600]),
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _actionLoading['reject_$uid'] = true);
+    try {
+      await FirebaseFirestore.instance
+          .collection('Firms')
+          .doc(firmId)
+          .collection('members')
+          .doc(uid)
+          .update({'status': 'rejected'});
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$name rejected.'),
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Undo',
+              onPressed: () async {
+                try {
+                  await FirebaseFirestore.instance
+                      .collection('Firms')
+                      .doc(firmId)
+                      .collection('members')
+                      .doc(uid)
+                      .update({'status': 'pending'});
+                  SnackbarService().showSnackbar('Reverted rejection for $name');
+                } catch (e) {
+                  SnackbarService().showSnackbar(
+                    'Failed to undo rejection: $e',
+                    isError: true,
+                  );
+                }
+              },
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      SnackbarService().showSnackbar('Error rejecting member: $e', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() => _actionLoading['reject_$uid'] = false);
+      }
+    }
+  }
+
+  /// 5. Active Staff List builder
+  Widget _buildActiveStaffList(
+    BuildContext context,
+    String firmId,
+    Color primaryColor,
+  ) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Pending Requests (0)',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+              'Active Staff',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
             ),
             const SizedBox(height: 16),
-            Container(
-              height: 150,
-              decoration: BoxDecoration(
-                color: Colors.grey[50],
-                border: Border.all(color: Colors.grey[300]!, width: 1),
-                borderRadius: BorderRadius.circular(8),
+            // Search field
+            TextField(
+              controller: _searchController,
+              onChanged: (val) {
+                setState(() {
+                  _searchQuery = val;
+                });
+              },
+              decoration: InputDecoration(
+                hintText: 'Search staff by name...',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() {
+                            _searchQuery = '';
+                          });
+                        },
+                      )
+                    : null,
+                border: const OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(8)),
+                ),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               ),
-              child: ListView(
-                physics: const NeverScrollableScrollPhysics(),
-                children: [
-                  SizedBox(
-                    height: 148,
-                    child: Center(
+            ),
+            const SizedBox(height: 16),
+            StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('Firms')
+                  .doc(firmId)
+                  .collection('members')
+                  .where('status', isEqualTo: 'active')
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text(
+                      'Error loading staff: ${snapshot.error}',
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  );
+                }
+
+                var docs = snapshot.data?.docs ?? [];
+
+                // Real-time client-side name filtering
+                if (_searchQuery.isNotEmpty) {
+                  docs = docs.where((doc) {
+                    final name = (doc['name'] as String? ?? '').toLowerCase();
+                    return name.contains(_searchQuery.toLowerCase());
+                  }).toList();
+                }
+
+                if (docs.isEmpty) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
                       child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.schedule, size: 48, color: Colors.grey[400]),
+                          Icon(Icons.people_outline, size: 48, color: Colors.grey[600]),
                           const SizedBox(height: 8),
                           Text(
-                            'Pending employees will appear here',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                            _searchQuery.isNotEmpty
+                                ? 'No matching staff found'
+                                : 'No active staff yet',
+                            style: TextStyle(color: Colors.grey[500]),
                           ),
                         ],
                       ),
                     ),
+                  );
+                }
+
+                return ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: docs.length,
+                  separatorBuilder: (context, index) => Divider(color: Colors.grey[800]),
+                  itemBuilder: (context, index) {
+                    final doc = docs[index];
+                    final data = doc.data() as Map<String, dynamic>;
+                    final name = data['name'] as String? ?? 'Active Employee';
+                    final email = data['email'] as String? ?? '';
+                    final role = data['role'] as String? ?? 'employee';
+                    final uid = doc.id;
+                    final createdAt = (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+
+                    final avatarUrl = data['avatarUrl'] as String? ??
+                        'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(name)}';
+
+                    final isAdmin = role.toLowerCase() == 'admin';
+
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
+                        backgroundImage: NetworkImage(avatarUrl),
+                      ),
+                      title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text(
+                        '$email • Joined ${_formatDate(createdAt)}',
+                        style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Chip(
+                            label: Text(
+                              isAdmin ? 'Admin' : 'Employee',
+                              style: TextStyle(
+                                color: isAdmin ? Colors.white : Colors.grey[300],
+                                fontSize: 11,
+                              ),
+                            ),
+                            backgroundColor: isAdmin ? primaryColor : Colors.grey[800],
+                            padding: EdgeInsets.zero,
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          const SizedBox(width: 8),
+                          PopupMenuButton<String>(
+                            onSelected: (val) {
+                              if (val == 'promote') {
+                                _promoteToAdmin(context, firmId, uid, name);
+                              } else if (val == 'revoke') {
+                                _revokeAccess(context, firmId, uid, name);
+                              }
+                            },
+                            itemBuilder: (context) => [
+                              if (!isAdmin)
+                                const PopupMenuItem(
+                                  value: 'promote',
+                                  child: Text('Promote to Admin'),
+                                ),
+                              PopupMenuItem(
+                                value: 'revoke',
+                                child: Text(
+                                  'Revoke Access',
+                                  style: TextStyle(color: Colors.red[600]),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _promoteToAdmin(
+    BuildContext context,
+    String firmId,
+    String uid,
+    String name,
+  ) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('Firms')
+          .doc(firmId)
+          .collection('members')
+          .doc(uid)
+          .update({'role': 'admin'});
+      SnackbarService().showSnackbar('$name promoted to Admin!');
+    } catch (e) {
+      SnackbarService().showSnackbar('Error promoting member: $e', isError: true);
+    }
+  }
+
+  Future<void> _revokeAccess(
+    BuildContext context,
+    String firmId,
+    String uid,
+    String name,
+  ) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Revoke Access?'),
+        content: Text(
+          'Are you sure you want to revoke $name\'s access to the firm? They will not be able to log in.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red[600]),
+            child: const Text('Revoke'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('Firms')
+            .doc(firmId)
+            .collection('members')
+            .doc(uid)
+            .update({'status': 'revoked'});
+        SnackbarService().showSnackbar('$name revoked access successfully.');
+      } catch (e) {
+        SnackbarService().showSnackbar('Error revoking member: $e', isError: true);
+      }
+    }
+  }
+
+  /// 6. CSV Bulk Upload Card builder
+  Widget _buildCsvBulkUpload(
+    BuildContext context,
+    String firmId,
+    Color primaryColor,
+  ) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Bulk Upload Staff via CSV',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            if (_csvPreview.isEmpty)
+              GestureDetector(
+                onTap: _pickCsvFile,
+                child: CustomPaint(
+                  painter: DashedBorderPainter(color: Colors.grey[600]!, gap: 6),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 36),
+                    alignment: Alignment.center,
+                    child: Column(
+                      children: [
+                        Icon(Icons.cloud_upload_outlined, size: 48, color: primaryColor),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Tap to select a CSV file',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'File must contain columns: Name, Email, Role',
+                          style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              )
+            else ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Previewing ${_csvPreview.length} rows',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Row(
+                    children: [
+                      TextButton(
+                        onPressed: () {
+                          setState(() {
+                            _csvPreview = [];
+                          });
+                        },
+                        child: const Text('Cancel'),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: _isUploadingCsv
+                            ? null
+                            : () => _confirmImportCsv(firmId),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryColor,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: _isUploadingCsv
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text('Confirm Import'),
+                      ),
+                    ],
                   ),
                 ],
+              ),
+              const SizedBox(height: 16),
+              // Table Preview for first 5 rows
+              Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey[800]!),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Table(
+                  border: TableBorder.symmetric(inside: BorderSide(color: Colors.grey[800]!)),
+                  children: [
+                    // ── PRONTOCHAT ADDITION (BUGFIX) ──
+                    TableRow(
+                      decoration: const BoxDecoration(color: Colors.black26),
+                      children: [
+                    // ─────────────────────────
+                        Padding(
+                          padding: EdgeInsets.all(8.0),
+                          child: Text('Name', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.all(8.0),
+                          child: Text('Email', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.all(8.0),
+                          child: Text('Role', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                    ..._csvPreview.take(5).map((row) => TableRow(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: Text(row['name'] ?? ''),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: Text(row['email'] ?? ''),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: Text(row['role'] ?? ''),
+                            ),
+                          ],
+                        )),
+                  ],
+                ),
+              ),
+              if (_csvPreview.length > 5) ...[
+                const SizedBox(height: 8),
+                Text(
+                  '... and ${_csvPreview.length - 5} more rows',
+                  style: TextStyle(color: Colors.grey[500], fontStyle: FontStyle.italic),
+                ),
+              ],
+            ],
+            const SizedBox(height: 16),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () async {
+                  await Clipboard.setData(
+                    const ClipboardData(
+                      text:
+                          'Name,Email,Role\nJohn Doe,john@example.com,Employee\nJane Smith,jane@example.com,Admin',
+                    ),
+                  );
+                  SnackbarService().showSnackbar(
+                    'CSV Template headers copied to clipboard!',
+                  );
+                },
+                icon: const Icon(Icons.download, size: 16),
+                label: const Text('Download Template (Copy to Clipboard)'),
               ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _pickCsvFile() async {
+    try {
+      // ── PRONTOCHAT ADDITION (BUGFIX) ──
+      final result = await FilePicker.pickFiles(
+      // ─────────────────────────
+        type: FileType.custom,
+        allowedExtensions: ['csv'],
+        withData: true,
+      );
+
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        if (file.bytes != null) {
+          final content = utf8.decode(file.bytes!);
+          _parseCsv(content);
+        } else {
+          SnackbarService().showSnackbar('Could not read file data.', isError: true);
+        }
+      }
+    } catch (e) {
+      SnackbarService().showSnackbar('Error picking file: $e', isError: true);
+    }
+  }
+
+  void _parseCsv(String content) {
+    final lines = content.split(RegExp(r'\r?\n'));
+    List<Map<String, String>> preview = [];
+    bool isHeader = true;
+
+    for (final line in lines) {
+      if (line.trim().isEmpty) continue;
+      final cols = line.split(',');
+      if (cols.length < 2) continue; // Requires name and email
+
+      final name = cols[0].trim();
+      final email = cols[1].trim();
+      String role = 'employee';
+      if (cols.length >= 3) {
+        final rawRole = cols[2].trim().toLowerCase();
+        if (rawRole == 'admin') {
+          role = 'admin';
+        }
+      }
+
+      if (isHeader) {
+        if (name.toLowerCase() == 'name' || email.toLowerCase() == 'email') {
+          isHeader = false;
+          continue;
+        }
+        isHeader = false;
+      }
+
+      preview.add({
+        'name': name,
+        'email': email,
+        'role': role,
+      });
+    }
+
+    setState(() {
+      _csvPreview = preview;
+    });
+
+    if (preview.isEmpty) {
+      SnackbarService().showSnackbar('No valid rows found in CSV.', isError: true);
+    } else {
+      SnackbarService().showSnackbar('Loaded ${preview.length} rows from CSV.');
+    }
+  }
+
+  Future<void> _confirmImportCsv(String firmId) async {
+    if (_csvPreview.isEmpty) return;
+
+    setState(() => _isUploadingCsv = true);
+
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+      for (final row in _csvPreview) {
+        final ref = FirebaseFirestore.instance
+            .collection('Firms')
+            .doc(firmId)
+            .collection('members')
+            .doc();
+
+        batch.set(ref, {
+          'name': row['name'],
+          'email': row['email'],
+          'role': row['role'],
+          'status': 'pending',
+          'createdAt': FieldValue.serverTimestamp(),
+          'avatarUrl':
+              'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(row['name'] ?? 'User')}',
+        });
+      }
+
+      await batch.commit();
+      SnackbarService().showSnackbar(
+        'Imported ${_csvPreview.length} staff members successfully!',
+      );
+      setState(() {
+        _csvPreview = [];
+      });
+    } catch (e) {
+      SnackbarService().showSnackbar('Error importing CSV: $e', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingCsv = false);
+      }
+    }
+  }
+
+  /// 7. Danger Zone builder (collapsible)
+  Widget _buildDangerZone(BuildContext context, Firm firm) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ExpansionTile(
+        title: const Text(
+          'Danger Zone',
+          style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+        ),
+        leading: const Icon(Icons.warning_amber_rounded, color: Colors.red),
+        childrenPadding: const EdgeInsets.all(16),
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Brand Accent Color',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    'Customize the look and feel of the platform',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
+              ElevatedButton(
+                onPressed: () => _updateBrandColor(context, firm),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _hexToColor(firm.primaryColor),
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Update Color'),
+              ),
+            ],
+          ),
+          const Divider(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Delete Firm',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                  ),
+                  Text(
+                    'Permanently erase this firm and all memberships',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
+              ElevatedButton(
+                onPressed: () => _deleteFirm(context, firm),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red[600],
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Delete Firm'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _updateBrandColor(BuildContext context, Firm firm) {
+    Color pickerColor = _hexToColor(firm.primaryColor);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Pick Brand Color'),
+        content: SingleChildScrollView(
+          child: ColorPicker(
+            pickerColor: pickerColor,
+            onColorChanged: (color) {
+              pickerColor = color;
+            },
+            labelTypes: const [],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              final hexString =
+                  '#${pickerColor.value.toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
+              try {
+                await FirebaseFirestore.instance.collection('Firms').doc(firm.firmId).update({
+                  'primaryColor': hexString,
+                });
+                await ref.read(firmNotifierProvider.notifier).loadFirm(firm.firmId);
+                SnackbarService().showSnackbar('Brand color updated successfully!');
+              } catch (e) {
+                SnackbarService().showSnackbar(
+                  'Error updating brand color: $e',
+                  isError: true,
+                );
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteFirm(BuildContext context, Firm firm) async {
+    final firstConfirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Firm?'),
+        content: const Text(
+          'Are you sure you want to delete this firm? All staff memberships and associated data will be permanently erased. This is an irreversible action.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red[600]),
+            child: const Text('Confirm Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (firstConfirm != true) return;
+
+    final nameController = TextEditingController();
+    final doubleConfirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Double Confirmation Required'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('To confirm deletion, please type the name of the firm:'),
+            const SizedBox(height: 8),
+            Text(
+              firm.name,
+              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'Enter firm name',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              if (nameController.text.trim() == firm.name) {
+                Navigator.pop(dialogContext, true);
+              } else {
+                SnackbarService().showSnackbar('Firm name does not match!', isError: true);
+              }
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red[600]),
+            child: const Text('DELETE PERMANENTLY'),
+          ),
+        ],
+      ),
+    );
+
+    if (doubleConfirm == true) {
+      try {
+        await FirebaseFirestore.instance.collection('Firms').doc(firm.firmId).delete();
+        await FirebaseAuth.instance.signOut();
+        if (mounted) {
+          Navigator.of(context).pushReplacementNamed('/register');
+        }
+      } catch (e) {
+        SnackbarService().showSnackbar('Error deleting firm: $e', isError: true);
+      }
+    }
   }
 
   /// Build state when no firm is loaded
@@ -485,13 +1713,13 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.business, size: 64, color: Colors.grey[400]),
+          Icon(Icons.business, size: 64, color: Colors.grey[600]),
           const SizedBox(height: 16),
           Text('No Firm Found', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
           Text(
             'Please register a firm first',
-            style: TextStyle(color: Colors.grey[600]),
+            style: TextStyle(color: Colors.grey[500]),
           ),
         ],
       ),
@@ -526,21 +1754,7 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     );
   }
 
-  /// Helper to build info rows
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w500)),
-          const SizedBox(width: 12),
-          Text(value),
-        ],
-      ),
-    );
-  }
-
-  /// Format date to readable string
+  /// Format date to readable string DD/MM/YYYY
   String _formatDate(DateTime date) {
     final day = date.day.toString().padLeft(2, '0');
     final month = date.month.toString().padLeft(2, '0');

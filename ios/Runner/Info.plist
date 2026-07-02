@@ -45,5 +45,20 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- ── PRONTOCHAT ADDITION ── -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>prontochat</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>prontochat</string>
+			</array>
+		</dict>
+	</array>
+	<!-- ───────────────────────── -->
 </dict>
 </plist>
