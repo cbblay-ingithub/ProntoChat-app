@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pronto_chat/providers/firm/providers.dart';
 import 'package:pronto_chat/services/db_service.dart';
 import 'package:pronto_chat/services/snackbar_service.dart';
+import 'package:pronto_chat/services/navigation_service.dart';
 
 /// Screen for registering a new firm.
 /// Collects: email, password, admin name, firm name, and brand color.
@@ -136,7 +137,7 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
       // 3. Success — navigate to admin dashboard
       if (mounted) {
         SnackbarService().showSnackbar('Firm registered successfully!');
-        Navigator.of(context).pushReplacementNamed('/admin-dashboard');
+        NavigationService.instance.navigateToReplacement('/admin-dashboard');
       }
     } on FirebaseAuthException catch (e) {
       String message = 'An error occurred';
@@ -374,10 +375,7 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
                     onTap: _isLoading
                         ? null
                         : () {
-                            // Navigate to login page or go back
-                            Navigator.of(
-                              context,
-                            ).pushReplacementNamed('/login');
+                            NavigationService.instance.navigateToReplacement('/login');
                           },
                     child: Text(
                       'Already have an account? Log In',

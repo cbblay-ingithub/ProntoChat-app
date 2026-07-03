@@ -5,7 +5,6 @@ import '../providers/auth_provider.dart';
 import '../providers/firm/providers.dart';
 import '../services/db_service.dart';
 import 'admin_dashboard.dart';
-import 'login_page.dart';
 import 'register_firm_page.dart';
 
 /// AuthGate sits at the root of the widget tree and watches AuthProvider + Firm state.
@@ -35,15 +34,16 @@ class AuthGate extends ConsumerWidget {
       );
     }
 
-    // Not authenticated — show login
+    // Not authenticated — show firm registration (entry point for new admins)
+    // Returning admins can tap "Already have an account? Log In" inside this screen.
     if (!auth.isAuthenticated) {
-      return const LoginPage();
+      return const RegisterFirmPage();
     }
 
     // Authenticated — check if user has any firms
     final uid = auth.user?.uid;
     if (uid == null) {
-      return const LoginPage();
+      return const RegisterFirmPage();
     }
 
     // Load user's firms via Riverpod

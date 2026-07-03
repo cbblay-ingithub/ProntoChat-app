@@ -5,7 +5,7 @@
 	<!-- ── PRONTOCHAT ADDITION ── -->
 	<key>com.apple.developer.associated-domains</key>
 	<array>
-		<string>applinks:YOUR_CHOTTULINK_SUBDOMAIN.chottu.link</string>
+		<string>applinks:officespace.chottu.link</string>
 	</array>
 	<!-- ───────────────────────── -->
 </dict>

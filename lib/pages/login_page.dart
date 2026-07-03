@@ -244,15 +244,15 @@ class LoginPageState extends State<LoginPage> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Text(
-          "Don't have an account? ",
+          "New here? ",
           style: TextStyle(color: Colors.grey[400], fontSize: 16),
         ),
         GestureDetector(
           onTap: _isLoading ? null : () {
-            NavigationService.instance.navigateTo('/register');
+            NavigationService.instance.navigateToReplacement('/register-firm');
           },
           child: Text(
-            "Register",
+            "Register your firm",
             style: TextStyle(
               color: _isLoading 
                   ? Colors.grey[600] 
@@ -288,6 +288,9 @@ class LoginPageState extends State<LoginPage> {
         setState(() {
           _isLoading = false;
         });
+        if (success) {
+          NavigationService.instance.navigateToReplacement('/');
+        }
       }
     }
   }

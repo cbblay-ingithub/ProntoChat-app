@@ -50,7 +50,7 @@ class DeepLinkService {
   void _handleUri(Uri uri) {
     try {
       debugPrint('Parsed URI: $uri');
-      // Format: https://YOUR_CHOTTULINK_SUBDOMAIN.chottu.link/?firmId=<firmId>
+      // Format: https://officespace.chottu.link/?firmId=<firmId>
       final firmId = uri.queryParameters['firmId'];
       if (firmId != null && firmId.trim().isNotEmpty) {
         _firmIdController.add(firmId);

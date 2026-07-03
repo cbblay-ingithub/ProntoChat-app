@@ -476,7 +476,7 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
 
     final firmId = firm.firmId;
     final primaryColor = _hexToColor(firm.primaryColor);
-    final inviteUri = 'https://YOUR_CHOTTULINK_SUBDOMAIN.chottu.link/?firmId=$firmId';
+    final inviteUri = 'https://officespace.chottu.link/?firmId=$firmId';
 
     return Card(
       elevation: 2,
@@ -897,12 +897,20 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
   ) async {
     setState(() => _actionLoading['approve_$uid'] = true);
     try {
-      await FirebaseFirestore.instance
-          .collection('Firms')
-          .doc(firmId)
-          .collection('members')
-          .doc(uid)
-          .update({'status': 'active'});
+      final batch = FirebaseFirestore.instance.batch();
+      batch.update(
+        FirebaseFirestore.instance
+            .collection('Firms')
+            .doc(firmId)
+            .collection('members')
+            .doc(uid),
+        {'status': 'active'},
+      );
+      batch.update(
+        FirebaseFirestore.instance.collection('Memberships').doc(uid),
+        {'status': 'approved'},
+      );
+      await batch.commit();
       SnackbarService().showSnackbar('$name approved successfully!');
     } catch (e) {
       SnackbarService().showSnackbar('Error approving member: $e', isError: true);
@@ -942,12 +950,20 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
 
     setState(() => _actionLoading['reject_$uid'] = true);
     try {
-      await FirebaseFirestore.instance
-          .collection('Firms')
-          .doc(firmId)
-          .collection('members')
-          .doc(uid)
-          .update({'status': 'rejected'});
+      final batch = FirebaseFirestore.instance.batch();
+      batch.update(
+        FirebaseFirestore.instance
+            .collection('Firms')
+            .doc(firmId)
+            .collection('members')
+            .doc(uid),
+        {'status': 'rejected'},
+      );
+      batch.update(
+        FirebaseFirestore.instance.collection('Memberships').doc(uid),
+        {'status': 'revoked'},
+      );
+      await batch.commit();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -958,12 +974,20 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
               label: 'Undo',
               onPressed: () async {
                 try {
-                  await FirebaseFirestore.instance
-                      .collection('Firms')
-                      .doc(firmId)
-                      .collection('members')
-                      .doc(uid)
-                      .update({'status': 'pending'});
+                  final undoBatch = FirebaseFirestore.instance.batch();
+                  undoBatch.update(
+                    FirebaseFirestore.instance
+                        .collection('Firms')
+                        .doc(firmId)
+                        .collection('members')
+                        .doc(uid),
+                    {'status': 'pending'},
+                  );
+                  undoBatch.update(
+                    FirebaseFirestore.instance.collection('Memberships').doc(uid),
+                    {'status': 'pending'},
+                  );
+                  await undoBatch.commit();
                   SnackbarService().showSnackbar('Reverted rejection for $name');
                 } catch (e) {
                   SnackbarService().showSnackbar(

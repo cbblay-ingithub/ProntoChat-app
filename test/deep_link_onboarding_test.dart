@@ -9,8 +9,9 @@ import 'package:provider/provider.dart' as provider;
 import 'package:pronto_chat/main.dart';
 import 'package:pronto_chat/providers/auth_provider.dart';
 import 'package:pronto_chat/providers/deep_link_provider.dart';
-import 'package:pronto_chat/router/app_router.dart';
-import 'package:pronto_chat/screens/employee/employee_onboarding_screen.dart';
+import 'package:pronto_chat/screens/employee/employee_profile_screen.dart';
+import 'package:pronto_chat/screens/employee/pending_approval_screen.dart';
+import 'package:pronto_chat/screens/employee/main_chat_screen.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -20,15 +21,13 @@ void main() {
     await Firebase.initializeApp();
   });
 
-  testWidgets('Deep link triggers redirect to EmployeeOnboardingScreen', (WidgetTester tester) async {
-    // A stream controller to simulate deep link events
+  testWidgets('Deep link triggers redirect to EmployeeProfileScreen', (WidgetTester tester) async {
     final controller = StreamController<String>.broadcast();
 
     // Pump the app with overridden providers
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          // Override firmIdFromLinkProvider to use our custom stream
           firmIdFromLinkProvider.overrideWith((ref) => controller.stream),
         ],
         child: provider.ChangeNotifierProvider(
@@ -49,15 +48,14 @@ void main() {
       await tester.pump(const Duration(milliseconds: 10));
     }
     
-    // Pump frames to complete the route transition (use short pump duration to avoid infinite spinner timeout)
+    // Pump frames to complete the route transition to onboarding screen and then to profile screen
     await tester.pump(const Duration(milliseconds: 500));
 
-    // Verify that the EmployeeOnboardingScreen is shown and contains the correct firmId
-    expect(find.byType(EmployeeOnboardingScreen), findsOneWidget);
-    expect(find.text('Connecting to Firm ID:'), findsOneWidget);
-    expect(find.text('test-firm-123'), findsOneWidget);
+    // Verify that the EmployeeProfileScreen is shown (since Onboarding screen immediately redirects)
+    expect(find.byType(EmployeeProfileScreen), findsOneWidget);
+    expect(find.text('Who Are You?'), findsOneWidget);
+    expect(find.text('Full Name'), findsOneWidget);
 
-    // Close the controller
     controller.close();
   });
 }

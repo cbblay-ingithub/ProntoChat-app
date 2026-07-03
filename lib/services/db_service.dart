@@ -662,4 +662,62 @@ class DBService {
       rethrow;
     }
   }
+
+  // ── Employee Onboarding Profile & Membership Batch Write (PRONTOCHAT ADDITION) ──
+  Future<void> registerEmployeeProfile({
+    required String uid,
+    required String firmId,
+    required String name,
+    String? jobTitle,
+  }) async {
+    try {
+      final WriteBatch batch = _db.batch();
+
+      // 1. Create/Update document in the Users collection
+      final userRef = _db.collection(_userCollection).doc(uid);
+      batch.set(
+        userRef,
+        {
+          'name': name,
+          'nameLower': name.toLowerCase(),
+          'role': 'employee',
+          'createdAt': FieldValue.serverTimestamp(),
+          'lastSeen': FieldValue.serverTimestamp(),
+          if (jobTitle != null && jobTitle.isNotEmpty) 'jobTitle': jobTitle,
+        },
+        SetOptions(merge: true),
+      );
+
+      // 2. Create document in the Memberships collection
+      final membershipRef = _db.collection(_membershipsCollection).doc(uid);
+      batch.set(membershipRef, {
+        'uid': uid,
+        'firmId': firmId,
+        'status': 'pending',
+        'role': 'employee',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      // 3. Create document in the Firms/{firmId}/members/{uid} subcollection for Admin Dashboard stats/lists
+      final firmMemberRef = _db
+          .collection(_firmsCollection)
+          .doc(firmId)
+          .collection('members')
+          .doc(uid);
+      batch.set(firmMemberRef, {
+        'name': name,
+        'role': 'employee',
+        'status': 'pending',
+        'createdAt': FieldValue.serverTimestamp(),
+        'avatarUrl': 'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(name)}',
+      });
+
+      await batch.commit();
+      print('✅ Employee profile and membership created atomically in batch: uid=$uid, firmId=$firmId');
+    } catch (e) {
+      print('❌ Error registering employee profile in batch: $e');
+      rethrow;
+    }
+  }
+  // ────────────────────────────────────────────────────────────────────────────────
 }

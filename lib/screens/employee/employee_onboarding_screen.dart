@@ -1,12 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
-class EmployeeOnboardingScreen extends StatelessWidget {
+class EmployeeOnboardingScreen extends StatefulWidget {
   final String firmId;
 
   const EmployeeOnboardingScreen({
     super.key,
     required this.firmId,
   });
+
+  @override
+  State<EmployeeOnboardingScreen> createState() => _EmployeeOnboardingScreenState();
+}
+
+class _EmployeeOnboardingScreenState extends State<EmployeeOnboardingScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.go('/employee-profile?firmId=${widget.firmId}');
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +47,7 @@ class EmployeeOnboardingScreen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              firmId,
+              widget.firmId,
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
@@ -39,7 +55,7 @@ class EmployeeOnboardingScreen extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             Text(
-              'Please wait while we set up your account…',
+              'Redirecting you to profile setup…',
               style: TextStyle(
                 fontSize: 12,
                 color: Colors.grey[600],
@@ -51,7 +67,3 @@ class EmployeeOnboardingScreen extends StatelessWidget {
     );
   }
 }
-
-// TODO Phase 3: Trigger Firebase Anonymous Auth here
-// TODO Phase 3: Create pending membership in Firestore
-// TODO Phase 3: Navigate to PendingApprovalScreen on success

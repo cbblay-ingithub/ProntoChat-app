@@ -172,6 +172,39 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  // ── Anonymous Sign-In (PRONTOCHAT ADDITION) ──
+  Future<User?> signInAnonymously() async {
+    try {
+      status = AuthStatus.authenticating;
+      errorMessage = null;
+      notifyListeners();
+
+      final credential = await _auth.signInAnonymously();
+      final firebaseUser = credential.user;
+      if (firebaseUser == null) {
+        throw Exception('Anonymous sign-in succeeded but user object is null');
+      }
+
+      // Force a fresh token right away
+      await firebaseUser.getIdToken(true);
+
+      // Wait for _onAuthStateChanged to complete its full initialization.
+      // We catch and ignore errors since a brand new anonymous user profile does not yet exist in Firestore.
+      if (_initializationCompleter != null) {
+        await _initializationCompleter!.future.catchError((_) {});
+      }
+
+      return firebaseUser;
+    } on FirebaseAuthException catch (e) {
+      _handleFirebaseAuthError(e);
+      return null;
+    } catch (e) {
+      _handleUnexpectedError('signInAnonymously', e);
+      return null;
+    }
+  }
+  // ──────────────────────────────────────────────
+
   // ── Registration ───────────────────────────────────────────────────────
   Future<bool> registerUserWithEmailAndPassword({
     required String email,
