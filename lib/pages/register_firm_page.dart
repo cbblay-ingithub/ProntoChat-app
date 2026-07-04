@@ -170,7 +170,18 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Create Your Firm'), centerTitle: true),
+      appBar: AppBar(
+        title: const Text('Create Your Firm'),
+        centerTitle: true,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: _isLoading
+              ? null
+              : () {
+                  NavigationService.instance.navigateToReplacement('/login');
+                },
+        ),
+      ),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -369,20 +380,29 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
                 ),
                 const SizedBox(height: 16),
 
-                // Login Link
-                Center(
-                  child: GestureDetector(
-                    onTap: _isLoading
-                        ? null
-                        : () {
-                            NavigationService.instance.navigateToReplacement('/login');
-                          },
-                    child: Text(
-                      'Already have an account? Log In',
-                      style: TextStyle(
-                        color: Theme.of(context).primaryColor,
-                        fontWeight: FontWeight.w600,
-                      ),
+                // Back to Login Button
+                OutlinedButton(
+                  onPressed: _isLoading
+                      ? null
+                      : () {
+                          NavigationService.instance.navigateToReplacement('/login');
+                        },
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    side: BorderSide(
+                      color: Theme.of(context).primaryColor,
+                      width: 1.5,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: Text(
+                    'Back to Login',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).primaryColor,
                     ),
                   ),
                 ),

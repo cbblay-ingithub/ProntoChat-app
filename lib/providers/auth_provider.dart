@@ -65,9 +65,12 @@ class AuthProvider extends ChangeNotifier {
   Future<void> _onAuthStateChanged(User? firebaseUser) async {
     // Cancel any previous pending completer (e.g., if a new auth event
     // arrives before the previous one finished).
-    _initializationCompleter?.completeError(
-      'New auth event interrupted previous initialization',
-    );
+    if (_initializationCompleter != null &&
+        !_initializationCompleter!.isCompleted) {
+      _initializationCompleter!.completeError(
+        'New auth event interrupted previous initialization',
+      );
+    }
     _initializationCompleter = Completer<void>();
     _isInitializing = true;
     notifyListeners();
