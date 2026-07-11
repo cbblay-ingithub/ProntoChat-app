@@ -15,9 +15,18 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/Users/$(request.auth.uid)/conversations/$(conversationId));
     }
 
+    // Checks if the current user has an approved membership document for the specified firmId.
+    function isApprovedMember(firmId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/Memberships/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.firmId == firmId &&
+        get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.status == 'approved';
+    }
+
     // ── Users ────────────────────────────────────────────────────────────
     match /Users/{userId} {
-      allow read: if isSignedIn();
+      // User can only read or write their own profile
+      allow read: if isOwner(userId);
       allow create: if isOwner(userId);
       allow update: if isOwner(userId);
       allow delete: if false;
@@ -31,34 +40,43 @@ service cloud.firestore {
 
     // ── Conversations ─────────────────────────────────────────────────────
     match /Conversations/{conversationId} {
-      allow read  : if isConversationMember(conversationId);
+      allow read  : if isConversationMember(conversationId) &&
+                       (!('firmId' in resource.data) || isApprovedMember(resource.data.firmId));
       allow create: if isSignedIn() &&
-        request.auth.uid in request.resource.data.members;
-      allow update: if isConversationMember(conversationId);
+        request.auth.uid in request.resource.data.members &&
+        (!('firmId' in request.resource.data) || isApprovedMember(request.resource.data.firmId));
+      allow update: if isConversationMember(conversationId) &&
+                       (!('firmId' in resource.data) || isApprovedMember(resource.data.firmId));
       allow delete: if false;
 
       // ── Messages ────────────────────────────────────────────────────────
       match /Messages/{messageId} {
-        allow read  : if isConversationMember(conversationId);
+        allow read  : if isConversationMember(conversationId) &&
+                         (!('firmId' in get(/databases/$(database)/documents/Conversations/$(conversationId)).data) || 
+                          isApprovedMember(get(/databases/$(database)/documents/Conversations/$(conversationId)).data.firmId));
         allow create: if isConversationMember(conversationId) &&
-          request.resource.data.senderId == request.auth.uid;
+          request.resource.data.senderId == request.auth.uid &&
+          (!('firmId' in get(/databases/$(database)/documents/Conversations/$(conversationId)).data) || 
+           isApprovedMember(get(/databases/$(database)/documents/Conversations/$(conversationId)).data.firmId));
         allow update: if isConversationMember(conversationId);
         allow delete: if false;
       }
     }
 
-    // ── Firms (Added for Phase 1 Onboarding & Branding) ──────────────────
+    // ── Firms ──────────────────
     match /Firms/{firmId} {
-      allow read: if isSignedIn();
+      // Firms can only be read by users who have status == "approved" for that firm
+      allow read: if isApprovedMember(firmId);
       // Allow creation if the creator matches the adminId field
       allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
       // Only the admin of the firm is allowed to modify the firm settings (colors, name)
       allow update: if isSignedIn() && resource.data.adminId == request.auth.uid;
       allow delete: if false;
 
-      // ── Members Subcollection (PRONTOCHAT ADDITION) ──────────────────
+      // ── Members Subcollection ──────────────────
       match /members/{memberId} {
-        allow read: if isSignedIn();
+        // Members list can be read by approved members of the firm or the user reading their own record
+        allow read: if isApprovedMember(firmId) || isOwner(memberId);
         // Allow onboarding employee to create their own pending membership
         allow create: if isSignedIn() && request.auth.uid == memberId;
         // Only the admin of the firm is allowed to approve or reject members
@@ -67,14 +85,21 @@ service cloud.firestore {
       }
     }
 
-    // ── Memberships (Added for Phase 1 Tenant Management) ───────────────
+    // ── Memberships ───────────────
     match /Memberships/{membershipId} {
-      allow read: if isSignedIn();
-      // Users can request a membership for themselves, or the Firm Admin can invite them
-      allow create: if isSignedIn() && (
-        request.resource.data.uid == request.auth.uid ||
-        get(/databases/$(database)/documents/Firms/$(request.resource.data.firmId)).data.adminId == request.auth.uid
+      // A user can read their own membership, or the firm admin can read it
+      allow read: if isSignedIn() && (
+        resource.data.uid == request.auth.uid ||
+        get(/databases/$(database)/documents/Firms/$(resource.data.firmId)).data.adminId == request.auth.uid
       );
+      
+      // Anyone authenticated (even anonymously) can request membership for themselves with "pending" status,
+      // or the Firm Admin can invite them (auto-approve admin membership during firm signup)
+      allow create: if isSignedIn() && (
+        (request.resource.data.status == 'pending' && request.resource.data.uid == request.auth.uid) ||
+        (get(/databases/$(database)/documents/Firms/$(request.resource.data.firmId)).data.adminId == request.auth.uid)
+      );
+      
       // Only the Firm Admin can approve or revoke memberships
       allow update: if isSignedIn() && (
         get(/databases/$(database)/documents/Firms/$(resource.data.firmId)).data.adminId == request.auth.uid
@@ -83,3 +108,4 @@ service cloud.firestore {
     }
   }
 }
+

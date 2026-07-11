@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pronto_chat/models/firm.dart';
+import 'package:pronto_chat/models/membership.dart';
+import 'package:pronto_chat/models/user.dart';
 import 'package:pronto_chat/providers/firm/providers.dart';
 import 'package:pronto_chat/services/db_service.dart';
 import 'package:pronto_chat/services/snackbar_service.dart';
@@ -69,7 +71,7 @@ class AdminDashboard extends ConsumerStatefulWidget {
 
 class _AdminDashboardState extends ConsumerState<AdminDashboard> {
   // State for search query in Active Staff list
-  String _searchQuery = '';
+  final String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
 
   // State for CSV preview and upload
@@ -257,12 +259,8 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                 ],
                 const SizedBox(height: 16),
 
-                // 4. Pending Approvals list
-                _buildPendingApprovals(context, firm.firmId, primaryColor),
-                const SizedBox(height: 16),
-
-                // 5. Active Staff List (searchable)
-                _buildActiveStaffList(context, firm.firmId, primaryColor),
+                // 4 & 5. Tabbed Staff Management (Pending Requests vs Active Staff)
+                _buildStaffTabs(context, firm.firmId, primaryColor),
                 const SizedBox(height: 16),
 
                 // 6. CSV Bulk Upload Card
@@ -695,494 +693,39 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     }
   }
 
-  /// 4. Pending Approvals list builder
-  Widget _buildPendingApprovals(
-    BuildContext context,
-    String firmId,
-    Color primaryColor,
-  ) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('Firms')
-          .doc(firmId)
-          .collection('members')
-          .where('status', isEqualTo: 'pending')
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Card(
-            elevation: 2,
-            child: SizedBox(
-              height: 150,
-              child: Center(child: CircularProgressIndicator()),
-            ),
-          );
-        }
-        if (snapshot.hasError) {
-          return Card(
-            elevation: 2,
-            child: SizedBox(
-              height: 150,
-              child: Center(
-                child: Text(
-                  'Error loading pending approvals: ${snapshot.error}',
-                  style: const TextStyle(color: Colors.red),
-                ),
-              ),
-            ),
-          );
-        }
-
-        final docs = snapshot.data?.docs ?? [];
-        final count = docs.length;
-
-        return Card(
-          elevation: 2,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      'Pending Approvals',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
-                    if (count > 0) ...[
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.red[600],
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          '$count',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 16),
-                if (count == 0)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 24),
-                      child: Column(
-                        children: [
-                          Icon(Icons.schedule, size: 48, color: Colors.grey[600]),
-                          const SizedBox(height: 8),
-                          Text(
-                            'No pending requests — share your QR code to get started',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey[500], fontSize: 14),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                else
-                  ListView.separated(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: count,
-                    separatorBuilder: (context, index) => Divider(color: Colors.grey[800]),
-                    itemBuilder: (context, index) {
-                      final doc = docs[index];
-                      final data = doc.data() as Map<String, dynamic>;
-                      final name = data['name'] as String? ?? 'Pending Employee';
-                      final email = data['email'] as String? ?? '';
-                      final uid = doc.id;
-                      final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
-
-                      String timeSince = 'Just now';
-                      if (createdAt != null) {
-                        final diff = DateTime.now().difference(createdAt);
-                        if (diff.inDays > 0) {
-                          timeSince = '${diff.inDays}d ago';
-                        } else if (diff.inHours > 0) {
-                          timeSince = '${diff.inHours}h ago';
-                        } else if (diff.inMinutes > 0) {
-                          timeSince = '${diff.inMinutes}m ago';
-                        }
-                      }
-
-                      final avatarUrl = data['avatarUrl'] as String? ??
-                          'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(name)}';
-
-                      final isApproving = _actionLoading['approve_$uid'] == true;
-                      final isRejecting = _actionLoading['reject_$uid'] == true;
-
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: CircleAvatar(
-                          backgroundImage: NetworkImage(avatarUrl),
-                        ),
-                        title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                        subtitle: Text(
-                          '$email • $timeSince',
-                          style: TextStyle(color: Colors.grey[400], fontSize: 12),
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            ElevatedButton(
-                              onPressed: (isApproving || isRejecting)
-                                  ? null
-                                  : () => _approveMember(context, firmId, uid, name),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: primaryColor,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
-                              ),
-                              child: isApproving
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Text('Approve'),
-                            ),
-                            const SizedBox(width: 8),
-                            OutlinedButton(
-                              onPressed: (isApproving || isRejecting)
-                                  ? null
-                                  : () => _rejectMember(context, firmId, uid, name),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.red[600],
-                                side: BorderSide(color: Colors.red[600]!),
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
-                              ),
-                              child: isRejecting
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.red,
-                                      ),
-                                    )
-                                  : const Text('Reject'),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _approveMember(
-    BuildContext context,
-    String firmId,
-    String uid,
-    String name,
-  ) async {
-    setState(() => _actionLoading['approve_$uid'] = true);
-    try {
-      final batch = FirebaseFirestore.instance.batch();
-      batch.update(
-        FirebaseFirestore.instance
-            .collection('Firms')
-            .doc(firmId)
-            .collection('members')
-            .doc(uid),
-        {'status': 'active'},
-      );
-      batch.update(
-        FirebaseFirestore.instance.collection('Memberships').doc(uid),
-        {'status': 'approved'},
-      );
-      await batch.commit();
-      SnackbarService().showSnackbar('$name approved successfully!');
-    } catch (e) {
-      SnackbarService().showSnackbar('Error approving member: $e', isError: true);
-    } finally {
-      if (mounted) {
-        setState(() => _actionLoading['approve_$uid'] = false);
-      }
-    }
-  }
-
-  Future<void> _rejectMember(
-    BuildContext context,
-    String firmId,
-    String uid,
-    String name,
-  ) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Reject Request?'),
-        content: Text('Are you sure you want to reject $name\'s request?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red[600]),
-            child: const Text('Reject'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    setState(() => _actionLoading['reject_$uid'] = true);
-    try {
-      final batch = FirebaseFirestore.instance.batch();
-      batch.update(
-        FirebaseFirestore.instance
-            .collection('Firms')
-            .doc(firmId)
-            .collection('members')
-            .doc(uid),
-        {'status': 'rejected'},
-      );
-      batch.update(
-        FirebaseFirestore.instance.collection('Memberships').doc(uid),
-        {'status': 'revoked'},
-      );
-      await batch.commit();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('$name rejected.'),
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: 'Undo',
-              onPressed: () async {
-                try {
-                  final undoBatch = FirebaseFirestore.instance.batch();
-                  undoBatch.update(
-                    FirebaseFirestore.instance
-                        .collection('Firms')
-                        .doc(firmId)
-                        .collection('members')
-                        .doc(uid),
-                    {'status': 'pending'},
-                  );
-                  undoBatch.update(
-                    FirebaseFirestore.instance.collection('Memberships').doc(uid),
-                    {'status': 'pending'},
-                  );
-                  await undoBatch.commit();
-                  SnackbarService().showSnackbar('Reverted rejection for $name');
-                } catch (e) {
-                  SnackbarService().showSnackbar(
-                    'Failed to undo rejection: $e',
-                    isError: true,
-                  );
-                }
-              },
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      SnackbarService().showSnackbar('Error rejecting member: $e', isError: true);
-    } finally {
-      if (mounted) {
-        setState(() => _actionLoading['reject_$uid'] = false);
-      }
-    }
-  }
-
-  /// 5. Active Staff List builder
-  Widget _buildActiveStaffList(
-    BuildContext context,
-    String firmId,
-    Color primaryColor,
-  ) {
+  /// Unified Tabbed Staff Management (Pending Requests vs Active Staff)
+  Widget _buildStaffTabs(BuildContext context, String firmId, Color primaryColor) {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+      child: DefaultTabController(
+        length: 2,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Active Staff',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-            const SizedBox(height: 16),
-            // Search field
-            TextField(
-              controller: _searchController,
-              onChanged: (val) {
-                setState(() {
-                  _searchQuery = val;
-                });
-              },
-              decoration: InputDecoration(
-                hintText: 'Search staff by name...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() {
-                            _searchQuery = '';
-                          });
-                        },
-                      )
-                    : null,
-                border: const OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(8)),
+            TabBar(
+              labelColor: primaryColor,
+              unselectedLabelColor: Colors.grey[400],
+              indicatorColor: primaryColor,
+              tabs: const [
+                Tab(
+                  icon: Icon(Icons.hourglass_empty),
+                  text: 'Pending Requests',
                 ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              ),
+                Tab(
+                  icon: Icon(Icons.people),
+                  text: 'Active Staff',
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('Firms')
-                  .doc(firmId)
-                  .collection('members')
-                  .where('status', isEqualTo: 'active')
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Text(
-                      'Error loading staff: ${snapshot.error}',
-                      style: const TextStyle(color: Colors.red),
-                    ),
-                  );
-                }
-
-                var docs = snapshot.data?.docs ?? [];
-
-                // Real-time client-side name filtering
-                if (_searchQuery.isNotEmpty) {
-                  docs = docs.where((doc) {
-                    final name = (doc['name'] as String? ?? '').toLowerCase();
-                    return name.contains(_searchQuery.toLowerCase());
-                  }).toList();
-                }
-
-                if (docs.isEmpty) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 24),
-                      child: Column(
-                        children: [
-                          Icon(Icons.people_outline, size: 48, color: Colors.grey[600]),
-                          const SizedBox(height: 8),
-                          Text(
-                            _searchQuery.isNotEmpty
-                                ? 'No matching staff found'
-                                : 'No active staff yet',
-                            style: TextStyle(color: Colors.grey[500]),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-
-                return ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: docs.length,
-                  separatorBuilder: (context, index) => Divider(color: Colors.grey[800]),
-                  itemBuilder: (context, index) {
-                    final doc = docs[index];
-                    final data = doc.data() as Map<String, dynamic>;
-                    final name = data['name'] as String? ?? 'Active Employee';
-                    final email = data['email'] as String? ?? '';
-                    final role = data['role'] as String? ?? 'employee';
-                    final uid = doc.id;
-                    final createdAt = (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
-
-                    final avatarUrl = data['avatarUrl'] as String? ??
-                        'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(name)}';
-
-                    final isAdmin = role.toLowerCase() == 'admin';
-
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: CircleAvatar(
-                        backgroundImage: NetworkImage(avatarUrl),
-                      ),
-                      title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                      subtitle: Text(
-                        '$email • Joined ${_formatDate(createdAt)}',
-                        style: TextStyle(color: Colors.grey[400], fontSize: 12),
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Chip(
-                            label: Text(
-                              isAdmin ? 'Admin' : 'Employee',
-                              style: TextStyle(
-                                color: isAdmin ? Colors.white : Colors.grey[300],
-                                fontSize: 11,
-                              ),
-                            ),
-                            backgroundColor: isAdmin ? primaryColor : Colors.grey[800],
-                            padding: EdgeInsets.zero,
-                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
-                          const SizedBox(width: 8),
-                          PopupMenuButton<String>(
-                            onSelected: (val) {
-                              if (val == 'promote') {
-                                _promoteToAdmin(context, firmId, uid, name);
-                              } else if (val == 'revoke') {
-                                _revokeAccess(context, firmId, uid, name);
-                              }
-                            },
-                            itemBuilder: (context) => [
-                              if (!isAdmin)
-                                const PopupMenuItem(
-                                  value: 'promote',
-                                  child: Text('Promote to Admin'),
-                                ),
-                              PopupMenuItem(
-                                value: 'revoke',
-                                child: Text(
-                                  'Revoke Access',
-                                  style: TextStyle(color: Colors.red[600]),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              },
+            SizedBox(
+              height: 400, // Sized container for independent list scrolling
+              child: TabBarView(
+                children: [
+                  _buildPendingRequestsTab(context, firmId, primaryColor),
+                  _buildActiveStaffTab(context, firmId, primaryColor),
+                ],
+              ),
             ),
           ],
         ),
@@ -1190,29 +733,269 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     );
   }
 
-  Future<void> _promoteToAdmin(
+  /// Step 2: The "Pending Requests" View
+  Widget _buildPendingRequestsTab(
     BuildContext context,
     String firmId,
-    String uid,
+    Color primaryColor,
+  ) {
+    return StreamBuilder<List<Membership>>(
+      stream: DBService.instance.getMembershipsByStatus(firmId, 'pending'),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: Text(
+              'Error loading pending requests: ${snapshot.error}',
+              style: const TextStyle(color: Colors.red),
+            ),
+          );
+        }
+
+        final memberships = snapshot.data ?? [];
+        if (memberships.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.hourglass_empty, size: 48, color: Colors.grey[600]),
+                  const SizedBox(height: 8),
+                  Text(
+                    'No pending requests',
+                    style: TextStyle(color: Colors.grey[500], fontSize: 14),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: memberships.length,
+          separatorBuilder: (context, index) => const Divider(),
+          itemBuilder: (context, index) {
+            final m = memberships[index];
+            final isApproving = _actionLoading['approve_${m.membershipId}'] == true;
+
+            return FutureBuilder<AppUser?>(
+              future: DBService.instance.getUserDetails(m.uid),
+              builder: (context, userSnapshot) {
+                if (userSnapshot.connectionState == ConnectionState.waiting) {
+                  return const ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                    title: Text('Loading user details...'),
+                  );
+                }
+                if (userSnapshot.hasError || !userSnapshot.hasData || userSnapshot.data == null) {
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const CircleAvatar(child: Icon(Icons.error_outline)),
+                    title: Text('Unknown User (${m.uid})'),
+                  );
+                }
+
+                final appUser = userSnapshot.data!;
+                final name = appUser.name;
+                final email = appUser.email;
+                final avatarUrl = appUser.image ??
+                    'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(name)}';
+
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: CircleAvatar(
+                    backgroundImage: NetworkImage(avatarUrl),
+                  ),
+                  title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text(
+                    email,
+                    style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                  ),
+                  trailing: ElevatedButton(
+                    onPressed: isApproving
+                        ? null
+                        : () => _approveMembership(context, m.membershipId, name),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primaryColor,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: isApproving
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text('Approve'),
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Step 3: The "Active Staff" View
+  Widget _buildActiveStaffTab(
+    BuildContext context,
+    String firmId,
+    Color primaryColor,
+  ) {
+    return StreamBuilder<List<Membership>>(
+      stream: DBService.instance.getMembershipsByStatus(firmId, 'approved'),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: Text(
+              'Error loading active staff: ${snapshot.error}',
+              style: const TextStyle(color: Colors.red),
+            ),
+          );
+        }
+
+        final memberships = snapshot.data ?? [];
+        if (memberships.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.people_outline, size: 48, color: Colors.grey[600]),
+                  const SizedBox(height: 8),
+                  Text(
+                    'No active staff members',
+                    style: TextStyle(color: Colors.grey[500], fontSize: 14),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: memberships.length,
+          separatorBuilder: (context, index) => const Divider(),
+          itemBuilder: (context, index) {
+            final m = memberships[index];
+            final isRevoking = _actionLoading['revoke_${m.membershipId}'] == true;
+
+            return FutureBuilder<AppUser?>(
+              future: DBService.instance.getUserDetails(m.uid),
+              builder: (context, userSnapshot) {
+                if (userSnapshot.connectionState == ConnectionState.waiting) {
+                  return const ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                    title: Text('Loading user details...'),
+                  );
+                }
+                if (userSnapshot.hasError || !userSnapshot.hasData || userSnapshot.data == null) {
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const CircleAvatar(child: Icon(Icons.error_outline)),
+                    title: Text('Unknown User (${m.uid})'),
+                  );
+                }
+
+                final appUser = userSnapshot.data!;
+                final name = appUser.name;
+                final email = appUser.email;
+                final avatarUrl = appUser.image ??
+                    'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(name)}';
+
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: CircleAvatar(
+                    backgroundImage: NetworkImage(avatarUrl),
+                  ),
+                  title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text(
+                    email,
+                    style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                  ),
+                  trailing: ElevatedButton(
+                    onPressed: isRevoking
+                        ? null
+                        : () => _revokeMembership(context, m.membershipId, name),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red[600],
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: isRevoking
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text('Revoke Access'),
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _approveMembership(
+    BuildContext context,
+    String membershipId,
     String name,
   ) async {
+    setState(() => _actionLoading['approve_$membershipId'] = true);
     try {
-      await FirebaseFirestore.instance
-          .collection('Firms')
-          .doc(firmId)
-          .collection('members')
-          .doc(uid)
-          .update({'role': 'admin'});
-      SnackbarService().showSnackbar('$name promoted to Admin!');
+      await DBService.instance.updateMembershipStatus(membershipId, 'approved');
+      SnackbarService().showSnackbar('$name approved successfully!');
     } catch (e) {
-      SnackbarService().showSnackbar('Error promoting member: $e', isError: true);
+      SnackbarService().showSnackbar('Error approving member: $e', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() => _actionLoading['approve_$membershipId'] = false);
+      }
     }
   }
 
-  Future<void> _revokeAccess(
+  Future<void> _revokeMembership(
     BuildContext context,
-    String firmId,
-    String uid,
+    String membershipId,
     String name,
   ) async {
     final confirm = await showDialog<bool>(
@@ -1236,17 +1019,17 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
       ),
     );
 
-    if (confirm == true) {
-      try {
-        await FirebaseFirestore.instance
-            .collection('Firms')
-            .doc(firmId)
-            .collection('members')
-            .doc(uid)
-            .update({'status': 'revoked'});
-        SnackbarService().showSnackbar('$name revoked access successfully.');
-      } catch (e) {
-        SnackbarService().showSnackbar('Error revoking member: $e', isError: true);
+    if (confirm != true) return;
+
+    setState(() => _actionLoading['revoke_$membershipId'] = true);
+    try {
+      await DBService.instance.updateMembershipStatus(membershipId, 'revoked');
+      SnackbarService().showSnackbar('$name revoked access successfully.');
+    } catch (e) {
+      SnackbarService().showSnackbar('Error revoking member: $e', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() => _actionLoading['revoke_$membershipId'] = false);
       }
     }
   }

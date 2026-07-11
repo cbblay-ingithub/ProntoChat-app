@@ -20,6 +20,12 @@ android {
         jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(17)
+        }
+    }
+
     defaultConfig {
         applicationId "com.example.pronto_chat"  // your app ID
         minSdkVersion flutter.minSdkVersion

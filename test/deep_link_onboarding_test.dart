@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -10,8 +9,6 @@ import 'package:pronto_chat/main.dart';
 import 'package:pronto_chat/providers/auth_provider.dart';
 import 'package:pronto_chat/providers/deep_link_provider.dart';
 import 'package:pronto_chat/screens/employee/employee_profile_screen.dart';
-import 'package:pronto_chat/screens/employee/pending_approval_screen.dart';
-import 'package:pronto_chat/screens/employee/main_chat_screen.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

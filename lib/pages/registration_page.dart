@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
-import './login_page.dart';
 import '../services/db_service.dart';
 import '../services/navigation_service.dart';
 import '../services/cloud_storage.dart';

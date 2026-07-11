@@ -55,6 +55,7 @@ dependencies:
   app_links: ^6.3.2
   share_plus: ^10.1.0
   go_router: ^14.2.0
+  chottu_link: ^1.0.19
   # ─────────────────────────
 dev_dependencies:
   flutter_test:

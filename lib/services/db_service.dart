@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:pronto_chat/models/firm.dart';
+import 'package:pronto_chat/models/membership.dart';
+import 'package:pronto_chat/models/user.dart';
 
 class DBService {
   // ══════════════════════════════════════════════════════════════════════════
@@ -594,6 +596,77 @@ class DBService {
     }
   }
 
+  /// Stream memberships matching the firmId and a specific status (e.g., pending, approved).
+  Stream<List<Membership>> getMembershipsByStatus(String firmId, String status) {
+    return _db
+        .collection(_membershipsCollection)
+        .where('firmId', isEqualTo: firmId)
+        .where('status', isEqualTo: status)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => MembershipFirestore.fromFirestore(doc))
+            .toList());
+  }
+
+  /// Fetch user details (name, image, etc.) from the Users collection.
+  Future<AppUser?> getUserDetails(String uid) async {
+    try {
+      final doc = await _db.collection(_userCollection).doc(uid).get();
+      if (doc.exists) {
+        return AppUserFirestore.fromFirestore(doc);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('❌ Error getting user details: $e');
+      return null;
+    }
+  }
+
+  /// Update membership status (e.g., approved or revoked).
+  /// Also synchronizes the status inside the Firms/{firmId}/members/{uid} subcollection.
+  Future<void> updateMembershipStatus(String membershipId, String newStatus) async {
+    try {
+      // Fetch the membership first to extract the uid and firmId
+      final doc = await _db.collection(_membershipsCollection).doc(membershipId).get();
+      if (!doc.exists) {
+        throw Exception('Membership not found: $membershipId');
+      }
+      final data = doc.data()!;
+      final String uid = data['uid'] ?? '';
+      final String firmId = data['firmId'] ?? '';
+
+      final WriteBatch batch = _db.batch();
+
+      // 1. Update primary membership document status
+      batch.update(_db.collection(_membershipsCollection).doc(membershipId), {
+        'status': newStatus,
+        if (newStatus == 'approved') 'approvedAt': FieldValue.serverTimestamp(),
+        if (newStatus == 'revoked') 'revokedAt': FieldValue.serverTimestamp(),
+      });
+
+      // 2. Synchronize status to the Firms/{firmId}/members/{uid} subcollection
+      if (firmId.isNotEmpty && uid.isNotEmpty) {
+        final firmMemberRef = _db
+            .collection(_firmsCollection)
+            .doc(firmId)
+            .collection('members')
+            .doc(uid);
+
+        // Subcollection uses 'active' for approved users
+        final String subcollectionStatus = (newStatus == 'approved') ? 'active' : newStatus;
+        batch.set(firmMemberRef, {
+          'status': subcollectionStatus,
+        }, SetOptions(merge: true));
+      }
+
+      await batch.commit();
+      debugPrint('✅ Membership status updated: membershipId=$membershipId, newStatus=$newStatus');
+    } catch (e) {
+      debugPrint('❌ Error updating membership status: $e');
+      rethrow;
+    }
+  }
+
   // ══════════════════════════════════════════════════════════════════════════
   // ORCHESTRATION: Firm Signup (Atomic Operations)
   // ══════════════════════════════════════════════════════════════════════════
@@ -617,7 +690,7 @@ class DBService {
     try {
       // Generate IDs
       final firmId = _db.collection(_firmsCollection).doc().id;
-      final membershipId = _db.collection(_membershipsCollection).doc().id;
+      final membershipId = uid; // Use uid as membership document ID to match employee registration
 
       // Build data maps
       final firmData = {
