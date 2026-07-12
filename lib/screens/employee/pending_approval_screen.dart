@@ -48,9 +48,9 @@ class PendingApprovalScreen extends StatelessWidget {
           final status = data['status'] as String? ?? 'pending';
 
           if (status == 'approved' || status == 'active') {
-            // Automatically navigate the user to a placeholder MainChatScreen on success
+            // Automatically navigate the user to the HomePage on success
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              context.go('/main-chat');
+              context.go('/home');
             });
           }
 

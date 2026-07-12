@@ -13,6 +13,7 @@ import 'package:pronto_chat/providers/firm/providers.dart';
 import 'package:pronto_chat/services/db_service.dart';
 import 'package:pronto_chat/services/snackbar_service.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'home_page.dart';
 // ── PRONTOCHAT ADDITION ──
 import 'package:share_plus/share_plus.dart';
 // ─────────────────────────
@@ -195,6 +196,16 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
         centerTitle: true,
         backgroundColor: primaryColor, // Theming: AppBar background = primaryColor
         actions: [
+          IconButton(
+            icon: const Icon(Icons.chat),
+            tooltip: 'Go to Chats',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const HomePage()),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Logout',
