@@ -13,6 +13,7 @@ _$FirmImpl _$$FirmImplFromJson(Map<String, dynamic> json) => _$FirmImpl(
   adminId: json['adminId'] as String,
   createdAt: DateTime.parse(json['createdAt'] as String),
   secondaryColor: json['secondaryColor'] as String?,
+  logoUrl: json['logoUrl'] as String?,
 );
 
 Map<String, dynamic> _$$FirmImplToJson(_$FirmImpl instance) =>
@@ -23,4 +24,5 @@ Map<String, dynamic> _$$FirmImplToJson(_$FirmImpl instance) =>
       'adminId': instance.adminId,
       'createdAt': instance.createdAt.toIso8601String(),
       'secondaryColor': instance.secondaryColor,
+      'logoUrl': instance.logoUrl,
     };

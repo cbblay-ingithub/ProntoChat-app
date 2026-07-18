@@ -83,6 +83,16 @@ service cloud.firestore {
         allow update: if isSignedIn() && get(/databases/$(database)/documents/Firms/$(firmId)).data.adminId == request.auth.uid;
         allow delete: if false;
       }
+
+      // ── PreApprovedStaff Subcollection ──────────
+      match /PreApprovedStaff/{email} {
+        // Firm Admin has full access
+        allow read, write: if isSignedIn() && get(/databases/$(database)/documents/Firms/$(firmId)).data.adminId == request.auth.uid;
+        
+        // Anyone signed in (including onboarding anonymous users) can read and update their own invitation status
+        allow read: if isSignedIn();
+        allow update: if isSignedIn() && request.resource.data.status == 'joined' && resource.data.status == 'invited';
+      }
     }
 
     // ── Memberships ───────────────
@@ -93,10 +103,14 @@ service cloud.firestore {
         get(/databases/$(database)/documents/Firms/$(resource.data.firmId)).data.adminId == request.auth.uid
       );
       
-      // Anyone authenticated (even anonymously) can request membership for themselves with "pending" status,
-      // or the Firm Admin can invite them (auto-approve admin membership during firm signup)
+      // Anyone authenticated (even anonymously) can request membership for themselves:
+      // - status "pending"
+      // - status "approved" (if their email is pre-approved)
+      // Or the Firm Admin can invite them
       allow create: if isSignedIn() && (
         (request.resource.data.status == 'pending' && request.resource.data.uid == request.auth.uid) ||
+        (request.resource.data.status == 'approved' && request.resource.data.uid == request.auth.uid &&
+         exists(/databases/$(database)/documents/Firms/$(request.resource.data.firmId)/PreApprovedStaff/$(request.resource.data.email))) ||
         (get(/databases/$(database)/documents/Firms/$(request.resource.data.firmId)).data.adminId == request.auth.uid)
       );
       

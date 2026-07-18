@@ -26,6 +26,9 @@ class Firm with _$Firm {
 
     /// Optional secondary brand color for UI accents
     String? secondaryColor,
+
+    /// Optional logo URL for brand styling
+    String? logoUrl,
   }) = _Firm;
 
   factory Firm.fromJson(Map<String, dynamic> json) => _$FirmFromJson(json);
@@ -43,6 +46,7 @@ extension FirmFirestore on Firm {
       adminId: data['adminId'] ?? '',
       createdAt: (data['createdAt'] as Timestamp).toDate(),
       secondaryColor: data['secondaryColor'],
+      logoUrl: data['logoUrl'],
     );
   }
 
@@ -54,6 +58,7 @@ extension FirmFirestore on Firm {
       'adminId': adminId,
       'createdAt': Timestamp.fromDate(createdAt),
       if (secondaryColor != null) 'secondaryColor': secondaryColor,
+      if (logoUrl != null) 'logoUrl': logoUrl,
     };
   }
 }

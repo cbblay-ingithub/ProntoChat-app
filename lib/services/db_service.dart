@@ -741,7 +741,10 @@ class DBService {
     required String uid,
     required String firmId,
     required String name,
+    required String email,
     String? jobTitle,
+    bool isApproved = false,
+    String? preApprovedDocId,
   }) async {
     try {
       final WriteBatch batch = _db.batch();
@@ -753,6 +756,7 @@ class DBService {
         {
           'name': name,
           'nameLower': name.toLowerCase(),
+          'email': email,
           'role': 'employee',
           'createdAt': FieldValue.serverTimestamp(),
           'lastSeen': FieldValue.serverTimestamp(),
@@ -766,9 +770,11 @@ class DBService {
       batch.set(membershipRef, {
         'uid': uid,
         'firmId': firmId,
-        'status': 'pending',
+        'email': email,
+        'status': isApproved ? 'approved' : 'pending',
         'role': 'employee',
         'createdAt': FieldValue.serverTimestamp(),
+        if (isApproved) 'approvedAt': FieldValue.serverTimestamp(),
       });
 
       // 3. Create document in the Firms/{firmId}/members/{uid} subcollection for Admin Dashboard stats/lists
@@ -780,13 +786,26 @@ class DBService {
       batch.set(firmMemberRef, {
         'name': name,
         'role': 'employee',
-        'status': 'pending',
+        'status': isApproved ? 'active' : 'pending',
         'createdAt': FieldValue.serverTimestamp(),
         'avatarUrl': 'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(name)}',
       });
 
+      // 4. Update the pre-approved staff document status if applicable
+      if (isApproved && preApprovedDocId != null && preApprovedDocId.isNotEmpty) {
+        final preApprovedRef = _db
+            .collection(_firmsCollection)
+            .doc(firmId)
+            .collection('PreApprovedStaff')
+            .doc(preApprovedDocId);
+        batch.update(preApprovedRef, {
+          'status': 'joined',
+          'joinedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
       await batch.commit();
-      print('✅ Employee profile and membership created atomically in batch: uid=$uid, firmId=$firmId');
+      print('✅ Employee profile and membership created atomically (isApproved=$isApproved): uid=$uid, firmId=$firmId');
     } catch (e) {
       print('❌ Error registering employee profile in batch: $e');
       rethrow;

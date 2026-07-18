@@ -1,8 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/db_service.dart';
+import '../providers/firm/providers.dart';
 import 'convo_page.dart';
 import 'search_page.dart';
 
@@ -14,32 +16,51 @@ import 'search_page.dart';
 // propagated — causing permission-denied errors.
 // ─────────────────────────────────────────────────────────────────────────────
 
-class HomePage extends StatefulWidget {
+class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  ConsumerState<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends ConsumerState<HomePage> {
   @override
   Widget build(BuildContext context) {
     // FIX: watch() instead of read() — rebuilds when auth state changes
     final auth = context.watch<AuthProvider>();
     final uid  = auth.currentUserId;
+    final firm = ref.watch(currentFirmProvider);
 
     return Scaffold(
       backgroundColor: const Color.fromRGBO(28, 27, 27, 1),
       appBar: AppBar(
         backgroundColor: const Color.fromRGBO(28, 27, 27, 1),
         elevation: 0,
-        title: const Text(
-          'ProntoChat',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w700,
-            fontSize: 22,
-          ),
+        title: Row(
+          children: [
+            if (firm?.logoUrl != null) ...[
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  image: DecorationImage(
+                    image: NetworkImage(firm!.logoUrl!),
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
+            Text(
+              firm?.name ?? 'ProntoChat',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: 22,
+              ),
+            ),
+          ],
         ),
         actions: [
           IconButton(

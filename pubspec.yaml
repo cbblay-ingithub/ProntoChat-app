@@ -51,6 +51,7 @@ dependencies:
   flutter_colorpicker: ^1.1.0
   qr_flutter: ^4.1.0
   file_picker: ^11.0.2
+  csv: ^6.0.0
   # ── PRONTOCHAT ADDITION ──
   app_links: ^6.3.2
   share_plus: ^10.1.0

@@ -50,7 +50,7 @@ void main() {
 
     // Verify that the EmployeeProfileScreen is shown (since Onboarding screen immediately redirects)
     expect(find.byType(EmployeeProfileScreen), findsOneWidget);
-    expect(find.text('Who Are You?'), findsOneWidget);
+    expect(find.text('Welcome to your workspace'), findsOneWidget);
     expect(find.text('Full Name'), findsOneWidget);
 
     controller.close();

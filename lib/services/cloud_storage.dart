@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:firebase_storage/firebase_storage.dart';
 
 class CloudStorageService {
@@ -110,6 +111,30 @@ class CloudStorageService {
       return await uploadUserImage(uid, image);
     } catch (e) {
       print("Error uploading compressed image: $e");
+      rethrow;
+    }
+  }
+
+  /// Upload firm brand logo using raw bytes (Web & Mobile compatible)
+  Future<String> uploadFirmLogo(String firmId, Uint8List bytes, String extension) async {
+    try {
+      Reference storageRef = _storage.ref().child('firm_logos').child('$firmId.$extension');
+      
+      SettableMetadata metadata = SettableMetadata(
+        contentType: 'image/$extension',
+        customMetadata: {
+          'firmId': firmId,
+          'uploadedAt': DateTime.now().toIso8601String(),
+        },
+      );
+      
+      TaskSnapshot uploadTask = await storageRef.putData(bytes, metadata);
+      String downloadUrl = await uploadTask.ref.getDownloadURL();
+      
+      print("Firm logo uploaded successfully for firm: $firmId");
+      return downloadUrl;
+    } catch (e) {
+      print("Error uploading firm logo: $e");
       rethrow;
     }
   }

@@ -1,0 +1,31 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Helper to check if the user is the Admin of the specified firm ID
+    function isFirmAdmin(firmId) {
+      return isSignedIn() &&
+        firestore.get(/databases/$(database)/documents/Firms/$(firmId)).data.adminId == request.auth.uid;
+    }
+
+    // Profile Images Collection
+    match /profile_images/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (fileName.startsWith(request.auth.uid));
+    }
+
+    // Firm Logos Collection
+    match /firm_logos/{fileName} {
+      // Anyone can read firm logos (allows public bridge page and guest views)
+      allow read: if true;
+
+      // Only the registered Firm Admin can upload or modify the brand logo
+      allow write: if isSignedIn() &&
+        isFirmAdmin(request.resource.metadata.firmId);
+    }
+  }
+}

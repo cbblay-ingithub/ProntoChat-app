@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -14,6 +13,8 @@ import 'package:pronto_chat/services/db_service.dart';
 import 'package:pronto_chat/services/snackbar_service.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'home_page.dart';
+import 'bulk_onboarding_view.dart';
+import 'package:pronto_chat/services/cloud_storage.dart';
 // ── PRONTOCHAT ADDITION ──
 import 'package:share_plus/share_plus.dart';
 // ─────────────────────────
@@ -71,14 +72,6 @@ class AdminDashboard extends ConsumerStatefulWidget {
 }
 
 class _AdminDashboardState extends ConsumerState<AdminDashboard> {
-  // State for search query in Active Staff list
-  final String _searchQuery = '';
-  final TextEditingController _searchController = TextEditingController();
-
-  // State for CSV preview and upload
-  List<Map<String, String>> _csvPreview = [];
-  bool _isUploadingCsv = false;
-
   // Track loading state for individual action buttons (e.g. key: 'approve_uid', value: true)
   final Map<String, bool> _actionLoading = {};
 
@@ -89,11 +82,7 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     _loadFirmIfNecessary();
   }
 
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
+
 
   Future<void> _loadFirmIfNecessary() async {
     final currentFirm = ref.read(currentFirmProvider);
@@ -289,7 +278,7 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                 const SizedBox(height: 16),
 
                 // 6. CSV Bulk Upload Card
-                _buildCsvBulkUpload(context, firm.firmId, primaryColor),
+                BulkOnboardingView(firmId: firm.firmId, primaryColor: primaryColor),
                 const SizedBox(height: 16),
 
                 // 7. Danger Zone
@@ -317,13 +306,19 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            // Circular color swatch (48x48)
+            // Circular logo or color swatch (48x48)
             Container(
               width: 48,
               height: 48,
               decoration: BoxDecoration(
-                color: primaryColor,
+                color: firm.logoUrl != null ? Colors.white : primaryColor,
                 shape: BoxShape.circle,
+                image: firm.logoUrl != null
+                    ? DecorationImage(
+                        image: NetworkImage(firm.logoUrl!),
+                        fit: BoxFit.contain,
+                      )
+                    : null,
                 boxShadow: [
                   BoxShadow(
                     color: primaryColor.withOpacity(0.3),
@@ -1059,301 +1054,67 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     }
   }
 
-  /// 6. CSV Bulk Upload Card builder
-  Widget _buildCsvBulkUpload(
-    BuildContext context,
-    String firmId,
-    Color primaryColor,
-  ) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Bulk Upload Staff via CSV',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-            const SizedBox(height: 16),
-            if (_csvPreview.isEmpty)
-              GestureDetector(
-                onTap: _pickCsvFile,
-                child: CustomPaint(
-                  painter: DashedBorderPainter(color: Colors.grey[600]!, gap: 6),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 36),
-                    alignment: Alignment.center,
-                    child: Column(
-                      children: [
-                        Icon(Icons.cloud_upload_outlined, size: 48, color: primaryColor),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Tap to select a CSV file',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'File must contain columns: Name, Email, Role',
-                          style: TextStyle(color: Colors.grey[500], fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              )
-            else ...[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Previewing ${_csvPreview.length} rows',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  Row(
-                    children: [
-                      TextButton(
-                        onPressed: () {
-                          setState(() {
-                            _csvPreview = [];
-                          });
-                        },
-                        child: const Text('Cancel'),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed: _isUploadingCsv
-                            ? null
-                            : () => _confirmImportCsv(firmId),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: primaryColor,
-                          foregroundColor: Colors.white,
-                        ),
-                        child: _isUploadingCsv
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Text('Confirm Import'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              // Table Preview for first 5 rows
-              Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey[800]!),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Table(
-                  border: TableBorder.symmetric(inside: BorderSide(color: Colors.grey[800]!)),
-                  children: [
-                    // ── PRONTOCHAT ADDITION (BUGFIX) ──
-                    TableRow(
-                      decoration: const BoxDecoration(color: Colors.black26),
-                      children: [
-                    // ─────────────────────────
-                        Padding(
-                          padding: EdgeInsets.all(8.0),
-                          child: Text('Name', style: TextStyle(fontWeight: FontWeight.bold)),
-                        ),
-                        Padding(
-                          padding: EdgeInsets.all(8.0),
-                          child: Text('Email', style: TextStyle(fontWeight: FontWeight.bold)),
-                        ),
-                        Padding(
-                          padding: EdgeInsets.all(8.0),
-                          child: Text('Role', style: TextStyle(fontWeight: FontWeight.bold)),
-                        ),
-                      ],
-                    ),
-                    ..._csvPreview.take(5).map((row) => TableRow(
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.all(8.0),
-                              child: Text(row['name'] ?? ''),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.all(8.0),
-                              child: Text(row['email'] ?? ''),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.all(8.0),
-                              child: Text(row['role'] ?? ''),
-                            ),
-                          ],
-                        )),
-                  ],
-                ),
-              ),
-              if (_csvPreview.length > 5) ...[
-                const SizedBox(height: 8),
-                Text(
-                  '... and ${_csvPreview.length - 5} more rows',
-                  style: TextStyle(color: Colors.grey[500], fontStyle: FontStyle.italic),
-                ),
-              ],
-            ],
-            const SizedBox(height: 16),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: () async {
-                  await Clipboard.setData(
-                    const ClipboardData(
-                      text:
-                          'Name,Email,Role\nJohn Doe,john@example.com,Employee\nJane Smith,jane@example.com,Admin',
-                    ),
-                  );
-                  SnackbarService().showSnackbar(
-                    'CSV Template headers copied to clipboard!',
-                  );
-                },
-                icon: const Icon(Icons.download, size: 16),
-                label: const Text('Download Template (Copy to Clipboard)'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
-  Future<void> _pickCsvFile() async {
-    try {
-      // ── PRONTOCHAT ADDITION (BUGFIX) ──
-      final result = await FilePicker.pickFiles(
-      // ─────────────────────────
-        type: FileType.custom,
-        allowedExtensions: ['csv'],
-        withData: true,
-      );
 
-      if (result != null && result.files.isNotEmpty) {
-        final file = result.files.first;
-        if (file.bytes != null) {
-          final content = utf8.decode(file.bytes!);
-          _parseCsv(content);
-        } else {
-          SnackbarService().showSnackbar('Could not read file data.', isError: true);
-        }
-      }
-    } catch (e) {
-      SnackbarService().showSnackbar('Error picking file: $e', isError: true);
-    }
-  }
-
-  void _parseCsv(String content) {
-    final lines = content.split(RegExp(r'\r?\n'));
-    List<Map<String, String>> preview = [];
-    bool isHeader = true;
-
-    for (final line in lines) {
-      if (line.trim().isEmpty) continue;
-      final cols = line.split(',');
-      if (cols.length < 2) continue; // Requires name and email
-
-      final name = cols[0].trim();
-      final email = cols[1].trim();
-      String role = 'employee';
-      if (cols.length >= 3) {
-        final rawRole = cols[2].trim().toLowerCase();
-        if (rawRole == 'admin') {
-          role = 'admin';
-        }
-      }
-
-      if (isHeader) {
-        if (name.toLowerCase() == 'name' || email.toLowerCase() == 'email') {
-          isHeader = false;
-          continue;
-        }
-        isHeader = false;
-      }
-
-      preview.add({
-        'name': name,
-        'email': email,
-        'role': role,
-      });
-    }
-
-    setState(() {
-      _csvPreview = preview;
-    });
-
-    if (preview.isEmpty) {
-      SnackbarService().showSnackbar('No valid rows found in CSV.', isError: true);
-    } else {
-      SnackbarService().showSnackbar('Loaded ${preview.length} rows from CSV.');
-    }
-  }
-
-  Future<void> _confirmImportCsv(String firmId) async {
-    if (_csvPreview.isEmpty) return;
-
-    setState(() => _isUploadingCsv = true);
-
-    try {
-      final batch = FirebaseFirestore.instance.batch();
-      for (final row in _csvPreview) {
-        final ref = FirebaseFirestore.instance
-            .collection('Firms')
-            .doc(firmId)
-            .collection('members')
-            .doc();
-
-        batch.set(ref, {
-          'name': row['name'],
-          'email': row['email'],
-          'role': row['role'],
-          'status': 'pending',
-          'createdAt': FieldValue.serverTimestamp(),
-          'avatarUrl':
-              'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(row['name'] ?? 'User')}',
-        });
-      }
-
-      await batch.commit();
-      SnackbarService().showSnackbar(
-        'Imported ${_csvPreview.length} staff members successfully!',
-      );
-      setState(() {
-        _csvPreview = [];
-      });
-    } catch (e) {
-      SnackbarService().showSnackbar('Error importing CSV: $e', isError: true);
-    } finally {
-      if (mounted) {
-        setState(() => _isUploadingCsv = false);
-      }
-    }
-  }
-
-  /// 7. Danger Zone builder (collapsible)
+  /// 7. Brand Settings & Danger Zone builder (collapsible)
   Widget _buildDangerZone(BuildContext context, Firm firm) {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ExpansionTile(
         title: const Text(
-          'Danger Zone',
-          style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+          'Brand Settings & Danger Zone',
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
-        leading: const Icon(Icons.warning_amber_rounded, color: Colors.red),
+        leading: const Icon(Icons.settings, color: Colors.blue),
         childrenPadding: const EdgeInsets.all(16),
         children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Company Logo',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    firm.logoUrl != null ? 'Change your brand logo' : 'No logo uploaded yet',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
+              Row(
+                children: [
+                  if (firm.logoUrl != null) ...[
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey[800]!),
+                        borderRadius: BorderRadius.circular(8),
+                        image: DecorationImage(
+                          image: NetworkImage(firm.logoUrl!),
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
+                  ElevatedButton(
+                    onPressed: () => _updateBrandLogo(context, firm),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.grey[800],
+                      foregroundColor: Colors.white,
+                    ),
+                    child: Text(firm.logoUrl != null ? 'Change Logo' : 'Upload Logo'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const Divider(height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1410,6 +1171,38 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
         ],
       ),
     );
+  }
+
+  Future<void> _updateBrandLogo(BuildContext context, Firm firm) async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.image,
+        withData: true,
+      );
+
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.first;
+      if (file.bytes == null) {
+        SnackbarService().showSnackbar('Could not read image file bytes.', isError: true);
+        return;
+      }
+
+      SnackbarService().showSnackbar('Uploading company logo...');
+      final ext = file.extension ?? 'png';
+      final downloadUrl = await CloudStorageService.instance.uploadFirmLogo(firm.firmId, file.bytes!, ext);
+
+      // Update Firestore
+      await FirebaseFirestore.instance.collection('Firms').doc(firm.firmId).update({
+        'logoUrl': downloadUrl,
+      });
+
+      // Reload state
+      await ref.read(firmNotifierProvider.notifier).loadFirm(firm.firmId);
+      SnackbarService().showSnackbar('Brand logo updated successfully!');
+    } catch (e) {
+      SnackbarService().showSnackbar('Error uploading logo: $e', isError: true);
+    }
   }
 
   void _updateBrandColor(BuildContext context, Firm firm) {

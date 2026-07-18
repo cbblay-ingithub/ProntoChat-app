@@ -39,6 +39,9 @@ mixin _$Firm {
   /// Optional secondary brand color for UI accents
   String? get secondaryColor => throw _privateConstructorUsedError;
 
+  /// Optional logo URL for brand styling
+  String? get logoUrl => throw _privateConstructorUsedError;
+
   /// Serializes this Firm to a JSON map.
   Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
 
@@ -60,6 +63,7 @@ abstract class $FirmCopyWith<$Res> {
     String adminId,
     DateTime createdAt,
     String? secondaryColor,
+    String? logoUrl,
   });
 }
 
@@ -84,6 +88,7 @@ class _$FirmCopyWithImpl<$Res, $Val extends Firm>
     Object? adminId = null,
     Object? createdAt = null,
     Object? secondaryColor = freezed,
+    Object? logoUrl = freezed,
   }) {
     return _then(
       _value.copyWith(
@@ -111,6 +116,10 @@ class _$FirmCopyWithImpl<$Res, $Val extends Firm>
                 ? _value.secondaryColor
                 : secondaryColor // ignore: cast_nullable_to_non_nullable
                       as String?,
+            logoUrl: freezed == logoUrl
+                ? _value.logoUrl
+                : logoUrl // ignore: cast_nullable_to_non_nullable
+                      as String?,
           )
           as $Val,
     );
@@ -132,6 +141,7 @@ abstract class _$$FirmImplCopyWith<$Res> implements $FirmCopyWith<$Res> {
     String adminId,
     DateTime createdAt,
     String? secondaryColor,
+    String? logoUrl,
   });
 }
 
@@ -153,6 +163,7 @@ class __$$FirmImplCopyWithImpl<$Res>
     Object? adminId = null,
     Object? createdAt = null,
     Object? secondaryColor = freezed,
+    Object? logoUrl = freezed,
   }) {
     return _then(
       _$FirmImpl(
@@ -180,6 +191,10 @@ class __$$FirmImplCopyWithImpl<$Res>
             ? _value.secondaryColor
             : secondaryColor // ignore: cast_nullable_to_non_nullable
                   as String?,
+        logoUrl: freezed == logoUrl
+            ? _value.logoUrl
+            : logoUrl // ignore: cast_nullable_to_non_nullable
+                  as String?,
       ),
     );
   }
@@ -195,6 +210,7 @@ class _$FirmImpl implements _Firm {
     required this.adminId,
     required this.createdAt,
     this.secondaryColor,
+    this.logoUrl,
   });
 
   factory _$FirmImpl.fromJson(Map<String, dynamic> json) =>
@@ -224,9 +240,13 @@ class _$FirmImpl implements _Firm {
   @override
   final String? secondaryColor;
 
+  /// Optional logo URL for brand styling
+  @override
+  final String? logoUrl;
+
   @override
   String toString() {
-    return 'Firm(firmId: $firmId, name: $name, primaryColor: $primaryColor, adminId: $adminId, createdAt: $createdAt, secondaryColor: $secondaryColor)';
+    return 'Firm(firmId: $firmId, name: $name, primaryColor: $primaryColor, adminId: $adminId, createdAt: $createdAt, secondaryColor: $secondaryColor, logoUrl: $logoUrl)';
   }
 
   @override
@@ -242,7 +262,8 @@ class _$FirmImpl implements _Firm {
             (identical(other.createdAt, createdAt) ||
                 other.createdAt == createdAt) &&
             (identical(other.secondaryColor, secondaryColor) ||
-                other.secondaryColor == secondaryColor));
+                other.secondaryColor == secondaryColor) &&
+            (identical(other.logoUrl, logoUrl) || other.logoUrl == logoUrl));
   }
 
   @JsonKey(includeFromJson: false, includeToJson: false)
@@ -255,6 +276,7 @@ class _$FirmImpl implements _Firm {
     adminId,
     createdAt,
     secondaryColor,
+    logoUrl,
   );
 
   /// Create a copy of Firm
@@ -279,6 +301,7 @@ abstract class _Firm implements Firm {
     required final String adminId,
     required final DateTime createdAt,
     final String? secondaryColor,
+    final String? logoUrl,
   }) = _$FirmImpl;
 
   factory _Firm.fromJson(Map<String, dynamic> json) = _$FirmImpl.fromJson;
@@ -306,6 +329,10 @@ abstract class _Firm implements Firm {
   /// Optional secondary brand color for UI accents
   @override
   String? get secondaryColor;
+
+  /// Optional logo URL for brand styling
+  @override
+  String? get logoUrl;
 
   /// Create a copy of Firm
   /// with the given fields replaced by the non-null parameter values.
