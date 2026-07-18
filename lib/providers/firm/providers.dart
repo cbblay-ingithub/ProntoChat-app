@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -76,10 +77,65 @@ final myMembershipStreamProvider = StreamProvider<DocumentSnapshot<Map<String, d
     return Stream.value(null);
   }
   
-  return FirebaseFirestore.instance
+  final controller = StreamController<DocumentSnapshot<Map<String, dynamic>>?>();
+  
+  final sub = FirebaseFirestore.instance
       .collection('Memberships')
       .doc(user.uid)
-      .snapshots();
+      .snapshots()
+      .listen((doc) async {
+        if (doc.exists) {
+          controller.add(doc);
+        } else {
+          // If membership doc does not exist, check if user has super_admin/admin role in Users/{uid}
+          try {
+            final userDoc = await FirebaseFirestore.instance
+                .collection('Users')
+                .doc(user.uid)
+                .get();
+                
+            if (userDoc.exists) {
+              final role = userDoc.data()?['role'] as String?;
+              if (role == 'super_admin' || role == 'admin') {
+                // Check if they own any firm
+                final firmsQuery = await FirebaseFirestore.instance
+                    .collection('Firms')
+                    .where('adminId', isEqualTo: user.uid)
+                    .limit(1)
+                    .get();
+                    
+                if (firmsQuery.docs.isNotEmpty) {
+                  final firmId = firmsQuery.docs.first.id;
+                  
+                  // Automatically recreate the missing membership document to heal the state
+                  await FirebaseFirestore.instance
+                      .collection('Memberships')
+                      .doc(user.uid)
+                      .set({
+                    'uid': user.uid,
+                    'firmId': firmId,
+                    'status': 'approved',
+                    'role': 'admin',
+                    'createdAt': FieldValue.serverTimestamp(),
+                    'approvedAt': FieldValue.serverTimestamp(),
+                  });
+                  return;
+                }
+              }
+            }
+          } catch (e) {
+            debugPrint('Error auto-healing membership: $e');
+          }
+          controller.add(doc);
+        }
+      });
+
+  ref.onDispose(() {
+    sub.cancel();
+    controller.close();
+  });
+  
+  return controller.stream;
 });
 
 /// Provider that reactively loads the firm document once membership is approved

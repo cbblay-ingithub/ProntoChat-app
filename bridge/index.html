@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="Welcome to ProntoChat. Download the application to join your secure corporate workspace.">
+  <title>Welcome to ProntoChat</title>
+  
+  <!-- Premium Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --panel-dark: rgba(17, 24, 39, 0.7);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --accent-blue: #3b82f6;
+      --accent-blue-glow: rgba(59, 130, 246, 0.5);
+      --accent-blue-hover: #2563eb;
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* Ambient Background Glows */
+    .glow-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+
+    .glow-orb-1 {
+      position: absolute;
+      top: -10%;
+      left: -10%;
+      width: 80%;
+      height: 60%;
+      background: radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0) 70%);
+      filter: blur(50px);
+      animation: float-slow 12s ease-in-out infinite alternate;
+    }
+
+    .glow-orb-2 {
+      position: absolute;
+      bottom: -10%;
+      right: -10%;
+      width: 80%;
+      height: 60%;
+      background: radial-gradient(circle, rgba(96, 165, 250, 0.1) 0%, rgba(96, 165, 250, 0) 70%);
+      filter: blur(60px);
+      animation: float-slow 15s ease-in-out infinite alternate-reverse;
+    }
+
+    @keyframes float-slow {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(5%, 8%) scale(1.05); }
+    }
+
+    /* Mobile Container Limit */
+    .app-container {
+      width: 100%;
+      max-width: 480px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 2.5rem 1.5rem 1.5rem 1.5rem;
+      position: relative;
+      z-index: 1;
+      animation: fade-in 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes fade-in {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    header {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      margin-top: 1.5rem;
+    }
+
+    /* Animated Brand Logo */
+    .logo-wrapper {
+      position: relative;
+      margin-bottom: 2rem;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .logo-pulse {
+      position: absolute;
+      width: 76px;
+      height: 76px;
+      border-radius: 22px;
+      background: var(--accent-blue);
+      opacity: 0.15;
+      filter: blur(8px);
+      animation: pulse-ring 3s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+    }
+
+    .logo-container {
+      width: 68px;
+      height: 68px;
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      border: 1.5px solid var(--border-color);
+      border-radius: 20px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+      position: relative;
+      z-index: 2;
+      transition: transform 0.3s ease;
+    }
+
+    .logo-container:active {
+      transform: scale(0.95);
+    }
+
+    .logo-svg {
+      width: 34px;
+      height: 34px;
+      fill: none;
+      stroke: var(--accent-blue);
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      filter: drop-shadow(0 0 6px var(--accent-blue-glow));
+    }
+
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.2; }
+      50% { transform: scale(1.15); opacity: 0.1; }
+      100% { transform: scale(0.95); opacity: 0.2; }
+    }
+
+    /* Welcome Text styling */
+    h1 {
+      font-size: 1.85rem;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      line-height: 1.25;
+      margin-bottom: 0.75rem;
+      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .instruction {
+      font-size: 0.95rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      max-width: 88%;
+      margin: 0 auto;
+    }
+
+    /* Custom Tenant Workspace Badge */
+    .firm-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(59, 130, 246, 0.08);
+      border: 1px solid rgba(59, 130, 246, 0.2);
+      padding: 0.5rem 0.85rem;
+      border-radius: 12px;
+      margin-top: 1.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #60a5fa;
+      letter-spacing: 0.01em;
+      transition: all 0.3s ease;
+      opacity: 0;
+      transform: scale(0.9);
+    }
+
+    .firm-badge.visible {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    .firm-badge-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: #3b82f6;
+      box-shadow: 0 0 8px #60a5fa;
+      animation: pulse-dot 2s infinite;
+    }
+
+    @keyframes pulse-dot {
+      0% { transform: scale(1); opacity: 0.5; }
+      50% { transform: scale(1.4); opacity: 1; }
+      100% { transform: scale(1); opacity: 0.5; }
+    }
+
+    /* Middle Layout for Visual Flow */
+    .content-middle {
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      margin: 2.5rem 0;
+    }
+
+    .card-panel {
+      width: 100%;
+      background: var(--panel-dark);
+      border: 1.5px solid var(--border-color);
+      border-radius: 28px;
+      padding: 2rem 1.5rem;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5);
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    /* Premium Tactile Buttons */
+    .btn {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      width: 100%;
+      padding: 1.1rem 1.5rem;
+      font-size: 0.95rem;
+      font-weight: 700;
+      text-decoration: none;
+      border-radius: 18px;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Primary Android Button */
+    .btn-android {
+      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+      color: #ffffff;
+      border: none;
+      box-shadow: 0 4px 15px -3px rgba(37, 99, 235, 0.4), 
+                  0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+    }
+
+    .btn-android:hover, .btn-android:focus {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      box-shadow: 0 8px 25px -4px rgba(37, 99, 235, 0.5), 
+                  0 0 0 1px rgba(255, 255, 255, 0.2) inset;
+    }
+
+    .btn-android:active {
+      transform: scale(0.98);
+      box-shadow: 0 2px 10px -2px rgba(37, 99, 235, 0.3);
+    }
+
+    /* Secondary iOS Button */
+    .btn-ios {
+      background: rgba(30, 41, 59, 0.4);
+      color: var(--text-primary);
+      border: 1.5px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 4px 12px -5px rgba(0, 0, 0, 0.2);
+    }
+
+    .btn-ios:hover, .btn-ios:focus {
+      background: rgba(30, 41, 59, 0.7);
+      border-color: rgba(255, 255, 255, 0.2);
+      box-shadow: 0 6px 16px -4px rgba(0, 0, 0, 0.3);
+    }
+
+    .btn-ios:active {
+      transform: scale(0.98);
+      background: rgba(30, 41, 59, 0.9);
+    }
+
+    .btn-icon {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+
+    /* Footnotes and security trust badges */
+    .trust-footer {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.25rem;
+      text-align: center;
+      margin-top: auto;
+    }
+
+    .security-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      background: rgba(255, 255, 255, 0.02);
+      padding: 0.35rem 0.75rem;
+      border-radius: 30px;
+      border: 1px solid rgba(255, 255, 255, 0.03);
+    }
+
+    .security-badge svg {
+      width: 12px;
+      height: 12px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+    }
+
+    .footer-links {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .footer-links span {
+      display: block;
+      margin-top: 0.25rem;
+      font-size: 0.7rem;
+      opacity: 0.7;
+    }
+
+    /* Screen Reader Only Utility */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Animated background blobs -->
+  <div class="glow-container" aria-hidden="true">
+    <div class="glow-orb-1"></div>
+    <div class="glow-orb-2"></div>
+  </div>
+
+  <div class="app-container">
+    
+    <!-- Header with Branding -->
+    <header>
+      <div class="logo-wrapper">
+        <div class="logo-pulse"></div>
+        <div class="logo-container">
+          <!-- Premium ProntoChat Logo SVG -->
+          <svg class="logo-svg" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            <path d="M13 8l-3 3h4l-3 3" stroke-width="2" stroke-linejoin="bevel"></path>
+          </svg>
+        </div>
+      </div>
+      
+      <h1>Welcome to your Workspace</h1>
+      <p class="instruction">You are one step away from joining your team. Choose your platform to download the mobile app and connect.</p>
+      
+      <!-- Dynamically filled with Workspace Firm ID if present -->
+      <div id="firmBadge" class="firm-badge" aria-live="polite">
+        <span class="firm-badge-dot"></span>
+        <span id="firmBadgeText">Secure Workspace</span>
+      </div>
+    </header>
+
+    <!-- Main Download CTA card -->
+    <main class="content-middle">
+      <div class="card-panel">
+        
+        <!-- Android Download Button (Primary) -->
+        <a id="btnAndroid" class="btn btn-android" href="https://play.google.com/store/apps/details?id=com.example.pronto_chat" target="_blank" rel="noopener noreferrer">
+          <!-- Google Play Icon -->
+          <svg class="btn-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3.609 1.814L13.783 12 3.609 22.186A2.22 2.22 0 0 1 3 20.6V3.4c0-.622.22-1.19.609-1.586zM14.97 13.186l2.871 2.87-12.832 7.37c-.38.22-.816.32-1.246.3a2.227 2.227 0 0 1-1.373-.684l12.58-12.58 2.871 2.874-.001-.01-.08.08zM14.97 10.814L2.39 23.394A2.227 2.227 0 0 1 1 22.021V1.979C1 1.258 1.542.66 2.261.621A2.25 2.25 0 0 1 3.61.814l11.36 10zm3.87 2.372l3.753-2.155a2.23 2.23 0 0 0 0-3.862l-3.753-2.155-3.057 3.056.001.002.062.062 6.747 5.09-3.053 3.052v-.09z"/>
+          </svg>
+          Download App for Android
+        </a>
+
+        <!-- iOS Download Button (Secondary) -->
+        <a id="btnIos" class="btn btn-ios" href="https://apps.apple.com/app/prontochat/id1234567890" target="_blank" rel="noopener noreferrer">
+          <!-- Apple Logo Icon -->
+          <svg class="btn-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 4.17c.66-.81 1.11-1.93.99-3.06-.96.04-2.13.64-2.82 1.45-.6.69-1.12 1.83-.98 2.94 1.07.08 2.15-.52 2.81-1.33z"/>
+          </svg>
+          Download App for iPhone
+        </a>
+
+      </div>
+    </main>
+
+    <!-- Trust Footer -->
+    <footer class="trust-footer">
+      <div class="security-badge">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+        Enterprise Grade Encryption
+      </div>
+      
+      <div class="footer-links">
+        ProntoChat Onboarding Portal
+        <span>Powered by ChottuLink &copy; 2026</span>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- Smart URL Query Parameter Parser Script -->
+  <script>
+    (function() {
+      // 1. Fetch URL query parameters
+      const urlParams = new URLSearchParams(window.location.search);
+      const firmId = urlParams.get('firmId');
+
+      // 2. Identify elements
+      const btnAndroid = document.getElementById('btnAndroid');
+      const btnIos = document.getElementById('btnIos');
+      const firmBadge = document.getElementById('firmBadge');
+      const firmBadgeText = document.getElementById('firmBadgeText');
+
+      // 3. Customize behavior based on parameters
+      if (firmId && firmId.trim() !== '') {
+        const cleanFirmId = firmId.trim();
+
+        // Dynamically append firmId to hrefs
+        // This allows the store app to capture the installation referrer or context parameter
+        const androidUrl = new URL(btnAndroid.href);
+        androidUrl.searchParams.set('firmId', cleanFirmId);
+        btnAndroid.href = androidUrl.toString();
+
+        const iosUrl = new URL(btnIos.href);
+        iosUrl.searchParams.set('firmId', cleanFirmId);
+        btnIos.href = iosUrl.toString();
+
+        // Update the workspace badge UI to guide user visually
+        // For security, prevent HTML injection by using textContent
+        firmBadgeText.textContent = `Workspace ID: ${cleanFirmId}`;
+        firmBadge.classList.add('visible');
+      } else {
+        // Even without firmId, animate badge into a general secure workspace label
+        firmBadgeText.textContent = 'Corporate Workspace';
+        firmBadge.classList.add('visible');
+      }
+    })();
+  </script>
+</body>
+</html>

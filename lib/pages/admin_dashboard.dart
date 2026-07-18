@@ -110,8 +110,22 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
               await ref.read(firmNotifierProvider.notifier).loadFirm(firmId);
             }
           } else {
-            if (mounted) {
-              ref.read(firmNotifierProvider.notifier).setLoading(false);
+            // Check if there is a firm where they are the adminId
+            final firmsQuery = await FirebaseFirestore.instance
+                .collection('Firms')
+                .where('adminId', isEqualTo: uid)
+                .limit(1)
+                .get();
+
+            if (firmsQuery.docs.isNotEmpty) {
+              final firmId = firmsQuery.docs.first.id;
+              if (mounted) {
+                await ref.read(firmNotifierProvider.notifier).loadFirm(firmId);
+              }
+            } else {
+              if (mounted) {
+                ref.read(firmNotifierProvider.notifier).setLoading(false);
+              }
             }
           }
         } catch (e) {
