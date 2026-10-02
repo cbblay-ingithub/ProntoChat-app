@@ -6,6 +6,7 @@ import '../../services/chat_service.dart';
 import '../../services/db_service.dart';
 import '../../services/snackbar_service.dart';
 import '../../providers/auth_provider.dart';
+import '../../pages/search_page.dart';
 
 class FirmChatScreen extends StatefulWidget {
   final String firmId;
@@ -115,7 +116,7 @@ class _FirmChatScreenState extends State<FirmChatScreen> {
                 ] else ...[
                   CircleAvatar(
                     radius: 18,
-                    backgroundColor: primaryColor.withOpacity(0.15),
+                    backgroundColor: primaryColor.withValues(alpha: 0.15),
                     child: Text(
                       firmName.isNotEmpty ? firmName[0].toUpperCase() : 'W',
                       style: TextStyle(
@@ -149,6 +150,16 @@ class _FirmChatScreenState extends State<FirmChatScreen> {
               ],
             ),
             actions: [
+              IconButton(
+                icon: const Icon(Icons.search, color: Colors.white),
+                tooltip: 'Search colleagues',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const UserSearchPage()),
+                  );
+                },
+              ),
               IconButton(
                 icon: const Icon(Icons.logout, color: Colors.grey),
                 tooltip: 'Sign out',

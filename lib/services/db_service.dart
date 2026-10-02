@@ -469,6 +469,20 @@ class DBService {
         membershipData,
       );
 
+      // 4. Add admin to Firms/{firmId}/members/{uid} for directory listing
+      final adminMemberRef = _db
+          .collection(_firmsCollection)
+          .doc(firmId)
+          .collection('members')
+          .doc(uid);
+      batch.set(adminMemberRef, {
+        'name': userData['name'] ?? 'Admin',
+        'role': 'admin',
+        'status': 'active',
+        'createdAt': FieldValue.serverTimestamp(),
+        'avatarUrl': 'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent((userData['name'] as String?) ?? 'Admin')}',
+      });
+
       await batch.commit();
       print('✅ Firm created with admin: firmId=$firmId, uid=$uid');
 
@@ -598,10 +612,11 @@ class DBService {
 
   /// Stream memberships matching the firmId and a specific status (e.g., pending, approved).
   Stream<List<Membership>> getMembershipsByStatus(String firmId, String status) {
+    final statusList = (status == 'approved') ? ['approved', 'active'] : [status];
     return _db
         .collection(_membershipsCollection)
         .where('firmId', isEqualTo: firmId)
-        .where('status', isEqualTo: status)
+        .where('status', whereIn: statusList)
         .snapshots()
         .map((snapshot) => snapshot.docs
             .map((doc) => MembershipFirestore.fromFirestore(doc))
@@ -622,7 +637,7 @@ class DBService {
     }
   }
 
-  /// Update membership status (e.g., approved or revoked).
+  /// Update membership status (e.g., approved, rejected, or revoked).
   /// Also synchronizes the status inside the Firms/{firmId}/members/{uid} subcollection.
   Future<void> updateMembershipStatus(String membershipId, String newStatus) async {
     try {
@@ -634,6 +649,7 @@ class DBService {
       final data = doc.data()!;
       final String uid = data['uid'] ?? '';
       final String firmId = data['firmId'] ?? '';
+      final String? preApprovedDocId = data['preApprovedDocId'] as String?;
 
       final WriteBatch batch = _db.batch();
 
@@ -642,6 +658,7 @@ class DBService {
         'status': newStatus,
         if (newStatus == 'approved') 'approvedAt': FieldValue.serverTimestamp(),
         if (newStatus == 'revoked') 'revokedAt': FieldValue.serverTimestamp(),
+        if (newStatus == 'rejected') 'rejectedAt': FieldValue.serverTimestamp(),
       });
 
       // 2. Synchronize status to the Firms/{firmId}/members/{uid} subcollection
@@ -659,12 +676,39 @@ class DBService {
         }, SetOptions(merge: true));
       }
 
+      // 3. If approved and preApprovedDocId exists, mark PreApprovedStaff as joined
+      if (newStatus == 'approved' && preApprovedDocId != null && preApprovedDocId.isNotEmpty && firmId.isNotEmpty) {
+        final preApprovedRef = _db
+            .collection(_firmsCollection)
+            .doc(firmId)
+            .collection('PreApprovedStaff')
+            .doc(preApprovedDocId);
+        batch.update(preApprovedRef, {
+          'status': 'joined',
+          'joinedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
       await batch.commit();
       debugPrint('✅ Membership status updated: membershipId=$membershipId, newStatus=$newStatus');
     } catch (e) {
       debugPrint('❌ Error updating membership status: $e');
       rethrow;
     }
+  }
+
+  /// Stream active colleagues belonging to the given firm (scoped to Firm/{firmId}/members).
+  Stream<List<Map<String, dynamic>>> streamFirmMembers(String firmId) {
+    return _db
+        .collection(_firmsCollection)
+        .doc(firmId)
+        .collection('members')
+        .where('status', isEqualTo: 'active')
+        .limit(50)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => {'uid': doc.id, ...doc.data()})
+            .toList());
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -771,9 +815,15 @@ class DBService {
         'uid': uid,
         'firmId': firmId,
         'email': email,
+        'name': name,
         'status': isApproved ? 'approved' : 'pending',
         'role': 'employee',
         'createdAt': FieldValue.serverTimestamp(),
+        if (jobTitle != null && jobTitle.isNotEmpty) 'jobTitle': jobTitle,
+        if (preApprovedDocId != null && preApprovedDocId.isNotEmpty) ...{
+          'isPreApproved': true,
+          'preApprovedDocId': preApprovedDocId,
+        },
         if (isApproved) 'approvedAt': FieldValue.serverTimestamp(),
       });
 
@@ -791,7 +841,7 @@ class DBService {
         'avatarUrl': 'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(name)}',
       });
 
-      // 4. Update the pre-approved staff document status if applicable
+      // 4. Update the pre-approved staff document status if already approved directly
       if (isApproved && preApprovedDocId != null && preApprovedDocId.isNotEmpty) {
         final preApprovedRef = _db
             .collection(_firmsCollection)

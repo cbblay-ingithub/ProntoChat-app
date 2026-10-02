@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
@@ -14,8 +15,9 @@ class CsvUploadService {
     try {
       final result = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['csv'],
+        allowedExtensions: ['csv', 'CSV', 'txt', 'TXT'],
         withData: true,
+        cancelUploadOnWindowBlur: false,
       );
 
       if (result == null || result.files.isEmpty) {
@@ -24,44 +26,81 @@ class CsvUploadService {
       }
 
       final file = result.files.first;
-      final bytes = file.bytes;
-      if (bytes == null) {
-        throw Exception('File bytes are null. Ensure withData: true is set.');
+      Uint8List? bytes = file.bytes;
+
+      // On non-web platforms, read from file.path if file.bytes is not populated
+      if (bytes == null && !kIsWeb && file.path != null) {
+        final ioFile = File(file.path!);
+        if (await ioFile.exists()) {
+          bytes = await ioFile.readAsBytes();
+        }
       }
 
-      // Decode the bytes into a CSV string
-      final csvString = utf8.decode(bytes);
+      if (bytes == null || bytes.isEmpty) {
+        throw Exception('Selected file is empty or could not be read.');
+      }
+
+      // Decode the bytes into a string and strip UTF-8 BOM if present
+      String csvString = utf8.decode(bytes);
+      if (csvString.startsWith('\uFEFF')) {
+        csvString = csvString.substring(1);
+      }
+
+      // Normalize line endings
+      csvString = csvString.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
+      if (csvString.isEmpty) {
+        throw Exception('The CSV file contains no content.');
+      }
+
+      // Auto-detect delimiter: check first line for delimiter (comma, semicolon, tab)
+      final firstLine = csvString.split('\n').first;
+      String delimiter = ',';
+      if (firstLine.contains(';') && !firstLine.contains(',')) {
+        delimiter = ';';
+      } else if (firstLine.contains('\t') && !firstLine.contains(',')) {
+        delimiter = '\t';
+      }
 
       // Parse the CSV content
-      final List<List<dynamic>> rows = const CsvToListConverter().convert(csvString);
+      final List<List<dynamic>> rows = CsvToListConverter(
+        fieldDelimiter: delimiter,
+        eol: '\n',
+        shouldParseNumbers: false,
+      ).convert(csvString);
 
       if (rows.isEmpty) {
-        throw Exception('The CSV file is empty.');
+        throw Exception('No data rows found in the CSV file.');
       }
 
-      // Identify headers from the first row (Row 0)
-      final headers = rows.first.map((h) => h.toString().trim().toLowerCase()).toList();
+      // Identify headers from the first row (Row 0), clean quotes/BOM/whitespace
+      final headers = rows.first
+          .map((h) => h.toString().replaceAll('\uFEFF', '').replaceAll('"', '').trim().toLowerCase())
+          .toList();
 
-      int nameIndex = headers.indexWhere((h) => h == 'name');
-      int emailIndex = headers.indexWhere((h) => h == 'email');
-      // Look for variants like "job title", "jobtitle", "title"
-      int jobTitleIndex = headers.indexWhere((h) => h.contains('job') || h == 'title');
+      int nameIndex = headers.indexWhere(
+        (h) => h == 'name' || h == 'full name' || h == 'fullname' || h.contains('name'),
+      );
+      int emailIndex = headers.indexWhere(
+        (h) => h == 'email' || h == 'e-mail' || h.contains('email') || h.contains('mail'),
+      );
+      int jobTitleIndex = headers.indexWhere(
+        (h) => h.contains('job') || h.contains('title') || h == 'role' || h == 'position',
+      );
 
       if (nameIndex == -1) {
-        // Fallback to column index 0 if header matching failed
         nameIndex = 0;
       }
       if (emailIndex == -1) {
-        // Fallback to column index 1 if header matching failed
         emailIndex = 1 < headers.length ? 1 : -1;
       }
       if (jobTitleIndex == -1) {
-        // Fallback to column index 2 if header matching failed
         jobTitleIndex = 2 < headers.length ? 2 : -1;
       }
 
       if (nameIndex == -1 || emailIndex == -1) {
-        throw Exception('Could not locate required Name or Email columns in the CSV headers.');
+        throw Exception(
+          'Could not locate required Name and Email columns in headers: ${headers.join(", ")}',
+        );
       }
 
       final List<Map<String, dynamic>> staffList = [];
@@ -72,17 +111,17 @@ class CsvUploadService {
           continue; // Skip malformed or empty rows
         }
 
-        final String name = row[nameIndex].toString().trim();
-        final String email = row[emailIndex].toString().trim().toLowerCase();
+        final String name = row[nameIndex].toString().replaceAll('"', '').trim();
+        final String email = row[emailIndex].toString().replaceAll('"', '').trim().toLowerCase();
 
-        // Check basic validation: skip header row repeating or empty fields
+        // Skip blank rows or repeated header
         if (name.isEmpty || email.isEmpty || email == 'email') {
           continue;
         }
 
         String jobTitle = '';
         if (jobTitleIndex != -1 && jobTitleIndex < row.length) {
-          jobTitle = row[jobTitleIndex].toString().trim();
+          jobTitle = row[jobTitleIndex].toString().replaceAll('"', '').trim();
         }
 
         staffList.add({
@@ -90,6 +129,12 @@ class CsvUploadService {
           'email': email,
           'jobTitle': jobTitle,
         });
+      }
+
+      if (staffList.isEmpty) {
+        throw Exception(
+          'No valid employee records found in the CSV. Please check the format.',
+        );
       }
 
       return staffList;
@@ -126,6 +171,7 @@ class CsvUploadService {
             'name': staff['name'],
             'email': email,
             'jobTitle': staff['jobTitle'],
+            'firmId': firmId,
             'status': 'invited',
             'createdAt': FieldValue.serverTimestamp(),
           });

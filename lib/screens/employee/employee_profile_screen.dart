@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart' hide AuthProvider;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -46,46 +47,65 @@ class _EmployeeProfileScreenState extends ConsumerState<EmployeeProfileScreen> {
     try {
       final email = _emailController.text.trim().toLowerCase();
 
-      // 1. Query Firms/{firmId}/PreApprovedStaff where email matches
-      final preApprovedQuery = await FirebaseFirestore.instance
-          .collection('Firms')
-          .doc(widget.firmId)
-          .collection('PreApprovedStaff')
-          .where('email', isEqualTo: email)
-          .limit(1)
-          .get();
-
-      final bool isPreApproved = preApprovedQuery.docs.isNotEmpty;
-      final String? preApprovedDocId = isPreApproved ? preApprovedQuery.docs.first.id : null;
-
-      // 2. Sign in anonymously via AuthProvider (wrapped in ChangeNotifierProvider)
-      final user = await authProvider.signInAnonymously();
+      // 1. Ensure user is authenticated (sign in anonymously for onboarding)
+      // Firestore security rules require authentication for reading PreApprovedStaff and writing memberships
+      User? user = authProvider.user;
+      if (user == null) {
+        user = await authProvider.signInAnonymously();
+      }
 
       if (user == null) {
-        throw Exception('Failed to sign in anonymously.');
+        throw Exception(authProvider.errorMessage ?? 'Failed to sign in anonymously.');
       }
 
       final uid = user.uid;
 
-      // 3. Perform Firestore batch writes atomically
+      // 2. Check if email is in PreApprovedStaff (direct doc lookup by email with query fallback)
+      bool isPreApproved = false;
+      String? preApprovedDocId;
+      try {
+        final preApprovedDoc = await FirebaseFirestore.instance
+            .collection('Firms')
+            .doc(widget.firmId)
+            .collection('PreApprovedStaff')
+            .doc(email)
+            .get();
+
+        if (preApprovedDoc.exists) {
+          isPreApproved = true;
+          preApprovedDocId = preApprovedDoc.id;
+        } else {
+          final preApprovedQuery = await FirebaseFirestore.instance
+              .collection('Firms')
+              .doc(widget.firmId)
+              .collection('PreApprovedStaff')
+              .where('email', isEqualTo: email)
+              .limit(1)
+              .get();
+          if (preApprovedQuery.docs.isNotEmpty) {
+            isPreApproved = true;
+            preApprovedDocId = preApprovedQuery.docs.first.id;
+          }
+        }
+      } catch (e) {
+        debugPrint('⚠️ PreApprovedStaff check error: $e');
+      }
+
+      // 3. Perform Firestore batch writes atomically (membership starts as pending approval)
       await DBService.instance.registerEmployeeProfile(
         uid: uid,
         firmId: widget.firmId,
         name: _nameController.text.trim(),
         email: email,
         jobTitle: _titleController.text.trim(),
-        isApproved: isPreApproved,
+        isApproved: false,
         preApprovedDocId: preApprovedDocId,
       );
 
-      // 4. Route based on approval status
+      // 4. Always route to PendingApprovalScreen to await admin review
       if (mounted) {
-        if (isPreApproved) {
-          SnackbarService().showSnackbar('Pre-approval matched! Welcome to your workspace.');
-          context.go('/');
-        } else {
-          context.go('/pending-approval?firmId=${widget.firmId}&uid=$uid');
-        }
+        SnackbarService().showSnackbar('Access request submitted! Waiting for admin approval.');
+        context.go('/pending-approval?firmId=${widget.firmId}&uid=$uid');
       }
     } catch (e) {
       if (mounted) {

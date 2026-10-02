@@ -512,10 +512,10 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                     fontWeight: FontWeight.bold,
                   ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             QrImageView(
               data: inviteUri,
-              size: 200,
+              size: 180,
               errorCorrectionLevel: QrErrorCorrectLevel.M,
               eyeStyle: QrEyeStyle(
                 eyeShape: QrEyeShape.square,
@@ -526,36 +526,106 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                 color: primaryColor,
               ),
             ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      await Clipboard.setData(ClipboardData(text: inviteUri));
-                      SnackbarService().showSnackbar('Invite link copied!');
-                    },
-                    icon: const Icon(Icons.copy, size: 18),
-                    label: const Text('Copy Link'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: primaryColor,
-                      side: BorderSide(color: primaryColor),
+            const SizedBox(height: 14),
+            // Firm ID manual entry banner
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: primaryColor.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: primaryColor.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.vpn_key_outlined, color: primaryColor, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'FIRM ID (MANUAL JOIN CODE)',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey[400],
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        SelectableText(
+                          firmId,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: ElevatedButton.icon(
+                  IconButton(
+                    icon: const Icon(Icons.copy, size: 18),
+                    color: primaryColor,
+                    tooltip: 'Copy Firm ID',
                     onPressed: () async {
-                      await Share.share(inviteUri);
+                      await Clipboard.setData(ClipboardData(text: firmId));
+                      SnackbarService().showSnackbar('Firm ID copied to clipboard!');
                     },
-                    icon: const Icon(Icons.share, size: 18),
-                    label: const Text('Share'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: primaryColor,
-                      foregroundColor: Colors.white,
-                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Employees can scan this QR code, tap the invite link, or enter this Firm ID in ProntoChat.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: Colors.grey[400]),
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: firmId));
+                    SnackbarService().showSnackbar('Firm ID copied to clipboard!');
+                  },
+                  icon: const Icon(Icons.tag, size: 16),
+                  label: const Text('Copy Firm ID'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: primaryColor,
+                    side: BorderSide(color: primaryColor),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: inviteUri));
+                    SnackbarService().showSnackbar('Invite link copied!');
+                  },
+                  icon: const Icon(Icons.copy, size: 16),
+                  label: const Text('Copy Link'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: primaryColor,
+                    side: BorderSide(color: primaryColor),
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    await Share.share(
+                      'Join our workspace on ProntoChat!\n\n'
+                      'Option 1 (Link): $inviteUri\n'
+                      'Option 2 (Manual): Open ProntoChat and enter Firm ID: $firmId',
+                    );
+                  },
+                  icon: const Icon(Icons.share, size: 16),
+                  label: const Text('Share'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    foregroundColor: Colors.white,
                   ),
                 ),
               ],
@@ -801,35 +871,19 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
           itemBuilder: (context, index) {
             final m = memberships[index];
             final isApproving = _actionLoading['approve_${m.membershipId}'] == true;
+            final isRejecting = _actionLoading['reject_${m.membershipId}'] == true;
 
             return FutureBuilder<AppUser?>(
               future: DBService.instance.getUserDetails(m.uid),
               builder: (context, userSnapshot) {
-                if (userSnapshot.connectionState == ConnectionState.waiting) {
-                  return const ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: CircleAvatar(
-                      child: SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
-                    title: Text('Loading user details...'),
-                  );
-                }
-                if (userSnapshot.hasError || !userSnapshot.hasData || userSnapshot.data == null) {
-                  return ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const CircleAvatar(child: Icon(Icons.error_outline)),
-                    title: Text('Unknown User (${m.uid})'),
-                  );
-                }
-
-                final appUser = userSnapshot.data!;
-                final name = appUser.name;
-                final email = appUser.email;
-                final avatarUrl = appUser.image ??
+                final appUser = userSnapshot.data;
+                final name = (appUser != null && appUser.name.isNotEmpty)
+                    ? appUser.name
+                    : 'Employee (${m.uid.substring(0, m.uid.length > 6 ? 6 : m.uid.length)})';
+                final email = (appUser != null && appUser.email.isNotEmpty)
+                    ? appUser.email
+                    : 'UID: ${m.uid}';
+                final avatarUrl = appUser?.image ??
                     'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(name)}';
 
                 return ListTile(
@@ -842,28 +896,57 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                     email,
                     style: TextStyle(color: Colors.grey[400], fontSize: 12),
                   ),
-                  trailing: ElevatedButton(
-                    onPressed: isApproving
-                        ? null
-                        : () => _approveMembership(context, m.membershipId, name),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: primaryColor,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      OutlinedButton(
+                        onPressed: (isApproving || isRejecting)
+                            ? null
+                            : () => _rejectMembership(context, m.membershipId, name),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red[400],
+                          side: BorderSide(color: Colors.red[400]!),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: isRejecting
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.red,
+                                ),
+                              )
+                            : const Text('Reject'),
                       ),
-                    ),
-                    child: isApproving
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Text('Approve'),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: (isApproving || isRejecting)
+                            ? null
+                            : () => _approveMembership(context, m.membershipId, name),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryColor,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: isApproving
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text('Approve'),
+                      ),
+                    ],
                   ),
                 );
               },
@@ -915,6 +998,8 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
           );
         }
 
+        final currentUid = FirebaseAuth.instance.currentUser?.uid;
+
         return ListView.separated(
           padding: const EdgeInsets.all(16),
           itemCount: memberships.length,
@@ -922,35 +1007,19 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
           itemBuilder: (context, index) {
             final m = memberships[index];
             final isRevoking = _actionLoading['revoke_${m.membershipId}'] == true;
+            final isSelfAdmin = (currentUid != null && m.uid == currentUid) || m.role.name == 'admin';
 
             return FutureBuilder<AppUser?>(
               future: DBService.instance.getUserDetails(m.uid),
               builder: (context, userSnapshot) {
-                if (userSnapshot.connectionState == ConnectionState.waiting) {
-                  return const ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: CircleAvatar(
-                      child: SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
-                    title: Text('Loading user details...'),
-                  );
-                }
-                if (userSnapshot.hasError || !userSnapshot.hasData || userSnapshot.data == null) {
-                  return ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const CircleAvatar(child: Icon(Icons.error_outline)),
-                    title: Text('Unknown User (${m.uid})'),
-                  );
-                }
-
-                final appUser = userSnapshot.data!;
-                final name = appUser.name;
-                final email = appUser.email;
-                final avatarUrl = appUser.image ??
+                final appUser = userSnapshot.data;
+                final name = (appUser != null && appUser.name.isNotEmpty)
+                    ? appUser.name
+                    : 'Staff Member (${m.uid.substring(0, m.uid.length > 6 ? 6 : m.uid.length)})';
+                final email = (appUser != null && appUser.email.isNotEmpty)
+                    ? appUser.email
+                    : 'UID: ${m.uid}';
+                final avatarUrl = appUser?.image ??
                     'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(name)}';
 
                 return ListTile(
@@ -958,34 +1027,54 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                   leading: CircleAvatar(
                     backgroundImage: NetworkImage(avatarUrl),
                   ),
-                  title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  title: Row(
+                    children: [
+                      Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      if (isSelfAdmin) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'Admin',
+                            style: TextStyle(color: Colors.blue, fontSize: 10, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                   subtitle: Text(
                     email,
                     style: TextStyle(color: Colors.grey[400], fontSize: 12),
                   ),
-                  trailing: ElevatedButton(
-                    onPressed: isRevoking
-                        ? null
-                        : () => _revokeMembership(context, m.membershipId, name),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red[600],
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: isRevoking
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
+                  trailing: isSelfAdmin
+                      ? null
+                      : ElevatedButton(
+                          onPressed: isRevoking
+                              ? null
+                              : () => _revokeMembership(context, m.membershipId, name),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red[600],
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                          )
-                        : const Text('Revoke Access'),
-                  ),
+                          ),
+                          child: isRevoking
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text('Revoke Access'),
+                        ),
                 );
               },
             );
@@ -1009,6 +1098,47 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     } finally {
       if (mounted) {
         setState(() => _actionLoading['approve_$membershipId'] = false);
+      }
+    }
+  }
+
+  Future<void> _rejectMembership(
+    BuildContext context,
+    String membershipId,
+    String name,
+  ) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reject Access Request?'),
+        content: Text(
+          'Are you sure you want to reject $name\'s request to join the firm?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red[600]),
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _actionLoading['reject_$membershipId'] = true);
+    try {
+      await DBService.instance.updateMembershipStatus(membershipId, 'rejected');
+      SnackbarService().showSnackbar('$name\'s access request was rejected.');
+    } catch (e) {
+      SnackbarService().showSnackbar('Error rejecting member: $e', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() => _actionLoading['reject_$membershipId'] = false);
       }
     }
   }

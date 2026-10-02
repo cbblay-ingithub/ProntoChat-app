@@ -41,6 +41,7 @@ Map<String, dynamic> _$$MembershipImplToJson(_$MembershipImpl instance) =>
 const _$MembershipStatusEnumMap = {
   MembershipStatus.pending: 'pending',
   MembershipStatus.approved: 'approved',
+  MembershipStatus.rejected: 'rejected',
   MembershipStatus.revoked: 'revoked',
 };
 

@@ -21,24 +21,31 @@ class _BulkOnboardingViewState extends State<BulkOnboardingView> {
   List<Map<String, dynamic>> _parsedStaff = [];
   bool _isLoading = false;
   bool _isUploading = false;
+  String? _errorMessage;
 
   Future<void> _handlePickCsv() async {
     setState(() {
       _isLoading = true;
+      _errorMessage = null;
     });
 
     try {
       final staffList = await CsvUploadService.instance.pickAndParseCsv();
+      if (!mounted) return;
       setState(() {
         _parsedStaff = staffList;
       });
       if (staffList.isNotEmpty) {
         SnackbarService().showSnackbar('Loaded ${staffList.length} staff records from CSV.');
-      } else {
-        SnackbarService().showSnackbar('CSV import was cancelled or file was empty.');
       }
     } catch (e) {
-      SnackbarService().showSnackbar('Error parsing CSV: ${e.toString()}', isError: true);
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      if (mounted) {
+        setState(() {
+          _errorMessage = msg;
+        });
+      }
+      SnackbarService().showSnackbar(msg, isError: true);
     } finally {
       if (mounted) {
         setState(() {
@@ -53,16 +60,24 @@ class _BulkOnboardingViewState extends State<BulkOnboardingView> {
 
     setState(() {
       _isUploading = true;
+      _errorMessage = null;
     });
 
     try {
       await CsvUploadService.instance.uploadPreApprovedStaff(widget.firmId, _parsedStaff);
+      if (!mounted) return;
       SnackbarService().showSnackbar('Successfully pre-approved ${_parsedStaff.length} employees!');
       setState(() {
         _parsedStaff = [];
       });
     } catch (e) {
-      SnackbarService().showSnackbar('Upload failed: ${e.toString()}', isError: true);
+      final msg = 'Upload failed: ${e.toString().replaceFirst("Exception: ", "")}';
+      if (mounted) {
+        setState(() {
+          _errorMessage = msg;
+        });
+      }
+      SnackbarService().showSnackbar(msg, isError: true);
     } finally {
       if (mounted) {
         setState(() {
@@ -124,7 +139,30 @@ class _BulkOnboardingViewState extends State<BulkOnboardingView> {
                       ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                if (_errorMessage != null) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.redAccent.withValues(alpha: 0.5)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.error_outline, color: Colors.redAccent, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _errorMessage!,
+                            style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 if (_parsedStaff.isEmpty) ...[
                   Text(
                     'Upload a CSV file containing your existing staff list. Bypasses manual onboarding approval queues.',
@@ -204,6 +242,38 @@ class _BulkOnboardingViewState extends State<BulkOnboardingView> {
                         }).toList(),
                       ),
                     ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      OutlinedButton(
+                        onPressed: () => setState(() {
+                          _parsedStaff = [];
+                          _errorMessage = null;
+                        }),
+                        child: const Text('Pick Different File'),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton.icon(
+                        onPressed: _isUploading ? null : _handleConfirmImport,
+                        icon: _isUploading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.cloud_upload),
+                        label: Text('Confirm & Import ${_parsedStaff.length} Employees'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: widget.primaryColor,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ],

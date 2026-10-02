@@ -54,7 +54,39 @@ class PendingApprovalScreen extends StatelessWidget {
             });
           }
 
-          if (status == 'revoked' || status == 'rejected') {
+          if (status == 'rejected') {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.cancel_outlined, size: 64, color: Colors.red),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Access Request Rejected',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Your request to join this firm has been rejected by the administrator.',
+                      style: TextStyle(color: Colors.grey[400]),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    OutlinedButton.icon(
+                      onPressed: () => context.go('/login'),
+                      icon: const Icon(Icons.arrow_back, size: 16),
+                      label: const Text('Back to Login'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          if (status == 'revoked') {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
@@ -64,15 +96,21 @@ class PendingApprovalScreen extends StatelessWidget {
                     const Icon(Icons.block, size: 64, color: Colors.red),
                     const SizedBox(height: 16),
                     const Text(
-                      'Your access to this firm has been revoked.',
+                      'Access Revoked',
                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Please contact your administrator for more information.',
-                      style: TextStyle(color: Colors.grey[500]),
+                      'Your access to this firm has been revoked by the administrator.',
+                      style: TextStyle(color: Colors.grey[400]),
                       textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    OutlinedButton.icon(
+                      onPressed: () => context.go('/login'),
+                      icon: const Icon(Icons.arrow_back, size: 16),
+                      label: const Text('Back to Login'),
                     ),
                   ],
                 ),
@@ -103,6 +141,13 @@ class PendingApprovalScreen extends StatelessWidget {
                     'We will automatically connect you once approved.',
                     style: TextStyle(color: Colors.grey[500], fontSize: 12),
                     textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  TextButton.icon(
+                    onPressed: () => context.go('/login'),
+                    icon: const Icon(Icons.arrow_back, size: 16),
+                    label: const Text('Cancel & Back to Login'),
+                    style: TextButton.styleFrom(foregroundColor: Colors.grey[400]),
                   ),
                 ],
               ),

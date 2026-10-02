@@ -8,6 +8,7 @@ part 'membership.g.dart';
 enum MembershipStatus {
   pending, // Waiting for admin approval (employee onboarding)
   approved, // Approved and active
+  rejected, // Access rejected by admin
   revoked, // Access removed by admin
 }
 
@@ -88,9 +89,11 @@ extension MembershipFirestore on Membership {
 
 /// Helper to parse status string to enum
 MembershipStatus _parseMembershipStatus(String? statusStr) {
+  if (statusStr == 'active') return MembershipStatus.approved;
+  if (statusStr == 'rejected') return MembershipStatus.rejected;
   return MembershipStatus.values.firstWhere(
     (status) => status.name == statusStr,
-    orElse: () => MembershipStatus.approved,
+    orElse: () => MembershipStatus.pending,
   );
 }
 

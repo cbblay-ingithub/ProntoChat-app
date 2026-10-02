@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
@@ -33,6 +35,7 @@ class _RegPageState extends State<RegistrationPage> {
 
   // Profile image — null means user hasn't picked one yet
   File? _selectedImage;
+  Uint8List? _selectedImageBytes;
   final ImagePicker _imagePicker = ImagePicker();
 
   // Firebase + app service instances
@@ -135,16 +138,21 @@ class _RegPageState extends State<RegistrationPage> {
               ),
             ),
             child: ClipOval(
-              child: _selectedImage != null
-                  // User has chosen a photo — show it
-                  ? Image.file(
-                      _selectedImage!,
+              child: _selectedImageBytes != null
+                  ? Image.memory(
+                      _selectedImageBytes!,
                       fit: BoxFit.cover,
                       width: size,
                       height: size,
                     )
-                  // No photo yet — keep the existing animated orb
-                  : AnimatedOrbSwitcher(size: size),
+                  : (_selectedImage != null
+                      ? Image.file(
+                          _selectedImage!,
+                          fit: BoxFit.cover,
+                          width: size,
+                          height: size,
+                        )
+                      : AnimatedOrbSwitcher(size: size)),
             ),
           ),
 
@@ -247,7 +255,7 @@ class _RegPageState extends State<RegistrationPage> {
               ),
 
               // Only show "Remove" when a photo has already been selected
-              if (_selectedImage != null)
+              if (_selectedImage != null || _selectedImageBytes != null)
                 ListTile(
                   leading: CircleAvatar(
                     backgroundColor: Colors.red.withOpacity(0.12),
@@ -258,7 +266,10 @@ class _RegPageState extends State<RegistrationPage> {
                       style: TextStyle(color: Colors.redAccent)),
                   onTap: () {
                     Navigator.pop(context);
-                    setState(() => _selectedImage = null);
+                    setState(() {
+                      _selectedImage = null;
+                      _selectedImageBytes = null;
+                    });
                   },
                 ),
             ],
@@ -280,7 +291,13 @@ class _RegPageState extends State<RegistrationPage> {
       );
 
       if (picked != null) {
-        setState(() => _selectedImage = File(picked.path));
+        final bytes = await picked.readAsBytes();
+        setState(() {
+          _selectedImageBytes = bytes;
+          if (!kIsWeb) {
+            _selectedImage = File(picked.path);
+          }
+        });
       }
     } catch (e) {
       // This typically happens when the user denies camera/gallery permissions.
@@ -517,9 +534,9 @@ class _RegPageState extends State<RegistrationPage> {
       //                             (no external dependency, just a URL).
       String avatarUrl;
 
-      if (_selectedImage != null) {
-        // Uploads to profile_images/<uid>.jpg and returns the download URL.
-        // CloudStorageService already has this method wired up.
+      if (_selectedImageBytes != null) {
+        avatarUrl = await _storageService.uploadUserImageBytes(uid, _selectedImageBytes!);
+      } else if (_selectedImage != null) {
         avatarUrl = await _storageService.uploadUserImage(uid, _selectedImage!);
       } else {
         // DiceBear initials — clean, on-brand fallback. Swap the style slug

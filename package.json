@@ -1,0 +1,15 @@
+{
+  "name": "pronto-chat-serverless",
+  "version": "1.0.0",
+  "description": "Serverless API endpoints and onboarding bridge for ProntoChat running on Vercel and Firebase Spark Plan",
+  "main": "api/health.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

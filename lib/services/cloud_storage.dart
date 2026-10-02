@@ -34,6 +34,27 @@ class CloudStorageService {
       rethrow; // Rethrow to handle in the calling function
     }
   }
+
+  /// Upload user profile image using raw bytes (Web and Mobile compatible)
+  Future<String> uploadUserImageBytes(String uid, Uint8List bytes) async {
+    try {
+      Reference storageRef = _storage.ref().child(_profileImagesPath).child('$uid.jpg');
+      SettableMetadata metadata = SettableMetadata(
+        contentType: 'image/jpeg',
+        customMetadata: {
+          'uid': uid,
+          'uploadedAt': DateTime.now().toIso8601String(),
+        },
+      );
+      TaskSnapshot uploadTask = await storageRef.putData(bytes, metadata);
+      String downloadUrl = await uploadTask.ref.getDownloadURL();
+      print("Image bytes uploaded successfully for user: $uid");
+      return downloadUrl;
+    } catch (e) {
+      print("Error uploading user image bytes: $e");
+      rethrow;
+    }
+  }
   
   /// Upload user profile image with custom file name
   Future<String> uploadUserImageWithCustomName(String uid, File image, {String? fileName}) async {

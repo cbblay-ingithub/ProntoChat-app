@@ -11,8 +11,13 @@ service cloud.firestore {
     }
 
     function isConversationMember(conversationId) {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/Users/$(request.auth.uid)/conversations/$(conversationId));
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/Users/$(request.auth.uid)/conversations/$(conversationId)) ||
+        (existsAfter(/databases/$(database)/documents/Conversations/$(conversationId)) &&
+         request.auth.uid in getAfter(/databases/$(database)/documents/Conversations/$(conversationId)).data.members) ||
+        (exists(/databases/$(database)/documents/Conversations/$(conversationId)) &&
+         request.auth.uid in get(/databases/$(database)/documents/Conversations/$(conversationId)).data.members)
+      );
     }
 
     // Checks if the current user has an approved membership document for the specified firmId.
@@ -25,8 +30,8 @@ service cloud.firestore {
 
     // ── Users ────────────────────────────────────────────────────────────
     match /Users/{userId} {
-      // User can only read or write their own profile
-      allow read: if isOwner(userId);
+      // Any signed in user can read user profiles (name, email, avatar for team and admin views)
+      allow read: if isSignedIn();
       allow create: if isOwner(userId);
       allow update: if isOwner(userId);
       allow delete: if false;
@@ -65,8 +70,8 @@ service cloud.firestore {
 
     // ── Firms ──────────────────
     match /Firms/{firmId} {
-      // Firms can only be read by users who have status == "approved" for that firm
-      allow read: if isApprovedMember(firmId);
+      // Allow reading firm info (name, branding) so prospective and onboarding employees can view workspace details
+      allow read: if true;
       // Allow creation if the creator matches the adminId field
       allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
       // Only the admin of the firm is allowed to modify the firm settings (colors, name)
@@ -93,6 +98,19 @@ service cloud.firestore {
         allow read: if isSignedIn();
         allow update: if isSignedIn() && request.resource.data.status == 'joined' && resource.data.status == 'invited';
       }
+
+      // ── Messages Subcollection ──────────────────
+      match /Messages/{messageId} {
+        allow read: if isApprovedMember(firmId);
+        allow create: if isApprovedMember(firmId) && request.resource.data.senderId == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+
+    // ── PreApprovedStaff Collection Group ──────────
+    match /{path=**}/PreApprovedStaff/{docId} {
+      allow read: if isSignedIn();
+      allow update: if isSignedIn() && request.resource.data.status == 'joined' && resource.data.status == 'invited';
     }
 
     // ── Memberships ───────────────
@@ -103,18 +121,14 @@ service cloud.firestore {
         get(/databases/$(database)/documents/Firms/$(resource.data.firmId)).data.adminId == request.auth.uid
       );
       
-      // Anyone authenticated (even anonymously) can request membership for themselves:
-      // - status "pending"
-      // - status "approved" (if their email is pre-approved)
-      // Or the Firm Admin can invite them
+      // Anyone authenticated (even anonymously) can request membership for themselves with "pending" status,
+      // or the Firm Admin can create/invite them
       allow create: if isSignedIn() && (
         (request.resource.data.status == 'pending' && request.resource.data.uid == request.auth.uid) ||
-        (request.resource.data.status == 'approved' && request.resource.data.uid == request.auth.uid &&
-         exists(/databases/$(database)/documents/Firms/$(request.resource.data.firmId)/PreApprovedStaff/$(request.resource.data.email))) ||
         (get(/databases/$(database)/documents/Firms/$(request.resource.data.firmId)).data.adminId == request.auth.uid)
       );
       
-      // Only the Firm Admin can approve or revoke memberships
+      // Only the Firm Admin can approve, reject, or revoke memberships
       allow update: if isSignedIn() && (
         get(/databases/$(database)/documents/Firms/$(resource.data.firmId)).data.adminId == request.auth.uid
       );

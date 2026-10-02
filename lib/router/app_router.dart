@@ -11,6 +11,7 @@ import '../screens/employee/employee_onboarding_screen.dart';
 import '../screens/employee/employee_profile_screen.dart';
 import '../screens/employee/pending_approval_screen.dart';
 import '../screens/employee/main_chat_screen.dart';
+import '../screens/employee/firm_chat_screen.dart';
 import '../providers/deep_link_provider.dart';
 import '../services/navigation_service.dart';
 
@@ -73,6 +74,19 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/main-chat',
         builder: (context, state) => const MainChatScreen(),
+      ),
+      GoRoute(
+        path: '/firm-chat',
+        builder: (context, state) {
+          final firmId = state.uri.queryParameters['firmId'] ?? '';
+          final uid = state.uri.queryParameters['uid'] ?? '';
+          final name = state.uri.queryParameters['name'] ?? '';
+          return FirmChatScreen(
+            firmId: firmId,
+            uid: uid,
+            name: name,
+          );
+        },
       ),
     ],
   );

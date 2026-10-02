@@ -360,6 +360,9 @@ class AuthProvider extends ChangeNotifier {
       case 'operation-not-allowed':
         errorMessage = 'Email/password sign-in is not enabled.';
         break;
+      case 'admin-restricted-operation':
+        errorMessage = 'Anonymous sign-in is disabled in Firebase Console. Please enable it under Authentication > Sign-in method.';
+        break;
       default:
         errorMessage = e.message ?? 'Authentication failed.';
     }
