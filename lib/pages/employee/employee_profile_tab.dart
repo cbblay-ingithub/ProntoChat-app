@@ -24,9 +24,9 @@ class EmployeeProfileTab extends StatelessWidget {
       builder: (dialogCtx) => AlertDialog(
         backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Log Out', style: TextStyle(color: Colors.white)),
+        title: const Text('Sign Out of This Device', style: TextStyle(color: Colors.white)),
         content: const Text(
-          'Are you sure you want to sign out of your workspace?',
+          'Are you sure you want to sign out of this device? This will clear your local session only and will not change your workspace membership or access status.',
           style: TextStyle(color: Colors.grey),
         ),
         actions: [
@@ -36,7 +36,7 @@ class EmployeeProfileTab extends StatelessWidget {
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogCtx, true),
-            child: const Text('Log Out', style: TextStyle(color: Colors.redAccent)),
+            child: const Text('Sign Out', style: TextStyle(color: Colors.redAccent)),
           ),
         ],
       ),

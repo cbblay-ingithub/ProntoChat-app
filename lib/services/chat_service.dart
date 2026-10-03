@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/chat_message.dart';
 
 class ChatService {
@@ -12,6 +13,7 @@ class ChatService {
   // Local fallback storage ensuring responsive employee chat even prior to cloud sync
   final List<ChatMessage> _fallbackMessages = [];
   final Map<String, StreamController<List<ChatMessage>>> _activeControllers = {};
+  final Map<String, StreamSubscription> _activeSubscriptions = {};
 
   void _initSeedMessages() {
     if (_fallbackMessages.isEmpty) {
@@ -49,8 +51,16 @@ class ChatService {
     // Immediately push available messages so there is no loading freeze
     controller.add(List<ChatMessage>.from(_fallbackMessages));
 
+    // Cancel existing subscription if any to prevent stale or duplicate listeners
+    _activeSubscriptions[firmId]?.cancel();
+
+    // Guard: Do not attach Firestore stream if user is not authenticated yet
+    if (FirebaseAuth.instance.currentUser == null) {
+      return controller.stream;
+    }
+
     try {
-      _db
+      final sub = _db
           .collection('Firms')
           .doc(firmId)
           .collection('Messages')
@@ -74,6 +84,7 @@ class ChatService {
           controller.add(List<ChatMessage>.from(_fallbackMessages));
         },
       );
+      _activeSubscriptions[firmId] = sub;
     } catch (e) {
       debugPrint('[ChatService] Firestore listener notice: $e');
     }

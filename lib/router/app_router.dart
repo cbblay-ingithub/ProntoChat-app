@@ -10,7 +10,6 @@ import '../pages/search_page.dart';
 import '../screens/employee/employee_onboarding_screen.dart';
 import '../screens/employee/employee_profile_screen.dart';
 import '../screens/employee/pending_approval_screen.dart';
-import '../screens/employee/main_chat_screen.dart';
 import '../screens/employee/firm_chat_screen.dart';
 import '../providers/deep_link_provider.dart';
 import '../services/navigation_service.dart';
@@ -70,10 +69,6 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           final uid = state.uri.queryParameters['uid'] ?? '';
           return PendingApprovalScreen(firmId: firmId, uid: uid);
         },
-      ),
-      GoRoute(
-        path: '/main-chat',
-        builder: (context, state) => const MainChatScreen(),
       ),
       GoRoute(
         path: '/firm-chat',

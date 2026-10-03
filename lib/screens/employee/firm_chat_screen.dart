@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart' as provider;
 import '../../models/chat_message.dart';
 import '../../models/firm.dart';
@@ -93,8 +94,11 @@ class _FirmChatScreenState extends State<FirmChatScreen> {
             leading: IconButton(
               icon: const Icon(Icons.arrow_back, color: Colors.white),
               onPressed: () {
-                final auth = provider.Provider.of<AuthProvider>(context, listen: false);
-                auth.signOut();
+                if (Navigator.of(context).canPop()) {
+                  Navigator.of(context).pop();
+                } else {
+                  context.go('/home');
+                }
               },
             ),
             title: Row(
@@ -158,14 +162,6 @@ class _FirmChatScreenState extends State<FirmChatScreen> {
                     context,
                     MaterialPageRoute(builder: (_) => const UserSearchPage()),
                   );
-                },
-              ),
-              IconButton(
-                icon: const Icon(Icons.logout, color: Colors.grey),
-                tooltip: 'Sign out',
-                onPressed: () {
-                  final auth = provider.Provider.of<AuthProvider>(context, listen: false);
-                  auth.signOut();
                 },
               ),
             ],
