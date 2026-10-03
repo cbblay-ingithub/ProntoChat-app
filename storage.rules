@@ -12,6 +12,14 @@ service firebase.storage {
         firestore.get(/databases/$(database)/documents/Firms/$(firmId)).data.adminId == request.auth.uid;
     }
 
+    function isApprovedMember(firmId) {
+      return isSignedIn() &&
+        firestore.exists(/databases/(default)/documents/Memberships/$(request.auth.uid)) &&
+        firestore.get(/databases/(default)/documents/Memberships/$(request.auth.uid)).data.firmId == firmId &&
+        (firestore.get(/databases/(default)/documents/Memberships/$(request.auth.uid)).data.status == 'approved' ||
+         firestore.get(/databases/(default)/documents/Memberships/$(request.auth.uid)).data.status == 'active');
+    }
+
     // Profile Images Collection
     match /profile_images/{fileName} {
       allow read: if isSignedIn();
@@ -26,6 +34,12 @@ service firebase.storage {
       // Only the registered Firm Admin can upload or modify the brand logo
       allow write: if isSignedIn() &&
         isFirmAdmin(request.resource.metadata.firmId);
+    }
+
+    // Firm attachments/files (restricted to approved members)
+    match /firm_attachments/{firmId}/{fileName} {
+      allow read: if isApprovedMember(firmId);
+      allow write: if isApprovedMember(firmId);
     }
   }
 }

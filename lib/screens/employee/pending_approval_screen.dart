@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -76,7 +77,10 @@ class PendingApprovalScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 24),
                     OutlinedButton.icon(
-                      onPressed: () => context.go('/login'),
+                      onPressed: () async {
+                        await FirebaseAuth.instance.signOut();
+                        if (context.mounted) context.go('/login');
+                      },
                       icon: const Icon(Icons.arrow_back, size: 16),
                       label: const Text('Back to Login'),
                     ),
@@ -108,7 +112,10 @@ class PendingApprovalScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 24),
                     OutlinedButton.icon(
-                      onPressed: () => context.go('/login'),
+                      onPressed: () async {
+                        await FirebaseAuth.instance.signOut();
+                        if (context.mounted) context.go('/login');
+                      },
                       icon: const Icon(Icons.arrow_back, size: 16),
                       label: const Text('Back to Login'),
                     ),
@@ -144,7 +151,10 @@ class PendingApprovalScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 24),
                   TextButton.icon(
-                    onPressed: () => context.go('/login'),
+                    onPressed: () async {
+                      await FirebaseAuth.instance.signOut();
+                      if (context.mounted) context.go('/login');
+                    },
                     icon: const Icon(Icons.arrow_back, size: 16),
                     label: const Text('Cancel & Back to Login'),
                     style: TextButton.styleFrom(foregroundColor: Colors.grey[400]),

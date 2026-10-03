@@ -789,7 +789,7 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: DefaultTabController(
-        length: 2,
+        length: 3,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -800,11 +800,15 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
               tabs: const [
                 Tab(
                   icon: Icon(Icons.hourglass_empty),
-                  text: 'Pending Requests',
+                  text: 'Pending',
                 ),
                 Tab(
                   icon: Icon(Icons.people),
-                  text: 'Active Staff',
+                  text: 'Active',
+                ),
+                Tab(
+                  icon: Icon(Icons.block),
+                  text: 'Revoked',
                 ),
               ],
             ),
@@ -814,6 +818,7 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                 children: [
                   _buildPendingRequestsTab(context, firmId, primaryColor),
                   _buildActiveStaffTab(context, firmId, primaryColor),
+                  _buildRevokedStaffTab(context, firmId, primaryColor),
                 ],
               ),
             ),
@@ -1174,12 +1179,174 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     setState(() => _actionLoading['revoke_$membershipId'] = true);
     try {
       await DBService.instance.updateMembershipStatus(membershipId, 'revoked');
-      SnackbarService().showSnackbar('$name revoked access successfully.');
+      SnackbarService().showSnackbar('$name access revoked successfully.');
     } catch (e) {
       SnackbarService().showSnackbar('Error revoking member: $e', isError: true);
     } finally {
       if (mounted) {
         setState(() => _actionLoading['revoke_$membershipId'] = false);
+      }
+    }
+  }
+
+  /// Step 4: The "Revoked Staff" View
+  Widget _buildRevokedStaffTab(
+    BuildContext context,
+    String firmId,
+    Color primaryColor,
+  ) {
+    return StreamBuilder<List<Membership>>(
+      stream: DBService.instance.getMembershipsByStatus(firmId, 'revoked'),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: Text(
+              'Error loading revoked staff: ${snapshot.error}',
+              style: const TextStyle(color: Colors.red),
+            ),
+          );
+        }
+
+        final memberships = snapshot.data ?? [];
+        if (memberships.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.check_circle_outline, size: 48, color: Colors.grey[600]),
+                  const SizedBox(height: 8),
+                  Text(
+                    'No revoked staff members',
+                    style: TextStyle(color: Colors.grey[500], fontSize: 14),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: memberships.length,
+          separatorBuilder: (context, index) => const Divider(),
+          itemBuilder: (context, index) {
+            final m = memberships[index];
+            final isRestoring = _actionLoading['restore_${m.membershipId}'] == true;
+
+            return FutureBuilder<AppUser?>(
+              future: DBService.instance.getUserDetails(m.uid),
+              builder: (context, userSnapshot) {
+                final appUser = userSnapshot.data;
+                final name = (appUser != null && appUser.name.isNotEmpty)
+                    ? appUser.name
+                    : 'Staff Member (${m.uid.substring(0, m.uid.length > 6 ? 6 : m.uid.length)})';
+                final email = (appUser != null && appUser.email.isNotEmpty)
+                    ? appUser.email
+                    : 'UID: ${m.uid}';
+                final avatarUrl = appUser?.image ??
+                    'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(name)}';
+
+                return ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: CircleAvatar(
+                    backgroundImage: NetworkImage(avatarUrl),
+                  ),
+                  title: Row(
+                    children: [
+                      Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'Revoked',
+                          style: TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                  subtitle: Text(
+                    email,
+                    style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                  ),
+                  trailing: ElevatedButton.icon(
+                    onPressed: isRestoring
+                        ? null
+                        : () => _restoreMembership(context, m.membershipId, name),
+                    icon: const Icon(Icons.restore, size: 16),
+                    label: isRestoring
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Text('Restore Access'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green[700],
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _restoreMembership(
+    BuildContext context,
+    String membershipId,
+    String name,
+  ) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Restore Access?'),
+        content: Text(
+          'Are you sure you want to restore workspace access for $name?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green[700],
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _actionLoading['restore_$membershipId'] = true);
+    try {
+      await DBService.instance.updateMembershipStatus(membershipId, 'approved');
+      SnackbarService().showSnackbar('$name access restored successfully.');
+    } catch (e) {
+      SnackbarService().showSnackbar('Error restoring member: $e', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() => _actionLoading['restore_$membershipId'] = false);
       }
     }
   }

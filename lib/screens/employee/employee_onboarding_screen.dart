@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class EmployeeOnboardingScreen extends StatefulWidget {
   final String firmId;
@@ -17,7 +19,37 @@ class _EmployeeOnboardingScreenState extends State<EmployeeOnboardingScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null && !currentUser.isAnonymous) {
+        try {
+          final doc = await FirebaseFirestore.instance
+              .collection('Memberships')
+              .doc(currentUser.uid)
+              .get();
+
+          if (mounted && doc.exists) {
+            final data = doc.data();
+            final memberFirmId = data?['firmId'] as String?;
+            final status = data?['status'] as String?;
+
+            if (memberFirmId == widget.firmId) {
+              if (status == 'approved' || status == 'active') {
+                context.go('/home');
+                return;
+              } else if (status == 'pending') {
+                context.go('/pending-approval?firmId=${widget.firmId}&uid=${currentUser.uid}');
+                return;
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('Error checking membership in onboarding screen: $e');
+        }
+      }
+
       if (mounted) {
         context.go('/employee-profile?firmId=${widget.firmId}');
       }

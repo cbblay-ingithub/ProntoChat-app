@@ -82,11 +82,11 @@ class DBService {
   /// Stamp the user's lastSeen field — call this on app resume / login.
   Future<void> updateLastSeen(String uid) async {
     try {
-      await _db.collection(_userCollection).doc(uid).update({
+      await _db.collection(_userCollection).doc(uid).set({
         'lastSeen': FieldValue.serverTimestamp(),
-      });
+      }, SetOptions(merge: true));
     } catch (e) {
-      print('❌ Error updating lastSeen: $e');
+      debugPrint('❌ Error updating lastSeen: $e');
       // Not critical — swallow the error so it doesn't surface to the user
     }
   }
@@ -809,23 +809,37 @@ class DBService {
         SetOptions(merge: true),
       );
 
+      // Check if membership doc already exists with approved status
+      final existingDoc = await _db.collection(_membershipsCollection).doc(uid).get();
+      if (existingDoc.exists) {
+        final currentStatus = existingDoc.data()?['status'] as String?;
+        if (currentStatus == 'approved' || currentStatus == 'active') {
+          debugPrint('ℹ️ User $uid is already an approved member of firm $firmId.');
+          return;
+        }
+      }
+
       // 2. Create document in the Memberships collection
       final membershipRef = _db.collection(_membershipsCollection).doc(uid);
-      batch.set(membershipRef, {
-        'uid': uid,
-        'firmId': firmId,
-        'email': email,
-        'name': name,
-        'status': isApproved ? 'approved' : 'pending',
-        'role': 'employee',
-        'createdAt': FieldValue.serverTimestamp(),
-        if (jobTitle != null && jobTitle.isNotEmpty) 'jobTitle': jobTitle,
-        if (preApprovedDocId != null && preApprovedDocId.isNotEmpty) ...{
-          'isPreApproved': true,
-          'preApprovedDocId': preApprovedDocId,
+      batch.set(
+        membershipRef,
+        {
+          'uid': uid,
+          'firmId': firmId,
+          'email': email,
+          'name': name,
+          'status': isApproved ? 'approved' : 'pending',
+          'role': 'employee',
+          'createdAt': FieldValue.serverTimestamp(),
+          if (jobTitle != null && jobTitle.isNotEmpty) 'jobTitle': jobTitle,
+          if (preApprovedDocId != null && preApprovedDocId.isNotEmpty) ...{
+            'isPreApproved': true,
+            'preApprovedDocId': preApprovedDocId,
+          },
+          if (isApproved) 'approvedAt': FieldValue.serverTimestamp(),
         },
-        if (isApproved) 'approvedAt': FieldValue.serverTimestamp(),
-      });
+        SetOptions(merge: true),
+      );
 
       // 3. Create document in the Firms/{firmId}/members/{uid} subcollection for Admin Dashboard stats/lists
       final firmMemberRef = _db
@@ -833,13 +847,17 @@ class DBService {
           .doc(firmId)
           .collection('members')
           .doc(uid);
-      batch.set(firmMemberRef, {
-        'name': name,
-        'role': 'employee',
-        'status': isApproved ? 'active' : 'pending',
-        'createdAt': FieldValue.serverTimestamp(),
-        'avatarUrl': 'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(name)}',
-      });
+      batch.set(
+        firmMemberRef,
+        {
+          'name': name,
+          'role': 'employee',
+          'status': isApproved ? 'active' : 'pending',
+          'createdAt': FieldValue.serverTimestamp(),
+          'avatarUrl': 'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(name)}',
+        },
+        SetOptions(merge: true),
+      );
 
       // 4. Update the pre-approved staff document status if already approved directly
       if (isApproved && preApprovedDocId != null && preApprovedDocId.isNotEmpty) {

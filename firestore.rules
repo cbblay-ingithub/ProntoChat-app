@@ -20,12 +20,13 @@ service cloud.firestore {
       );
     }
 
-    // Checks if the current user has an approved membership document for the specified firmId.
+    // Checks if the current user has an approved or active membership document for the specified firmId.
     function isApprovedMember(firmId) {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/Memberships/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.firmId == firmId &&
-        get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.status == 'approved';
+        (get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.status == 'approved' ||
+         get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.status == 'active');
     }
 
     // ── Users ────────────────────────────────────────────────────────────
@@ -84,8 +85,11 @@ service cloud.firestore {
         allow read: if isApprovedMember(firmId) || isOwner(memberId);
         // Allow onboarding employee to create their own pending membership
         allow create: if isSignedIn() && request.auth.uid == memberId;
-        // Only the admin of the firm is allowed to approve or reject members
-        allow update: if isSignedIn() && get(/databases/$(database)/documents/Firms/$(firmId)).data.adminId == request.auth.uid;
+        // Admin can approve, reject, revoke, or restore members. Pending user can update their own record.
+        allow update: if isSignedIn() && (
+          get(/databases/$(database)/documents/Firms/$(firmId)).data.adminId == request.auth.uid ||
+          (request.auth.uid == memberId && resource.data.status == 'pending')
+        );
         allow delete: if false;
       }
 
@@ -115,22 +119,24 @@ service cloud.firestore {
 
     // ── Memberships ───────────────
     match /Memberships/{membershipId} {
-      // A user can read their own membership, or the firm admin can read it
+      // A user can read their own membership (by document ID or uid field), or the firm admin can read it
       allow read: if isSignedIn() && (
-        resource.data.uid == request.auth.uid ||
-        get(/databases/$(database)/documents/Firms/$(resource.data.firmId)).data.adminId == request.auth.uid
+        request.auth.uid == membershipId ||
+        (resource != null && resource.data.uid == request.auth.uid) ||
+        (resource != null && 'firmId' in resource.data && get(/databases/$(database)/documents/Firms/$(resource.data.firmId)).data.adminId == request.auth.uid)
       );
       
-      // Anyone authenticated (even anonymously) can request membership for themselves with "pending" status,
+      // Anyone authenticated can request membership for themselves with "pending" status,
       // or the Firm Admin can create/invite them
       allow create: if isSignedIn() && (
         (request.resource.data.status == 'pending' && request.resource.data.uid == request.auth.uid) ||
         (get(/databases/$(database)/documents/Firms/$(request.resource.data.firmId)).data.adminId == request.auth.uid)
       );
       
-      // Only the Firm Admin can approve, reject, or revoke memberships
+      // Admin can approve, reject, revoke, or restore memberships. User can update their own pending membership.
       allow update: if isSignedIn() && (
-        get(/databases/$(database)/documents/Firms/$(resource.data.firmId)).data.adminId == request.auth.uid
+        get(/databases/$(database)/documents/Firms/$(resource.data.firmId)).data.adminId == request.auth.uid ||
+        (resource.data.uid == request.auth.uid && resource.data.status == 'pending' && request.resource.data.status == 'pending')
       );
       allow delete: if false;
     }

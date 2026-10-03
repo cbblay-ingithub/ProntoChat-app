@@ -128,6 +128,11 @@ final myMembershipStreamProvider = StreamProvider<DocumentSnapshot<Map<String, d
           }
           controller.add(doc);
         }
+      }, onError: (error) {
+        debugPrint('myMembershipStreamProvider error: $error');
+        if (!controller.isClosed) {
+          controller.addError(error);
+        }
       });
 
   ref.onDispose(() {
