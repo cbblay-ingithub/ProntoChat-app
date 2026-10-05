@@ -128,7 +128,7 @@ class AuthProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('[AuthProvider] profile load failed: $e');
       _userProfile = null;
-      rethrow; // Propagate so caller knows profile couldn't be loaded.
+      // Do not rethrow: a missing/unreachable profile shouldn't destroy the authentication session
     }
   }
 

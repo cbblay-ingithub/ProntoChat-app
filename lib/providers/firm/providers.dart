@@ -71,8 +71,7 @@ final firebaseUserProvider = StreamProvider<User?>((ref) {
 
 /// Stream of the current user's membership document
 final myMembershipStreamProvider = StreamProvider<DocumentSnapshot<Map<String, dynamic>>?>((ref) {
-  final userAsync = ref.watch(firebaseUserProvider);
-  final user = userAsync.value;
+  final user = ref.watch(firebaseUserProvider).value ?? FirebaseAuth.instance.currentUser;
   if (user == null) {
     return Stream.value(null);
   }
@@ -85,48 +84,76 @@ final myMembershipStreamProvider = StreamProvider<DocumentSnapshot<Map<String, d
       .snapshots()
       .listen((doc) async {
         if (doc.exists) {
-          controller.add(doc);
+          if (!controller.isClosed) controller.add(doc);
         } else {
-          // If membership doc does not exist, check if user has super_admin/admin role in Users/{uid}
+          // If root membership doc does not exist, check user document for firmIds or ownedFirmId
           try {
             final userDoc = await FirebaseFirestore.instance
                 .collection('Users')
                 .doc(user.uid)
                 .get();
-                
+
             if (userDoc.exists) {
-              final role = userDoc.data()?['role'] as String?;
-              if (role == 'super_admin' || role == 'admin') {
-                // Check if they own any firm
-                final firmsQuery = await FirebaseFirestore.instance
+              final userData = userDoc.data() ?? {};
+              final rawFirmIds = userData['firmIds'] as List<dynamic>?;
+              final ownedFirmId = userData['ownedFirmId'] as String?;
+              final firmId = (rawFirmIds != null && rawFirmIds.isNotEmpty)
+                  ? rawFirmIds.first.toString()
+                  : ownedFirmId;
+
+              if (firmId != null && firmId.isNotEmpty) {
+                final memberDoc = await FirebaseFirestore.instance
                     .collection('Firms')
-                    .where('adminId', isEqualTo: user.uid)
-                    .limit(1)
+                    .doc(firmId)
+                    .collection('members')
+                    .doc(user.uid)
                     .get();
-                    
-                if (firmsQuery.docs.isNotEmpty) {
-                  final firmId = firmsQuery.docs.first.id;
-                  
-                  // Automatically recreate the missing membership document to heal the state
+
+                if (memberDoc.exists) {
+                  final mData = memberDoc.data() ?? {};
+                  // Auto-heal root membership doc
                   await FirebaseFirestore.instance
                       .collection('Memberships')
                       .doc(user.uid)
                       .set({
                     'uid': user.uid,
                     'firmId': firmId,
-                    'status': 'approved',
-                    'role': 'admin',
-                    'createdAt': FieldValue.serverTimestamp(),
-                    'approvedAt': FieldValue.serverTimestamp(),
-                  });
+                    'status': mData['status'] ?? 'active',
+                    'role': mData['role'] ?? 'employee',
+                    'createdAt': mData['createdAt'] ?? FieldValue.serverTimestamp(),
+                    'joinedAt': mData['joinedAt'] ?? FieldValue.serverTimestamp(),
+                  }, SetOptions(merge: true));
                   return;
                 }
               }
+
+              // Fallback: check if they are adminId of any firm
+              final firmsQuery = await FirebaseFirestore.instance
+                  .collection('Firms')
+                  .where('adminId', isEqualTo: user.uid)
+                  .limit(1)
+                  .get();
+
+              if (firmsQuery.docs.isNotEmpty) {
+                final fId = firmsQuery.docs.first.id;
+                await FirebaseFirestore.instance
+                    .collection('Memberships')
+                    .doc(user.uid)
+                    .set({
+                  'uid': user.uid,
+                  'firmId': fId,
+                  'status': 'active',
+                  'role': 'admin',
+                  'createdAt': FieldValue.serverTimestamp(),
+                  'joinedAt': FieldValue.serverTimestamp(),
+                }, SetOptions(merge: true));
+                return;
+              }
             }
           } catch (e) {
-            debugPrint('Error auto-healing membership: $e');
+            debugPrint('Error auto-resolving membership: $e');
           }
-          controller.add(doc);
+          if (!controller.isClosed) controller.add(doc);
         }
       }, onError: (error) {
         debugPrint('myMembershipStreamProvider error: $error');

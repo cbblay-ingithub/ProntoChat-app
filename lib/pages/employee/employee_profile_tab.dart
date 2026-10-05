@@ -1,8 +1,11 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart' as provider;
 import '../../models/firm.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/chat_service.dart';
 
 class EmployeeProfileTab extends StatelessWidget {
   final String uid;
@@ -43,8 +46,12 @@ class EmployeeProfileTab extends StatelessWidget {
     );
 
     if (confirmed == true && context.mounted) {
+      ChatService.instance.cancelAllSubscriptions();
       final auth = provider.Provider.of<AuthProvider>(context, listen: false);
       await auth.signOut();
+      if (context.mounted) {
+        context.go(kIsWeb ? '/sign-in' : '/welcome');
+      }
     }
   }
 

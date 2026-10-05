@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:pronto_chat/models/firm.dart';
 import 'package:pronto_chat/models/membership.dart';
 import 'package:pronto_chat/models/user.dart';
@@ -612,6 +613,9 @@ class DBService {
 
   /// Stream memberships matching the firmId and a specific status (e.g., pending, approved).
   Stream<List<Membership>> getMembershipsByStatus(String firmId, String status) {
+    if (FirebaseAuth.instance.currentUser == null) {
+      return Stream.value([]);
+    }
     final statusList = (status == 'approved') ? ['approved', 'active'] : [status];
     return _db
         .collection(_membershipsCollection)
@@ -625,6 +629,9 @@ class DBService {
 
   /// Fetch user details (name, image, etc.) from the Users collection.
   Future<AppUser?> getUserDetails(String uid) async {
+    if (FirebaseAuth.instance.currentUser == null) {
+      return null;
+    }
     try {
       final doc = await _db.collection(_userCollection).doc(uid).get();
       if (doc.exists) {
@@ -632,6 +639,7 @@ class DBService {
       }
       return null;
     } catch (e) {
+      if (FirebaseAuth.instance.currentUser == null) return null;
       debugPrint('❌ Error getting user details: $e');
       return null;
     }
@@ -732,15 +740,19 @@ class DBService {
     required String primaryColor,
   }) async {
     try {
-      // Generate IDs
       final firmId = _db.collection(_firmsCollection).doc().id;
-      final membershipId = uid; // Use uid as membership document ID to match employee registration
+      final membershipId = uid;
 
-      // Build data maps
       final firmData = {
         'name': firmName,
         'primaryColor': primaryColor,
+        'ownerUid': uid,
         'adminId': uid,
+        'plan': 'trial',
+        'status': 'active',
+        'seatLimit': 5,
+        'seatCount': 1,
+        'termsAcceptedAt': FieldValue.serverTimestamp(),
         'createdAt': FieldValue.serverTimestamp(),
       };
 
@@ -748,7 +760,9 @@ class DBService {
         'name': adminName,
         'nameLower': adminName.toLowerCase(),
         'email': email,
-        'role': 'super_admin', // The creator is a super_admin
+        'role': 'super_admin',
+        'ownedFirmId': firmId,
+        'firmIds': FieldValue.arrayUnion([firmId]),
         'createdAt': FieldValue.serverTimestamp(),
         'lastSeen': FieldValue.serverTimestamp(),
       };
@@ -756,31 +770,238 @@ class DBService {
       final membershipData = {
         'uid': uid,
         'firmId': firmId,
-        'status': 'approved', // Auto-approved for the creator
-        'role': 'admin', // Creator is admin of their firm
+        'status': 'active',
+        'role': 'admin',
         'createdAt': FieldValue.serverTimestamp(),
+        'joinedAt': FieldValue.serverTimestamp(),
         'approvedAt': FieldValue.serverTimestamp(),
       };
 
-      // Execute atomic batch
-      await createFirmWithAdmin(
-        firmId: firmId,
-        uid: uid,
-        membershipId: membershipId,
-        firmData: firmData,
-        userData: userData,
-        membershipData: membershipData,
-      );
+      final WriteBatch batch = _db.batch();
+      batch.set(_db.collection(_firmsCollection).doc(firmId), firmData);
+      batch.set(_db.collection(_userCollection).doc(uid), userData, SetOptions(merge: true));
+      batch.set(_db.collection(_membershipsCollection).doc(membershipId), membershipData);
 
-      // FIX A: Return the new firmId as a String so the caller can preload it
+      final adminMemberRef = _db
+          .collection(_firmsCollection)
+          .doc(firmId)
+          .collection('members')
+          .doc(uid);
+      batch.set(adminMemberRef, {
+        'name': adminName,
+        'role': 'admin',
+        'status': 'active',
+        'joinedAt': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
+        'avatarUrl': 'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(adminName)}',
+      });
+
+      await batch.commit();
+      debugPrint('✅ Firm created with trial plan and admin membership: firmId=$firmId, uid=$uid');
       return firmId;
     } catch (e) {
-      print('❌ Error signing up with firm: $e');
+      debugPrint('❌ Error signing up with firm: $e');
       rethrow;
     }
   }
 
-  // ── Employee Onboarding Profile & Membership Batch Write (PRONTOCHAT ADDITION) ──
+  /// Add pre-approved staff member with one-time verification code and increment seatCount.
+  Future<void> addPreApprovedStaff({
+    required String firmId,
+    required String email,
+    required String name,
+    required String code,
+  }) async {
+    try {
+      final firmDoc = await _db.collection(_firmsCollection).doc(firmId).get();
+      if (!firmDoc.exists) throw Exception('Firm not found: $firmId');
+      
+      final data = firmDoc.data()!;
+      final int seatCount = (data['seatCount'] as num?)?.toInt() ?? 1;
+      final int seatLimit = (data['seatLimit'] as num?)?.toInt() ?? 5;
+
+      if (seatCount >= seatLimit) {
+        throw Exception('Trial seat limit of $seatLimit seats reached. Cannot add more staff.');
+      }
+
+      final cleanEmail = email.trim().toLowerCase();
+      final staffRef = _db
+          .collection(_firmsCollection)
+          .doc(firmId)
+          .collection('PreApprovedStaff')
+          .doc();
+
+      final WriteBatch batch = _db.batch();
+      batch.set(staffRef, {
+        'email': cleanEmail,
+        'name': name.trim(),
+        'code': code.trim(),
+        'status': 'invited',
+        'role': 'employee',
+        'invitedAt': FieldValue.serverTimestamp(),
+      });
+
+      batch.update(_db.collection(_firmsCollection).doc(firmId), {
+        'seatCount': FieldValue.increment(1),
+      });
+
+      await batch.commit();
+      debugPrint('✅ Pre-approved staff added: $cleanEmail (code: $code)');
+    } catch (e) {
+      debugPrint('❌ Error adding pre-approved staff: $e');
+      rethrow;
+    }
+  }
+
+  /// Remove pre-approved staff member and decrement seatCount.
+  Future<void> removePreApprovedStaff({
+    required String firmId,
+    required String staffDocId,
+  }) async {
+    try {
+      final staffRef = _db
+          .collection(_firmsCollection)
+          .doc(firmId)
+          .collection('PreApprovedStaff')
+          .doc(staffDocId);
+
+      final WriteBatch batch = _db.batch();
+      batch.delete(staffRef);
+      batch.update(_db.collection(_firmsCollection).doc(firmId), {
+        'seatCount': FieldValue.increment(-1),
+      });
+
+      await batch.commit();
+      debugPrint('✅ Pre-approved staff removed: $staffDocId');
+    } catch (e) {
+      debugPrint('❌ Error removing pre-approved staff: $e');
+      rethrow;
+    }
+  }
+
+  /// Stream pre-approved staff list for the admin console.
+  Stream<List<Map<String, dynamic>>> streamPreApprovedStaff(String firmId) {
+    return _db
+        .collection(_firmsCollection)
+        .doc(firmId)
+        .collection('PreApprovedStaff')
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => {'id': doc.id, ...doc.data()})
+            .toList());
+  }
+
+  /// Verify one-time code and onboard an employee in a single atomic transaction.
+  Future<void> verifyAndOnboardEmployee({
+    required String firmId,
+    required String uid,
+    required String email,
+    required String name,
+    required String code,
+  }) async {
+    try {
+      final cleanEmail = email.trim().toLowerCase();
+      final cleanCode = code.trim();
+
+      // Check PreApprovedStaff for matching email and one-time code
+      final query = await _db
+          .collection(_firmsCollection)
+          .doc(firmId)
+          .collection('PreApprovedStaff')
+          .where('email', isEqualTo: cleanEmail)
+          .get();
+
+      if (query.docs.isEmpty) {
+        throw Exception(
+          'Email not found on pre-authorized staff list. Please contact your company administrator.',
+        );
+      }
+
+      QueryDocumentSnapshot<Map<String, dynamic>>? matchedDoc;
+      for (final doc in query.docs) {
+        final docCode = (doc.data()['code'] as String?)?.trim();
+        final docStatus = doc.data()['status'] as String?;
+        if (docCode == cleanCode && docStatus == 'invited') {
+          matchedDoc = doc;
+          break;
+        }
+      }
+
+      if (matchedDoc == null) {
+        throw Exception(
+          'Invalid or already used verification code. Please check with your company administrator.',
+        );
+      }
+
+      final WriteBatch batch = _db.batch();
+
+      // 1. Mark pre-approved record as joined
+      batch.update(matchedDoc.reference, {
+        'status': 'joined',
+        'joinedAt': FieldValue.serverTimestamp(),
+        'uid': uid,
+      });
+
+      // 2. Write active membership in firms/{firmId}/members/{uid}
+      final firmMemberRef = _db
+          .collection(_firmsCollection)
+          .doc(firmId)
+          .collection('members')
+          .doc(uid);
+
+      batch.set(
+        firmMemberRef,
+        {
+          'name': name.trim(),
+          'role': 'employee',
+          'status': 'active',
+          'joinedAt': FieldValue.serverTimestamp(),
+          'avatarUrl': 'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(name.trim())}',
+        },
+        SetOptions(merge: true),
+      );
+
+      // 3. Update Users/{uid} identity document
+      final userRef = _db.collection(_userCollection).doc(uid);
+      batch.set(
+        userRef,
+        {
+          'name': name.trim(),
+          'nameLower': name.trim().toLowerCase(),
+          'email': cleanEmail,
+          'role': 'employee',
+          'firmIds': FieldValue.arrayUnion([firmId]),
+          'lastSeen': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      // 4. Update legacy Memberships/{uid} for backward compatibility
+      final legacyMembershipRef = _db.collection(_membershipsCollection).doc(uid);
+      batch.set(
+        legacyMembershipRef,
+        {
+          'uid': uid,
+          'firmId': firmId,
+          'email': cleanEmail,
+          'name': name.trim(),
+          'status': 'active',
+          'role': 'employee',
+          'joinedAt': FieldValue.serverTimestamp(),
+          'approvedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      await batch.commit();
+      debugPrint('✅ Employee $cleanEmail successfully onboarded with active membership in $firmId');
+    } catch (e) {
+      debugPrint('❌ Error onboarding employee: $e');
+      rethrow;
+    }
+  }
+
+  /// Backward-compatible profile registration
   Future<void> registerEmployeeProfile({
     required String uid,
     required String firmId,
@@ -792,8 +1013,6 @@ class DBService {
   }) async {
     try {
       final WriteBatch batch = _db.batch();
-
-      // 1. Create/Update document in the Users collection
       final userRef = _db.collection(_userCollection).doc(uid);
       batch.set(
         userRef,
@@ -802,6 +1021,7 @@ class DBService {
           'nameLower': name.toLowerCase(),
           'email': email,
           'role': 'employee',
+          'firmIds': FieldValue.arrayUnion([firmId]),
           'createdAt': FieldValue.serverTimestamp(),
           'lastSeen': FieldValue.serverTimestamp(),
           if (jobTitle != null && jobTitle.isNotEmpty) 'jobTitle': jobTitle,
@@ -809,17 +1029,6 @@ class DBService {
         SetOptions(merge: true),
       );
 
-      // Check if membership doc already exists with approved status
-      final existingDoc = await _db.collection(_membershipsCollection).doc(uid).get();
-      if (existingDoc.exists) {
-        final currentStatus = existingDoc.data()?['status'] as String?;
-        if (currentStatus == 'approved' || currentStatus == 'active') {
-          debugPrint('ℹ️ User $uid is already an approved member of firm $firmId.');
-          return;
-        }
-      }
-
-      // 2. Create document in the Memberships collection
       final membershipRef = _db.collection(_membershipsCollection).doc(uid);
       batch.set(
         membershipRef,
@@ -828,20 +1037,15 @@ class DBService {
           'firmId': firmId,
           'email': email,
           'name': name,
-          'status': isApproved ? 'approved' : 'pending',
+          'status': isApproved ? 'active' : 'pending',
           'role': 'employee',
           'createdAt': FieldValue.serverTimestamp(),
           if (jobTitle != null && jobTitle.isNotEmpty) 'jobTitle': jobTitle,
-          if (preApprovedDocId != null && preApprovedDocId.isNotEmpty) ...{
-            'isPreApproved': true,
-            'preApprovedDocId': preApprovedDocId,
-          },
-          if (isApproved) 'approvedAt': FieldValue.serverTimestamp(),
+          if (isApproved) 'joinedAt': FieldValue.serverTimestamp(),
         },
         SetOptions(merge: true),
       );
 
-      // 3. Create document in the Firms/{firmId}/members/{uid} subcollection for Admin Dashboard stats/lists
       final firmMemberRef = _db
           .collection(_firmsCollection)
           .doc(firmId)
@@ -853,29 +1057,17 @@ class DBService {
           'name': name,
           'role': 'employee',
           'status': isApproved ? 'active' : 'pending',
+          'joinedAt': FieldValue.serverTimestamp(),
           'createdAt': FieldValue.serverTimestamp(),
           'avatarUrl': 'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(name)}',
         },
         SetOptions(merge: true),
       );
 
-      // 4. Update the pre-approved staff document status if already approved directly
-      if (isApproved && preApprovedDocId != null && preApprovedDocId.isNotEmpty) {
-        final preApprovedRef = _db
-            .collection(_firmsCollection)
-            .doc(firmId)
-            .collection('PreApprovedStaff')
-            .doc(preApprovedDocId);
-        batch.update(preApprovedRef, {
-          'status': 'joined',
-          'joinedAt': FieldValue.serverTimestamp(),
-        });
-      }
-
       await batch.commit();
-      print('✅ Employee profile and membership created atomically (isApproved=$isApproved): uid=$uid, firmId=$firmId');
+      debugPrint('✅ Employee profile registered: uid=$uid, firmId=$firmId');
     } catch (e) {
-      print('❌ Error registering employee profile in batch: $e');
+      debugPrint('❌ Error in registerEmployeeProfile: $e');
       rethrow;
     }
   }

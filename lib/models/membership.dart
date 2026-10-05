@@ -1,106 +1,157 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:freezed_annotation/freezed_annotation.dart';
 
-part 'membership.freezed.dart';
-part 'membership.g.dart';
-
-/// Enum for membership status (approval workflow)
+/// Enum for membership status
 enum MembershipStatus {
-  pending, // Waiting for admin approval (employee onboarding)
-  approved, // Approved and active
-  rejected, // Access rejected by admin
-  revoked, // Access removed by admin
+  active,   // Active member with full access
+  revoked,  // Access removed by admin
+  pending,  // Legacy pending state
+  rejected, // Legacy rejected state
 }
 
 /// Enum for membership role within a firm context
 enum MembershipRole {
-  admin, // Can manage staff, approve employees, view dashboard
-  employee, // Can chat, view directory, limited access
+  admin,    // Can manage staff, invite codes, view console
+  employee, // Regular team member
 }
 
 /// Represents a user's membership in a specific firm.
-/// Links User → Firm with status and role context.
-@freezed
-class Membership with _$Membership {
-  const factory Membership({
-    /// Firestore document ID (UUID)
-    required String membershipId,
+class Membership {
+  final String membershipId;
+  final String uid;
+  final String firmId;
+  final MembershipStatus status;
+  final MembershipRole role;
+  final DateTime joinedAt;
+  final DateTime createdAt;
+  final DateTime? revokedAt;
 
-    /// Firebase Auth UID of the user
-    required String uid,
+  Membership({
+    required this.membershipId,
+    required this.uid,
+    required this.firmId,
+    this.status = MembershipStatus.active,
+    this.role = MembershipRole.employee,
+    DateTime? joinedAt,
+    DateTime? createdAt,
+    this.revokedAt,
+  })  : createdAt = createdAt ?? DateTime.now(),
+        joinedAt = joinedAt ?? createdAt ?? DateTime.now();
 
-    /// Firestore firm ID that this user belongs to
-    required String firmId,
+  bool get isActive => status == MembershipStatus.active;
+  bool get isRevoked => status == MembershipStatus.revoked;
+  bool get isAdmin => role == MembershipRole.admin;
+  bool get isEmployee => role == MembershipRole.employee;
 
-    /// Membership status (pending, approved, revoked)
-    @Default(MembershipStatus.approved) MembershipStatus status,
-
-    /// User's role within this firm (admin, employee)
-    @Default(MembershipRole.employee) MembershipRole role,
-
-    /// Timestamp when the membership was created
-    required DateTime createdAt,
-
-    /// Optional: when the membership was approved (for tracking approval time)
-    DateTime? approvedAt,
-
-    /// Optional: when the membership was revoked
+  Membership copyWith({
+    String? membershipId,
+    String? uid,
+    String? firmId,
+    MembershipStatus? status,
+    MembershipRole? role,
+    DateTime? joinedAt,
+    DateTime? createdAt,
     DateTime? revokedAt,
-  }) = _Membership;
-
-  factory Membership.fromJson(Map<String, dynamic> json) =>
-      _$MembershipFromJson(json);
-}
-
-/// Extension methods for Firestore conversion
-extension MembershipFirestore on Membership {
-  /// Convert Firestore DocumentSnapshot to Membership model
-  static Membership fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data()!;
+  }) {
     return Membership(
-      membershipId: doc.id,
-      uid: data['uid'] ?? '',
-      firmId: data['firmId'] ?? '',
-      status: _parseMembershipStatus(data['status'] as String?),
-      role: _parseMembershipRole(data['role'] as String?),
-      createdAt: (data['createdAt'] as Timestamp).toDate(),
-      approvedAt: data['approvedAt'] != null
-          ? (data['approvedAt'] as Timestamp).toDate()
-          : null,
-      revokedAt: data['revokedAt'] != null
-          ? (data['revokedAt'] as Timestamp).toDate()
-          : null,
+      membershipId: membershipId ?? this.membershipId,
+      uid: uid ?? this.uid,
+      firmId: firmId ?? this.firmId,
+      status: status ?? this.status,
+      role: role ?? this.role,
+      joinedAt: joinedAt ?? this.joinedAt,
+      createdAt: createdAt ?? this.createdAt,
+      revokedAt: revokedAt ?? this.revokedAt,
     );
   }
 
-  /// Convert Membership to Firestore-compatible Map
+  factory Membership.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data() ?? {};
+
+    DateTime parseDate(dynamic val) {
+      if (val is Timestamp) return val.toDate();
+      if (val is String) return DateTime.tryParse(val) ?? DateTime.now();
+      return DateTime.now();
+    }
+
+    final createdAt = parseDate(data['createdAt']);
+    final joinedAt = data['joinedAt'] != null
+        ? parseDate(data['joinedAt'])
+        : (data['approvedAt'] != null ? parseDate(data['approvedAt']) : createdAt);
+    final revokedAt = data['revokedAt'] != null ? parseDate(data['revokedAt']) : null;
+
+    final rawStatus = (data['status'] as String?)?.toLowerCase();
+    MembershipStatus status = MembershipStatus.active;
+    if (rawStatus == 'revoked') {
+      status = MembershipStatus.revoked;
+    } else if (rawStatus == 'pending') {
+      status = MembershipStatus.pending;
+    } else if (rawStatus == 'rejected') {
+      status = MembershipStatus.rejected;
+    } else {
+      status = MembershipStatus.active;
+    }
+
+    final rawRole = (data['role'] as String?)?.toLowerCase();
+    final role = (rawRole == 'admin' || rawRole == 'super_admin')
+        ? MembershipRole.admin
+        : MembershipRole.employee;
+
+    return Membership(
+      membershipId: doc.id,
+      uid: data['uid'] as String? ?? doc.id,
+      firmId: data['firmId'] as String? ?? '',
+      status: status,
+      role: role,
+      joinedAt: joinedAt,
+      createdAt: createdAt,
+      revokedAt: revokedAt,
+    );
+  }
+
   Map<String, dynamic> toFirestore() {
     return {
       'uid': uid,
       'firmId': firmId,
+      'status': status == MembershipStatus.active ? 'active' : status.name,
+      'role': role.name,
+      'joinedAt': Timestamp.fromDate(joinedAt),
+      'createdAt': Timestamp.fromDate(createdAt),
+      if (revokedAt != null) 'revokedAt': Timestamp.fromDate(revokedAt!),
+    };
+  }
+
+  factory Membership.fromJson(Map<String, dynamic> json) {
+    return Membership(
+      membershipId: json['membershipId'] as String? ?? '',
+      uid: json['uid'] as String? ?? '',
+      firmId: json['firmId'] as String? ?? '',
+      status: json['status'] == 'revoked' ? MembershipStatus.revoked : MembershipStatus.active,
+      role: json['role'] == 'admin' ? MembershipRole.admin : MembershipRole.employee,
+      joinedAt: json['joinedAt'] != null
+          ? DateTime.tryParse(json['joinedAt'].toString()) ?? DateTime.now()
+          : DateTime.now(),
+      createdAt: json['createdAt'] != null
+          ? DateTime.tryParse(json['createdAt'].toString()) ?? DateTime.now()
+          : DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'membershipId': membershipId,
+      'uid': uid,
+      'firmId': firmId,
       'status': status.name,
       'role': role.name,
-      'createdAt': Timestamp.fromDate(createdAt),
-      if (approvedAt != null) 'approvedAt': Timestamp.fromDate(approvedAt!),
-      if (revokedAt != null) 'revokedAt': Timestamp.fromDate(revokedAt!),
+      'joinedAt': joinedAt.toIso8601String(),
+      'createdAt': createdAt.toIso8601String(),
     };
   }
 }
 
-/// Helper to parse status string to enum
-MembershipStatus _parseMembershipStatus(String? statusStr) {
-  if (statusStr == 'active') return MembershipStatus.approved;
-  if (statusStr == 'rejected') return MembershipStatus.rejected;
-  return MembershipStatus.values.firstWhere(
-    (status) => status.name == statusStr,
-    orElse: () => MembershipStatus.pending,
-  );
-}
-
-/// Helper to parse role string to enum
-MembershipRole _parseMembershipRole(String? roleStr) {
-  return MembershipRole.values.firstWhere(
-    (role) => role.name == roleStr,
-    orElse: () => MembershipRole.employee,
-  );
+/// Extension methods for Firestore conversion backward compatibility
+extension MembershipFirestore on Membership {
+  static Membership fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    return Membership.fromFirestore(doc);
+  }
 }

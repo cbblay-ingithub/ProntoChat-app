@@ -5,7 +5,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/chat_message.dart';
 
 class ChatService {
-  ChatService._internal();
+  ChatService._internal() {
+    FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user == null) {
+        cancelAllSubscriptions();
+      }
+    });
+  }
   static final ChatService instance = ChatService._internal();
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -14,6 +20,14 @@ class ChatService {
   final List<ChatMessage> _fallbackMessages = [];
   final Map<String, StreamController<List<ChatMessage>>> _activeControllers = {};
   final Map<String, StreamSubscription> _activeSubscriptions = {};
+
+  /// Cancels and clears all active Firestore message stream subscriptions.
+  void cancelAllSubscriptions() {
+    for (final sub in _activeSubscriptions.values) {
+      sub.cancel();
+    }
+    _activeSubscriptions.clear();
+  }
 
   void _initSeedMessages() {
     if (_fallbackMessages.isEmpty) {
@@ -74,14 +88,22 @@ class ChatService {
           }).toList();
 
           if (cloudMsgs.isNotEmpty) {
-            controller.add(cloudMsgs);
+            if (!controller.isClosed) controller.add(cloudMsgs);
           } else {
-            controller.add(List<ChatMessage>.from(_fallbackMessages));
+            if (!controller.isClosed) controller.add(List<ChatMessage>.from(_fallbackMessages));
           }
         },
         onError: (e) {
+          // If the user signed out, cleanly cancel the listener without error logging
+          if (FirebaseAuth.instance.currentUser == null) {
+            _activeSubscriptions[firmId]?.cancel();
+            _activeSubscriptions.remove(firmId);
+            return;
+          }
           debugPrint('[ChatService] Cloud stream notice: $e (serving live workspace session)');
-          controller.add(List<ChatMessage>.from(_fallbackMessages));
+          if (!controller.isClosed) {
+            controller.add(List<ChatMessage>.from(_fallbackMessages));
+          }
         },
       );
       _activeSubscriptions[firmId] = sub;

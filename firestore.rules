@@ -10,6 +10,36 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    // Checks whether the caller is an active admin of the firm
+    function isFirmAdmin(firmId) {
+      return isSignedIn() && (
+        (exists(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.role == 'admin') ||
+        (exists(/databases/$(database)/documents/Firms/$(firmId)) &&
+         get(/databases/$(database)/documents/Firms/$(firmId)).data.ownerUid == request.auth.uid) ||
+        (exists(/databases/$(database)/documents/Firms/$(firmId)) &&
+         get(/databases/$(database)/documents/Firms/$(firmId)).data.adminId == request.auth.uid) ||
+        (exists(/databases/$(database)/documents/Memberships/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.firmId == firmId &&
+         get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    // Active member check: member status is active AND the firm status is not suspended
+    function isActiveMember(firmId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/Firms/$(firmId)) &&
+        get(/databases/$(database)/documents/Firms/$(firmId)).data.status != 'suspended' &&
+        (
+          (exists(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.status == 'active') ||
+          (exists(/databases/$(database)/documents/Memberships/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.firmId == firmId &&
+           (get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.status == 'active' ||
+            get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.status == 'approved'))
+        );
+    }
+
     function isConversationMember(conversationId) {
       return isSignedIn() && (
         exists(/databases/$(database)/documents/Users/$(request.auth.uid)/conversations/$(conversationId)) ||
@@ -20,18 +50,8 @@ service cloud.firestore {
       );
     }
 
-    // Checks if the current user has an approved or active membership document for the specified firmId.
-    function isApprovedMember(firmId) {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/Memberships/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.firmId == firmId &&
-        (get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.status == 'approved' ||
-         get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.status == 'active');
-    }
-
     // ── Users ────────────────────────────────────────────────────────────
     match /Users/{userId} {
-      // Any signed in user can read user profiles (name, email, avatar for team and admin views)
       allow read: if isSignedIn();
       allow create: if isOwner(userId);
       allow update: if isOwner(userId);
@@ -39,107 +59,135 @@ service cloud.firestore {
 
       match /conversations/{conversationId} {
         allow read  : if isOwner(userId);
-        allow write : if isOwner(userId)
-                   || isConversationMember(conversationId);
+        allow write : if isOwner(userId) || isConversationMember(conversationId);
       }
     }
 
     // ── Conversations ─────────────────────────────────────────────────────
     match /Conversations/{conversationId} {
       allow read  : if isConversationMember(conversationId) &&
-                       (!('firmId' in resource.data) || isApprovedMember(resource.data.firmId));
+                       (!('firmId' in resource.data) || isActiveMember(resource.data.firmId));
       allow create: if isSignedIn() &&
         request.auth.uid in request.resource.data.members &&
-        (!('firmId' in request.resource.data) || isApprovedMember(request.resource.data.firmId));
+        (!('firmId' in request.resource.data) || isActiveMember(request.resource.data.firmId));
       allow update: if isConversationMember(conversationId) &&
-                       (!('firmId' in resource.data) || isApprovedMember(resource.data.firmId));
+                       (!('firmId' in resource.data) || isActiveMember(resource.data.firmId));
       allow delete: if false;
 
       // ── Messages ────────────────────────────────────────────────────────
       match /Messages/{messageId} {
         allow read  : if isConversationMember(conversationId) &&
                          (!('firmId' in get(/databases/$(database)/documents/Conversations/$(conversationId)).data) || 
-                          isApprovedMember(get(/databases/$(database)/documents/Conversations/$(conversationId)).data.firmId));
+                          isActiveMember(get(/databases/$(database)/documents/Conversations/$(conversationId)).data.firmId));
         allow create: if isConversationMember(conversationId) &&
           request.resource.data.senderId == request.auth.uid &&
           (!('firmId' in get(/databases/$(database)/documents/Conversations/$(conversationId)).data) || 
-           isApprovedMember(get(/databases/$(database)/documents/Conversations/$(conversationId)).data.firmId));
+           isActiveMember(get(/databases/$(database)/documents/Conversations/$(conversationId)).data.firmId));
         allow update: if isConversationMember(conversationId);
         allow delete: if false;
       }
     }
 
-    // ── Firms ──────────────────
+    // ── Firms ─────────────────────────────────────────────────────────────
     match /Firms/{firmId} {
-      // Allow reading firm info (name, branding) so prospective and onboarding employees can view workspace details
+      // Allow reading firm public details (name, branding) for invite badges and joined users
       allow read: if true;
-      // Allow creation if the creator matches the adminId field
-      allow create: if isSignedIn() && request.resource.data.adminId == request.auth.uid;
-      // Only the admin of the firm is allowed to modify the firm settings (colors, name)
-      allow update: if isSignedIn() && resource.data.adminId == request.auth.uid;
-      allow delete: if false;
+
+      // Firm creation rule (enforces Part A specs):
+      // - Caller's email must be verified
+      // - New firm must start as plan "trial" with default limit (5) and seatCount (1)
+      // - Caller is the owner and only admin
+      // - Single firm per account: verified via user record
+      // - Admin membership must be created in the same batched write
+      allow create: if isSignedIn() &&
+        request.auth.token.email_verified == true &&
+        request.resource.data.plan == 'trial' &&
+        request.resource.data.status == 'active' &&
+        request.resource.data.seatLimit == 5 &&
+        request.resource.data.seatCount == 1 &&
+        (request.resource.data.ownerUid == request.auth.uid || request.resource.data.adminId == request.auth.uid) &&
+        request.resource.data.termsAcceptedAt != null &&
+        (!exists(/databases/$(database)/documents/Users/$(request.auth.uid)) ||
+         !('ownedFirmId' in get(/databases/$(database)/documents/Users/$(request.auth.uid)).data) ||
+         get(/databases/$(database)/documents/Users/$(request.auth.uid)).data.ownedFirmId == firmId) &&
+        existsAfter(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)) &&
+        getAfter(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.role == 'admin' &&
+        getAfter(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.status == 'active';
+
+      // Updates by Firm Admin (cannot alter plan, seatLimit, or owner without billing)
+      allow update: if isFirmAdmin(firmId) &&
+        request.resource.data.plan == resource.data.plan &&
+        request.resource.data.seatLimit == resource.data.seatLimit &&
+        (request.resource.data.ownerUid == resource.data.ownerUid || request.resource.data.adminId == resource.data.adminId);
+
+      allow delete: if isFirmAdmin(firmId);
 
       // ── Members Subcollection ──────────────────
       match /members/{memberId} {
-        // Members list can be read by approved members of the firm or the user reading their own record
-        allow read: if isApprovedMember(firmId) || isOwner(memberId);
-        // Allow onboarding employee to create their own pending membership
-        allow create: if isSignedIn() && request.auth.uid == memberId;
-        // Admin can approve, reject, revoke, or restore members. Pending user can update their own record.
-        allow update: if isSignedIn() && (
-          get(/databases/$(database)/documents/Firms/$(firmId)).data.adminId == request.auth.uid ||
-          (request.auth.uid == memberId && resource.data.status == 'pending')
+        allow read: if isFirmAdmin(firmId) || isActiveMember(firmId) || isOwner(memberId);
+
+        // Created during onboarding or firm creation
+        allow create: if isSignedIn() && (
+          (request.auth.uid == memberId && isFirmAdmin(firmId)) ||
+          (request.auth.uid == memberId && request.resource.data.role == 'employee' && request.resource.data.status == 'active')
         );
+
+        // Role-checked admin updates (e.g. revoking or restoring members)
+        allow update: if isFirmAdmin(firmId) && (
+          request.resource.data.status in ['active', 'revoked']
+        );
+
         allow delete: if false;
       }
 
       // ── PreApprovedStaff Subcollection ──────────
-      match /PreApprovedStaff/{email} {
-        // Firm Admin has full access
-        allow read, write: if isSignedIn() && get(/databases/$(database)/documents/Firms/$(firmId)).data.adminId == request.auth.uid;
-        
-        // Anyone signed in (including onboarding anonymous users) can read and update their own invitation status
-        allow read: if isSignedIn();
-        allow update: if isSignedIn() && request.resource.data.status == 'joined' && resource.data.status == 'invited';
+      match /PreApprovedStaff/{staffDocId} {
+        allow read: if isFirmAdmin(firmId) || isSignedIn();
+
+        // Enforce seatLimit: batch must increment seatCount by 1 and remain <= seatLimit
+        allow create: if isFirmAdmin(firmId) &&
+          getAfter(/databases/$(database)/documents/Firms/$(firmId)).data.seatCount == get(/databases/$(database)/documents/Firms/$(firmId)).data.seatCount + 1 &&
+          getAfter(/databases/$(database)/documents/Firms/$(firmId)).data.seatCount <= get(/databases/$(database)/documents/Firms/$(firmId)).data.seatLimit;
+
+        // Removing staff decrements seatCount
+        allow delete: if isFirmAdmin(firmId) &&
+          getAfter(/databases/$(database)/documents/Firms/$(firmId)).data.seatCount == get(/databases/$(database)/documents/Firms/$(firmId)).data.seatCount - 1;
+
+        // Updating when staff claims code during onboarding
+        allow update: if isSignedIn() && (
+          isFirmAdmin(firmId) ||
+          (request.resource.data.status == 'joined' && resource.data.status == 'invited')
+        );
       }
 
       // ── Messages Subcollection ──────────────────
       match /Messages/{messageId} {
-        allow read: if isApprovedMember(firmId);
-        allow create: if isApprovedMember(firmId) && request.resource.data.senderId == request.auth.uid;
+        allow read: if isFirmAdmin(firmId) || isActiveMember(firmId);
+        allow create: if (isFirmAdmin(firmId) || isActiveMember(firmId)) && request.resource.data.senderId == request.auth.uid;
         allow update, delete: if false;
       }
     }
 
-    // ── PreApprovedStaff Collection Group ──────────
-    match /{path=**}/PreApprovedStaff/{docId} {
-      allow read: if isSignedIn();
-      allow update: if isSignedIn() && request.resource.data.status == 'joined' && resource.data.status == 'invited';
-    }
-
-    // ── Memberships ───────────────
+    // ── Memberships (Root collection backward compatibility) ───────────────
     match /Memberships/{membershipId} {
-      // A user can read their own membership (by document ID or uid field), or the firm admin can read it
       allow read: if isSignedIn() && (
         request.auth.uid == membershipId ||
         (resource != null && resource.data.uid == request.auth.uid) ||
-        (resource != null && 'firmId' in resource.data && get(/databases/$(database)/documents/Firms/$(resource.data.firmId)).data.adminId == request.auth.uid)
+        (resource != null && 'firmId' in resource.data && isFirmAdmin(resource.data.firmId))
       );
-      
-      // Anyone authenticated can request membership for themselves with "pending" status,
-      // or the Firm Admin can create/invite them
+
       allow create: if isSignedIn() && (
-        (request.resource.data.status == 'pending' && request.resource.data.uid == request.auth.uid) ||
-        (get(/databases/$(database)/documents/Firms/$(request.resource.data.firmId)).data.adminId == request.auth.uid)
+        request.auth.uid == membershipId ||
+        (request.resource.data.uid == request.auth.uid) ||
+        ('firmId' in request.resource.data && isFirmAdmin(request.resource.data.firmId))
       );
-      
-      // Admin can approve, reject, revoke, or restore memberships. User can update their own pending membership.
+
       allow update: if isSignedIn() && (
-        get(/databases/$(database)/documents/Firms/$(resource.data.firmId)).data.adminId == request.auth.uid ||
-        (resource.data.uid == request.auth.uid && resource.data.status == 'pending' && request.resource.data.status == 'pending')
+        request.auth.uid == membershipId ||
+        (resource != null && 'firmId' in resource.data && isFirmAdmin(resource.data.firmId))
       );
+
       allow delete: if false;
     }
   }
 }
-

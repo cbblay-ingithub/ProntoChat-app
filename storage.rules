@@ -6,18 +6,23 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    // Helper to check if the user is the Admin of the specified firm ID
+    // Helper to check if the caller is the Admin of the specified firm
     function isFirmAdmin(firmId) {
       return isSignedIn() &&
-        firestore.get(/databases/$(database)/documents/Firms/$(firmId)).data.adminId == request.auth.uid;
+        (firestore.get(/databases/(default)/documents/Firms/$(firmId)).data.ownerUid == request.auth.uid ||
+         firestore.get(/databases/(default)/documents/Firms/$(firmId)).data.adminId == request.auth.uid);
     }
 
-    function isApprovedMember(firmId) {
+    // Helper to check if the user is an active member of an unsuspended firm
+    function isActiveMember(firmId) {
       return isSignedIn() &&
-        firestore.exists(/databases/(default)/documents/Memberships/$(request.auth.uid)) &&
-        firestore.get(/databases/(default)/documents/Memberships/$(request.auth.uid)).data.firmId == firmId &&
-        (firestore.get(/databases/(default)/documents/Memberships/$(request.auth.uid)).data.status == 'approved' ||
-         firestore.get(/databases/(default)/documents/Memberships/$(request.auth.uid)).data.status == 'active');
+        firestore.get(/databases/(default)/documents/Firms/$(firmId)).data.status != 'suspended' &&
+        ((firestore.exists(/databases/(default)/documents/Firms/$(firmId)/members/$(request.auth.uid)) &&
+          firestore.get(/databases/(default)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.status == 'active') ||
+         (firestore.exists(/databases/(default)/documents/Memberships/$(request.auth.uid)) &&
+          firestore.get(/databases/(default)/documents/Memberships/$(request.auth.uid)).data.firmId == firmId &&
+          (firestore.get(/databases/(default)/documents/Memberships/$(request.auth.uid)).data.status == 'active' ||
+           firestore.get(/databases/(default)/documents/Memberships/$(request.auth.uid)).data.status == 'approved')));
     }
 
     // Profile Images Collection
@@ -28,18 +33,15 @@ service firebase.storage {
 
     // Firm Logos Collection
     match /firm_logos/{fileName} {
-      // Anyone can read firm logos (allows public bridge page and guest views)
       allow read: if true;
-
-      // Only the registered Firm Admin can upload or modify the brand logo
       allow write: if isSignedIn() &&
         isFirmAdmin(request.resource.metadata.firmId);
     }
 
-    // Firm attachments/files (restricted to approved members)
+    // Firm attachments/files (restricted to active members of active firms)
     match /firm_attachments/{firmId}/{fileName} {
-      allow read: if isApprovedMember(firmId);
-      allow write: if isApprovedMember(firmId);
+      allow read: if isActiveMember(firmId);
+      allow write: if isActiveMember(firmId);
     }
   }
 }

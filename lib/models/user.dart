@@ -1,70 +1,98 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:freezed_annotation/freezed_annotation.dart';
-
-part 'user.freezed.dart';
-part 'user.g.dart';
 
 /// Enum for user roles in the system
 enum UserRole {
-  super_admin, // Created the firm, can manage everything
-  admin, // Can manage staff and approve employees
-  employee, // Regular employee with limited access
+  super_admin,
+  admin,
+  employee,
 }
 
-/// Represents a user in the ProntoChat system.
-/// Users can have different roles depending on the firm context.
-@freezed
-class AppUser with _$AppUser {
-  const factory AppUser({
-    /// Firebase Auth UID
-    required String uid,
+/// Represents a user identity in the ProntoChat system, decoupled from any single firm.
+class AppUser {
+  final String uid;
+  final String name;
+  final String email;
+  final UserRole role;
+  final String? image;
+  final DateTime createdAt;
+  final DateTime? lastSeen;
+  final String? nameLower;
+  final List<String> firmIds;
+  final String? ownedFirmId;
 
-    /// User's full name
-    required String name,
+  const AppUser({
+    required this.uid,
+    required this.name,
+    required this.email,
+    this.role = UserRole.employee,
+    this.image,
+    required this.createdAt,
+    this.lastSeen,
+    this.nameLower,
+    this.firmIds = const [],
+    this.ownedFirmId,
+  });
 
-    /// User's email address
-    required String email,
-
-    /// User's role (affects permissions and dashboard access)
-    @Default(UserRole.employee) UserRole role,
-
-    /// URL to user's profile image in Firebase Storage
+  AppUser copyWith({
+    String? uid,
+    String? name,
+    String? email,
+    UserRole? role,
     String? image,
-
-    /// Timestamp when the user account was created
-    required DateTime createdAt,
-
-    /// Last time the user was active
+    DateTime? createdAt,
     DateTime? lastSeen,
-
-    /// Lowercase version of name for search/filtering
     String? nameLower,
-  }) = _AppUser;
-
-  factory AppUser.fromJson(Map<String, dynamic> json) =>
-      _$AppUserFromJson(json);
-}
-
-/// Extension methods for Firestore conversion
-extension AppUserFirestore on AppUser {
-  /// Convert Firestore DocumentSnapshot to AppUser model
-  static AppUser fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data()!;
+    List<String>? firmIds,
+    String? ownedFirmId,
+  }) {
     return AppUser(
-      uid: doc.id,
-      name: data['name'] ?? '',
-      email: data['email'] ?? '',
-      role: _parseRole(data['role'] as String?),
-      image: data['image'],
-      createdAt: (data['createdAt'] as Timestamp).toDate(),
-      lastSeen: data['lastSeen'] != null
-          ? (data['lastSeen'] as Timestamp).toDate()
-          : null,
-      nameLower: data['nameLower'],
+      uid: uid ?? this.uid,
+      name: name ?? this.name,
+      email: email ?? this.email,
+      role: role ?? this.role,
+      image: image ?? this.image,
+      createdAt: createdAt ?? this.createdAt,
+      lastSeen: lastSeen ?? this.lastSeen,
+      nameLower: nameLower ?? this.nameLower,
+      firmIds: firmIds ?? this.firmIds,
+      ownedFirmId: ownedFirmId ?? this.ownedFirmId,
     );
   }
 
-  /// Convert AppUser to Firestore-compatible Map
+  factory AppUser.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data() ?? {};
+
+    DateTime parseDate(dynamic val) {
+      if (val is Timestamp) return val.toDate();
+      if (val is String) return DateTime.tryParse(val) ?? DateTime.now();
+      return DateTime.now();
+    }
+
+    final rawRole = (data['role'] as String?)?.toLowerCase();
+    UserRole role = UserRole.employee;
+    if (rawRole == 'super_admin') {
+      role = UserRole.super_admin;
+    } else if (rawRole == 'admin') {
+      role = UserRole.admin;
+    }
+
+    final List<dynamic>? rawFirmIds = data['firmIds'] as List<dynamic>?;
+    final List<String> firmIds = rawFirmIds?.map((e) => e.toString()).toList() ?? [];
+
+    return AppUser(
+      uid: doc.id,
+      name: data['name'] as String? ?? '',
+      email: data['email'] as String? ?? '',
+      role: role,
+      image: data['image'] as String?,
+      createdAt: parseDate(data['createdAt']),
+      lastSeen: data['lastSeen'] != null ? parseDate(data['lastSeen']) : null,
+      nameLower: data['nameLower'] as String?,
+      firmIds: firmIds,
+      ownedFirmId: data['ownedFirmId'] as String?,
+    );
+  }
+
   Map<String, dynamic> toFirestore() {
     return {
       'name': name,
@@ -73,15 +101,16 @@ extension AppUserFirestore on AppUser {
       'createdAt': Timestamp.fromDate(createdAt),
       if (image != null) 'image': image,
       if (lastSeen != null) 'lastSeen': Timestamp.fromDate(lastSeen!),
-      'nameLower': name.toLowerCase(),
+      'nameLower': nameLower ?? name.toLowerCase(),
+      'firmIds': firmIds,
+      if (ownedFirmId != null) 'ownedFirmId': ownedFirmId,
     };
   }
+}
 
-  /// Helper to parse role string to enum
-  static UserRole _parseRole(String? roleStr) {
-    return UserRole.values.firstWhere(
-      (role) => role.name == roleStr,
-      orElse: () => UserRole.employee,
-    );
+/// Extension methods for backward compatibility
+extension AppUserFirestore on AppUser {
+  static AppUser fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    return AppUser.fromFirestore(doc);
   }
 }

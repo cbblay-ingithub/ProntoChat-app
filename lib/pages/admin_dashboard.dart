@@ -15,6 +15,10 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'home_page.dart';
 import 'bulk_onboarding_view.dart';
 import 'package:pronto_chat/services/cloud_storage.dart';
+import 'dart:math';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:go_router/go_router.dart';
+import 'package:pronto_chat/services/chat_service.dart';
 // ── PRONTOCHAT ADDITION ──
 import 'package:share_plus/share_plus.dart';
 // ─────────────────────────
@@ -150,8 +154,11 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
             onPressed: () async {
               Navigator.pop(dialogContext);
               try {
+                ChatService.instance.cancelAllSubscriptions();
                 await FirebaseAuth.instance.signOut();
-                navigator.pushReplacementNamed('/login');
+                if (mounted) {
+                  context.go('/sign-in');
+                }
               } catch (e) {
                 if (mounted) {
                   SnackbarService().showSnackbar(
@@ -252,6 +259,10 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                 _buildHeaderCard(context, firm, adminName, adminEmail, primaryColor),
                 const SizedBox(height: 16),
 
+                // Seat Meter Card (Trial Tier Caps)
+                _buildSeatMeterCard(context, firm, primaryColor),
+                const SizedBox(height: 16),
+
                 // 2 & 3. Stats Bar and QR Code Card (Row on desktop, Column on mobile)
                 if (isMobile) ...[
                   _buildStatsBar(context, firm.firmId, primaryColor),
@@ -317,6 +328,9 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                     ? DecorationImage(
                         image: NetworkImage(firm.logoUrl!),
                         fit: BoxFit.contain,
+                        onError: (exception, stackTrace) {
+                          debugPrint('Notice: Firm logo could not be loaded: $exception');
+                        },
                       )
                     : null,
                 boxShadow: [
@@ -397,9 +411,9 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
 
         final docs = snapshot.data?.docs ?? [];
         final total = docs.length;
-        final pending = docs.where((doc) => doc['status'] == 'pending').length;
-        final active = docs.where((doc) => doc['status'] == 'active').length;
-        final revoked = docs.where((doc) => doc['status'] == 'revoked').length;
+        final pending = docs.where((doc) => (doc.data() as Map<String, dynamic>?)?['status'] == 'pending').length;
+        final active = docs.where((doc) => (doc.data() as Map<String, dynamic>?)?['status'] == 'active').length;
+        final revoked = docs.where((doc) => (doc.data() as Map<String, dynamic>?)?['status'] == 'revoked').length;
 
         return LayoutBuilder(
           builder: (context, constraints) {
@@ -613,21 +627,22 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                     side: BorderSide(color: primaryColor),
                   ),
                 ),
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    await Share.share(
-                      'Join our workspace on ProntoChat!\n\n'
-                      'Option 1 (Link): $inviteUri\n'
-                      'Option 2 (Manual): Open ProntoChat and enter Firm ID: $firmId',
-                    );
-                  },
-                  icon: const Icon(Icons.share, size: 16),
-                  label: const Text('Share'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryColor,
-                    foregroundColor: Colors.white,
+                if (!kIsWeb)
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      await Share.share(
+                        'Join our workspace on ProntoChat!\n\n'
+                        'Option 1 (Link): $inviteUri\n'
+                        'Option 2 (Manual): Open ProntoChat and enter Firm ID: $firmId',
+                      );
+                    },
+                    icon: const Icon(Icons.share, size: 16),
+                    label: const Text('Share'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primaryColor,
+                      foregroundColor: Colors.white,
+                    ),
                   ),
-                ),
               ],
             ),
           ],
@@ -783,13 +798,95 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     }
   }
 
-  /// Unified Tabbed Staff Management (Pending Requests vs Active Staff)
+  /// Real-time Seat Meter Card against trial limits
+  Widget _buildSeatMeterCard(BuildContext context, Firm firm, Color primaryColor) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('Firms').doc(firm.firmId).snapshots(),
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data() ?? {};
+        final int seatCount = (data['seatCount'] as num?)?.toInt() ?? firm.seatCount;
+        final int seatLimit = (data['seatLimit'] as num?)?.toInt() ?? firm.seatLimit;
+        final double usagePercent = (seatCount / seatLimit).clamp(0.0, 1.0);
+        final bool isLimitReached = seatCount >= seatLimit;
+
+        return Card(
+          elevation: 2,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.workspace_premium_outlined, color: primaryColor, size: 22),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Trial Plan Seat Usage',
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isLimitReached ? Colors.red.withOpacity(0.2) : Colors.blue.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: isLimitReached ? Colors.redAccent : Colors.blueAccent),
+                      ),
+                      child: Text(
+                        '$seatCount / $seatLimit Seats Used',
+                        style: TextStyle(
+                          color: isLimitReached ? Colors.redAccent : Colors.lightBlueAccent,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: LinearProgressIndicator(
+                    value: usagePercent,
+                    minHeight: 10,
+                    backgroundColor: Colors.grey[800],
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      isLimitReached ? Colors.redAccent : primaryColor,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  isLimitReached
+                      ? '⚠️ Trial seat limit of $seatLimit reached. Remove unjoined invitations or upgrade plan to add more staff.'
+                      : 'You have ${seatLimit - seatCount} available seat(s) remaining under the trial tier cap.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isLimitReached ? Colors.redAccent : Colors.grey[400],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Unified Tabbed Staff Management (Pre-Authorized Staff, Active Staff, Revoked Staff, Pending)
   Widget _buildStaffTabs(BuildContext context, String firmId, Color primaryColor) {
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: DefaultTabController(
-        length: 3,
+        length: 4,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -799,8 +896,8 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
               indicatorColor: primaryColor,
               tabs: const [
                 Tab(
-                  icon: Icon(Icons.hourglass_empty),
-                  text: 'Pending',
+                  icon: Icon(Icons.assignment_ind_outlined),
+                  text: 'Pre-Authorized',
                 ),
                 Tab(
                   icon: Icon(Icons.people),
@@ -810,20 +907,305 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                   icon: Icon(Icons.block),
                   text: 'Revoked',
                 ),
+                Tab(
+                  icon: Icon(Icons.hourglass_empty),
+                  text: 'Pending',
+                ),
               ],
             ),
             SizedBox(
-              height: 400, // Sized container for independent list scrolling
+              height: 440,
               child: TabBarView(
                 children: [
-                  _buildPendingRequestsTab(context, firmId, primaryColor),
+                  _buildPreAuthorizedStaffTab(context, firmId, primaryColor),
                   _buildActiveStaffTab(context, firmId, primaryColor),
                   _buildRevokedStaffTab(context, firmId, primaryColor),
+                  _buildPendingRequestsTab(context, firmId, primaryColor),
                 ],
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// The "Pre-Authorized Staff" View
+  Widget _buildPreAuthorizedStaffTab(
+    BuildContext context,
+    String firmId,
+    Color primaryColor,
+  ) {
+    final firm = ref.watch(currentFirmProvider);
+    final seatCount = firm?.seatCount ?? 1;
+    final seatLimit = firm?.seatLimit ?? 5;
+    final isLimitReached = seatCount >= seatLimit;
+
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: DBService.instance.streamPreApprovedStaff(firmId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final staffList = snapshot.data ?? [];
+
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Pre-Authorized Staff (${staffList.length})',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: isLimitReached
+                        ? () {
+                            SnackbarService().showSnackbar(
+                              'Trial seat limit reached ($seatLimit seats max). Upgrade required to add more.',
+                              isError: true,
+                            );
+                          }
+                        : () => _showAddPreApprovedStaffDialog(context, firmId),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Add Staff Code'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isLimitReached ? Colors.grey[700] : primaryColor,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: staffList.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.assignment_ind_outlined, size: 48, color: Colors.grey[600]),
+                          const SizedBox(height: 8),
+                          Text('No pre-authorized staff yet.', style: TextStyle(color: Colors.grey[400])),
+                          const SizedBox(height: 4),
+                          Text('Add employees to generate one-time join codes.', style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+                        ],
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: staffList.length,
+                      separatorBuilder: (_, __) => const Divider(),
+                      itemBuilder: (context, index) {
+                        final staff = staffList[index];
+                        final staffId = staff['id'] as String? ?? '';
+                        final email = staff['email'] as String? ?? '';
+                        final name = staff['name'] as String? ?? email;
+                        final code = staff['code'] as String? ?? 'N/A';
+                        final status = staff['status'] as String? ?? 'invited';
+                        final isJoined = status == 'joined';
+
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: CircleAvatar(
+                            backgroundColor: isJoined ? Colors.green.withOpacity(0.2) : primaryColor.withOpacity(0.2),
+                            child: Icon(
+                              isJoined ? Icons.check : Icons.key,
+                              color: isJoined ? Colors.greenAccent : primaryColor,
+                              size: 18,
+                            ),
+                          ),
+                          title: Row(
+                            children: [
+                              Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: isJoined ? Colors.green.withOpacity(0.2) : Colors.orange.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  status.toUpperCase(),
+                                  style: TextStyle(
+                                    color: isJoined ? Colors.greenAccent : Colors.orangeAccent,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(email, style: TextStyle(color: Colors.grey[400], fontSize: 12)),
+                              const SizedBox(height: 2),
+                              Row(
+                                children: [
+                                  Text(
+                                    'Code: $code',
+                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 0.8),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.copy, size: 14, color: Colors.grey),
+                                    tooltip: 'Copy Code',
+                                    onPressed: () async {
+                                      await Clipboard.setData(ClipboardData(text: code));
+                                      SnackbarService().showSnackbar('Code $code copied!');
+                                    },
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          trailing: isJoined
+                              ? null
+                              : IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                                  tooltip: 'Remove',
+                                  onPressed: () async {
+                                    final confirm = await showDialog<bool>(
+                                      context: context,
+                                      builder: (ctx) => AlertDialog(
+                                        title: const Text('Remove Staff Entry?'),
+                                        content: Text('Remove $email from pre-approved staff? This will free 1 trial seat.'),
+                                        actions: [
+                                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(ctx, true),
+                                            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+                                            child: const Text('Remove'),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                    if (confirm == true) {
+                                      await DBService.instance.removePreApprovedStaff(
+                                        firmId: firmId,
+                                        staffDocId: staffId,
+                                      );
+                                      if (context.mounted) {
+                                        SnackbarService().showSnackbar('Pre-authorized staff entry removed.');
+                                      }
+                                    }
+                                  },
+                                ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showAddPreApprovedStaffDialog(BuildContext context, String firmId) {
+    final emailController = TextEditingController();
+    final nameController = TextEditingController();
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final random = Random();
+    final code = List.generate(6, (index) => chars[random.nextInt(chars.length)]).join();
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Add Pre-Authorized Staff', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Pre-authorizing an employee reserves 1 trial seat and allows them to onboard immediately with this one-time code.',
+              style: TextStyle(color: Colors.grey, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: nameController,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                labelText: 'Employee Name',
+                labelStyle: const TextStyle(color: Colors.grey),
+                filled: true,
+                fillColor: const Color.fromRGBO(24, 23, 23, 1),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: emailController,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                labelText: 'Employee Email',
+                labelStyle: const TextStyle(color: Colors.grey),
+                hintText: 'name@company.com',
+                hintStyle: TextStyle(color: Colors.grey[600]),
+                filled: true,
+                fillColor: const Color.fromRGBO(24, 23, 23, 1),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color.fromRGBO(41, 116, 188, 0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color.fromRGBO(41, 116, 188, 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.key, color: Color.fromRGBO(41, 116, 188, 1), size: 20),
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Generated One-Time Code', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                      Text(code, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 1.2)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+          ElevatedButton(
+            onPressed: () async {
+              final email = emailController.text.trim();
+              final name = nameController.text.trim();
+              if (email.isEmpty || !email.contains('@')) {
+                SnackbarService().showSnackbar('Please enter a valid email address.', isError: true);
+                return;
+              }
+              Navigator.pop(dialogCtx);
+              try {
+                await DBService.instance.addPreApprovedStaff(
+                  firmId: firmId,
+                  email: email,
+                  name: name.isEmpty ? email : name,
+                  code: code,
+                );
+                SnackbarService().showSnackbar('Added $email (Code: $code) successfully!');
+              } catch (e) {
+                SnackbarService().showSnackbar('Error: ${e.toString().replaceAll('Exception:', '')}', isError: true);
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color.fromRGBO(41, 116, 188, 1),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Save & Issue Code'),
+          ),
+        ],
       ),
     );
   }
@@ -895,6 +1277,7 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                   contentPadding: EdgeInsets.zero,
                   leading: CircleAvatar(
                     backgroundImage: NetworkImage(avatarUrl),
+                    onBackgroundImageError: (_, __) {},
                   ),
                   title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
                   subtitle: Text(
@@ -1031,6 +1414,7 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                   contentPadding: EdgeInsets.zero,
                   leading: CircleAvatar(
                     backgroundImage: NetworkImage(avatarUrl),
+                    onBackgroundImageError: (_, __) {},
                   ),
                   title: Row(
                     children: [
@@ -1255,6 +1639,7 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                   contentPadding: EdgeInsets.zero,
                   leading: CircleAvatar(
                     backgroundImage: NetworkImage(avatarUrl),
+                    onBackgroundImageError: (_, __) {},
                   ),
                   title: Row(
                     children: [
@@ -1394,6 +1779,9 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                         image: DecorationImage(
                           image: NetworkImage(firm.logoUrl!),
                           fit: BoxFit.contain,
+                          onError: (exception, stackTrace) {
+                            debugPrint('Notice: Brand logo could not be loaded: $exception');
+                          },
                         ),
                       ),
                     ),
@@ -1619,9 +2007,10 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     if (doubleConfirm == true) {
       try {
         await FirebaseFirestore.instance.collection('Firms').doc(firm.firmId).delete();
+        ChatService.instance.cancelAllSubscriptions();
         await FirebaseAuth.instance.signOut();
         if (mounted) {
-          Navigator.of(context).pushReplacementNamed('/register');
+          context.go('/register-firm');
         }
       } catch (e) {
         SnackbarService().showSnackbar('Error deleting firm: $e', isError: true);
