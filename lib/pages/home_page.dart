@@ -52,6 +52,22 @@ class _HomePageState extends ConsumerState<HomePage> {
     final String? userImage = auth.currentUserImage.isNotEmpty ? auth.currentUserImage : null;
 
     final Firm? activeFirm = ref.watch(currentFirmProvider);
+    if (activeFirm == null) {
+      final membershipData = ref.watch(myMembershipStreamProvider).value?.data();
+      final memberFirmId = membershipData?['firmId'] as String?;
+      if (memberFirmId != null && memberFirmId.isNotEmpty) {
+        ref.read(firmNotifierProvider.notifier).loadFirm(memberFirmId);
+        return const Scaffold(
+          backgroundColor: Color.fromRGBO(28, 27, 27, 1),
+          body: Center(
+            child: CircularProgressIndicator(
+              color: Color.fromRGBO(41, 116, 188, 1),
+            ),
+          ),
+        );
+      }
+    }
+
     final Firm firm = activeFirm ??
         Firm(
           firmId: 'firm_workspace_101',

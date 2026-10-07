@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/firm.dart';
 import '../../services/db_service.dart';
 import '../convo_page.dart';
@@ -252,6 +253,24 @@ class _EmployeeDirectoryTabState extends State<EmployeeDirectoryTab> {
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
+                                    if (role == 'lead') ...[
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: Colors.purple.withValues(alpha: 0.2),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: const Text(
+                                          'LEAD',
+                                          style: TextStyle(
+                                            color: Colors.purpleAccent,
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                     if (role == 'admin' || role == 'super_admin') ...[
                                       const SizedBox(width: 6),
                                       Container(
@@ -273,12 +292,41 @@ class _EmployeeDirectoryTabState extends State<EmployeeDirectoryTab> {
                                   ],
                                 ),
                                 const SizedBox(height: 3),
-                                Text(
-                                  jobTitle,
-                                  style: TextStyle(
-                                    color: Colors.grey[400],
-                                    fontSize: 12,
-                                  ),
+                                Row(
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        jobTitle,
+                                        style: TextStyle(
+                                          color: Colors.grey[400],
+                                          fontSize: 12,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    if (colleague['departmentId'] != null &&
+                                        (colleague['departmentId'] as String).isNotEmpty)
+                                      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                                        stream: FirebaseFirestore.instance
+                                            .collection('Firms')
+                                            .doc(widget.firm.firmId)
+                                            .collection('departments')
+                                            .doc(colleague['departmentId'] as String)
+                                            .snapshots(),
+                                        builder: (ctx, dSnap) {
+                                          final dName = dSnap.data?.data()?['name'] as String?;
+                                          if (dName == null || dName.isEmpty) return const SizedBox.shrink();
+                                          return Text(
+                                            ' • $dName',
+                                            style: const TextStyle(
+                                              color: Colors.blueAccent,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                  ],
                                 ),
                               ],
                             ),

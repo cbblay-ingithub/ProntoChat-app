@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart' as provider;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/firm.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/chat_service.dart';
+import '../../services/db_service.dart';
 
 class EmployeeProfileTab extends StatelessWidget {
   final String uid;
@@ -60,144 +62,181 @@ class EmployeeProfileTab extends StatelessWidget {
     final theme = Theme.of(context);
     final primaryColor = theme.colorScheme.primary;
 
-    return Scaffold(
-      backgroundColor: const Color.fromRGBO(28, 27, 27, 1),
-      appBar: AppBar(
-        backgroundColor: const Color.fromRGBO(28, 27, 27, 1),
-        elevation: 0,
-        title: const Text(
-          'My Profile',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        child: Column(
-          children: [
-            const SizedBox(height: 10),
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: DBService.instance.streamMember(firm.firmId, uid),
+      builder: (context, memberSnap) {
+        final memberData = memberSnap.data?.data() ?? {};
+        final role = memberData['role'] as String? ?? 'employee';
+        final departmentId = memberData['departmentId'] as String?;
 
-            // ── Avatar & Name ────────────────────────────────────────────────
-            Center(
-              child: Stack(
-                alignment: Alignment.bottomRight,
-                children: [
-                  CircleAvatar(
-                    radius: 46,
-                    backgroundColor: primaryColor.withValues(alpha: 0.25),
-                    child: Text(
-                      userName.isNotEmpty ? userName[0].toUpperCase() : 'U',
-                      style: TextStyle(
-                        color: primaryColor,
-                        fontSize: 36,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: const BoxDecoration(
-                      color: Color.fromRGBO(28, 27, 27, 1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const CircleAvatar(
-                      radius: 8,
-                      backgroundColor: Colors.greenAccent,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              userName,
-              style: const TextStyle(
+        String roleLabel = 'Employee';
+        Color roleBadgeColor = primaryColor;
+        String badgeText = 'ACTIVE MEMBER';
+
+        if (role == 'lead') {
+          roleLabel = 'Team Lead';
+          roleBadgeColor = Colors.purpleAccent;
+          badgeText = 'TEAM LEAD';
+        } else if (role == 'admin' || role == 'super_admin') {
+          roleLabel = 'Firm Admin';
+          roleBadgeColor = Colors.amber;
+          badgeText = 'FIRM ADMIN';
+        }
+
+        return Scaffold(
+          backgroundColor: const Color.fromRGBO(28, 27, 27, 1),
+          appBar: AppBar(
+            backgroundColor: const Color.fromRGBO(28, 27, 27, 1),
+            elevation: 0,
+            title: const Text(
+              'My Profile',
+              style: TextStyle(
                 color: Colors.white,
                 fontSize: 20,
                 fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              email.isNotEmpty ? email : 'employee@workspace.com',
-              style: TextStyle(
-                color: Colors.grey[400],
-                fontSize: 13,
-              ),
-            ),
-            const SizedBox(height: 10),
+          ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: Column(
+              children: [
+                const SizedBox(height: 10),
 
-            // Member Badge
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: primaryColor.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
-              ),
-              child: Text(
-                'ACTIVE MEMBER',
-                style: TextStyle(
-                  color: primaryColor,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 28),
-
-            // ── Firm Organization Card ───────────────────────────────────────
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: const Color.fromRGBO(34, 33, 33, 1),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+                // ── Avatar & Name ────────────────────────────────────────────────
+                Center(
+                  child: Stack(
+                    alignment: Alignment.bottomRight,
                     children: [
-                      Icon(Icons.business, color: primaryColor, size: 20),
-                      const SizedBox(width: 8),
-                      const Text(
-                        'Workspace & Firm Details',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
+                      CircleAvatar(
+                        radius: 46,
+                        backgroundColor: primaryColor.withValues(alpha: 0.25),
+                        child: Text(
+                          userName.isNotEmpty ? userName[0].toUpperCase() : 'U',
+                          style: TextStyle(
+                            color: primaryColor,
+                            fontSize: 36,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: Color.fromRGBO(28, 27, 27, 1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: CircleAvatar(
+                          radius: 8,
+                          backgroundColor: role == 'lead' ? Colors.purpleAccent : Colors.greenAccent,
                         ),
                       ),
                     ],
                   ),
-                  const Divider(height: 24, color: Colors.white12),
-                  _buildProfileRow('Company Name', firm.name),
-                  const SizedBox(height: 12),
-                  _buildProfileRow(
-                    'Firm ID',
-                    firm.firmId,
-                    trailing: IconButton(
-                      icon: const Icon(Icons.copy, size: 16, color: Colors.grey),
-                      tooltip: 'Copy Firm ID',
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: firm.firmId));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Firm ID copied to clipboard')),
-                        );
-                      },
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  userName,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  email.isNotEmpty ? email : 'employee@workspace.com',
+                  style: TextStyle(
+                    color: Colors.grey[400],
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                // Member Badge
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: roleBadgeColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: roleBadgeColor.withValues(alpha: 0.3)),
+                  ),
+                  child: Text(
+                    badgeText,
+                    style: TextStyle(
+                      color: roleBadgeColor,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  _buildProfileRow('Role', 'Team Member / Employee'),
-                ],
-              ),
-            ),
+                ),
+
+                const SizedBox(height: 28),
+
+                // ── Firm Organization Card ───────────────────────────────────────
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: const Color.fromRGBO(34, 33, 33, 1),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.business, color: primaryColor, size: 20),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Workspace & Firm Details',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const Divider(height: 24, color: Colors.white12),
+                      _buildProfileRow('Company Name', firm.name),
+                      const SizedBox(height: 12),
+                      _buildProfileRow(
+                        'Firm ID',
+                        firm.firmId,
+                        trailing: IconButton(
+                          icon: const Icon(Icons.copy, size: 16, color: Colors.grey),
+                          tooltip: 'Copy Firm ID',
+                          onPressed: () {
+                            Clipboard.setData(ClipboardData(text: firm.firmId));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Firm ID copied to clipboard')),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _buildProfileRow('Role', roleLabel),
+                      const SizedBox(height: 12),
+                      if (departmentId != null && departmentId.isNotEmpty)
+                        StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                          stream: FirebaseFirestore.instance
+                              .collection('Firms')
+                              .doc(firm.firmId)
+                              .collection('departments')
+                              .doc(departmentId)
+                              .snapshots(),
+                          builder: (ctx, dSnap) {
+                            final dName = dSnap.data?.data()?['name'] as String? ?? 'Loading...';
+                            return _buildProfileRow('Department', dName);
+                          },
+                        )
+                      else
+                        _buildProfileRow('Department', 'None (Unassigned)'),
+                    ],
+                  ),
+                ),
 
             const SizedBox(height: 16),
 
@@ -258,6 +297,8 @@ class EmployeeProfileTab extends StatelessWidget {
           ],
         ),
       ),
+    );
+      },
     );
   }
 

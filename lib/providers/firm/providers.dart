@@ -111,18 +111,21 @@ final myMembershipStreamProvider = StreamProvider<DocumentSnapshot<Map<String, d
 
                 if (memberDoc.exists) {
                   final mData = memberDoc.data() ?? {};
-                  // Auto-heal root membership doc
-                  await FirebaseFirestore.instance
-                      .collection('Memberships')
-                      .doc(user.uid)
-                      .set({
+                  final healedData = <String, dynamic>{
                     'uid': user.uid,
                     'firmId': firmId,
                     'status': mData['status'] ?? 'active',
                     'role': mData['role'] ?? 'employee',
                     'createdAt': mData['createdAt'] ?? FieldValue.serverTimestamp(),
                     'joinedAt': mData['joinedAt'] ?? FieldValue.serverTimestamp(),
-                  }, SetOptions(merge: true));
+                  };
+                  if (mData['departmentId'] != null) {
+                    healedData['departmentId'] = mData['departmentId'];
+                  }
+                  await FirebaseFirestore.instance
+                      .collection('Memberships')
+                      .doc(user.uid)
+                      .set(healedData, SetOptions(merge: true));
                   return;
                 }
               }

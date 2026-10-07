@@ -11,6 +11,7 @@ enum MembershipStatus {
 /// Enum for membership role within a firm context
 enum MembershipRole {
   admin,    // Can manage staff, invite codes, view console
+  lead,     // Can create and manage project groups
   employee, // Regular team member
 }
 
@@ -21,6 +22,7 @@ class Membership {
   final String firmId;
   final MembershipStatus status;
   final MembershipRole role;
+  final String? departmentId;
   final DateTime joinedAt;
   final DateTime createdAt;
   final DateTime? revokedAt;
@@ -31,6 +33,7 @@ class Membership {
     required this.firmId,
     this.status = MembershipStatus.active,
     this.role = MembershipRole.employee,
+    this.departmentId,
     DateTime? joinedAt,
     DateTime? createdAt,
     this.revokedAt,
@@ -40,6 +43,7 @@ class Membership {
   bool get isActive => status == MembershipStatus.active;
   bool get isRevoked => status == MembershipStatus.revoked;
   bool get isAdmin => role == MembershipRole.admin;
+  bool get isLead => role == MembershipRole.lead;
   bool get isEmployee => role == MembershipRole.employee;
 
   Membership copyWith({
@@ -48,6 +52,7 @@ class Membership {
     String? firmId,
     MembershipStatus? status,
     MembershipRole? role,
+    String? departmentId,
     DateTime? joinedAt,
     DateTime? createdAt,
     DateTime? revokedAt,
@@ -58,6 +63,7 @@ class Membership {
       firmId: firmId ?? this.firmId,
       status: status ?? this.status,
       role: role ?? this.role,
+      departmentId: departmentId ?? this.departmentId,
       joinedAt: joinedAt ?? this.joinedAt,
       createdAt: createdAt ?? this.createdAt,
       revokedAt: revokedAt ?? this.revokedAt,
@@ -92,9 +98,14 @@ class Membership {
     }
 
     final rawRole = (data['role'] as String?)?.toLowerCase();
-    final role = (rawRole == 'admin' || rawRole == 'super_admin')
-        ? MembershipRole.admin
-        : MembershipRole.employee;
+    MembershipRole role = MembershipRole.employee;
+    if (rawRole == 'admin' || rawRole == 'super_admin') {
+      role = MembershipRole.admin;
+    } else if (rawRole == 'lead') {
+      role = MembershipRole.lead;
+    }
+
+    final departmentId = data['departmentId'] as String?;
 
     return Membership(
       membershipId: doc.id,
@@ -102,6 +113,7 @@ class Membership {
       firmId: data['firmId'] as String? ?? '',
       status: status,
       role: role,
+      departmentId: departmentId,
       joinedAt: joinedAt,
       createdAt: createdAt,
       revokedAt: revokedAt,
@@ -114,6 +126,7 @@ class Membership {
       'firmId': firmId,
       'status': status == MembershipStatus.active ? 'active' : status.name,
       'role': role.name,
+      if (departmentId != null) 'departmentId': departmentId,
       'joinedAt': Timestamp.fromDate(joinedAt),
       'createdAt': Timestamp.fromDate(createdAt),
       if (revokedAt != null) 'revokedAt': Timestamp.fromDate(revokedAt!),
@@ -121,12 +134,21 @@ class Membership {
   }
 
   factory Membership.fromJson(Map<String, dynamic> json) {
+    final rawRole = json['role']?.toString().toLowerCase();
+    MembershipRole role = MembershipRole.employee;
+    if (rawRole == 'admin') {
+      role = MembershipRole.admin;
+    } else if (rawRole == 'lead') {
+      role = MembershipRole.lead;
+    }
+
     return Membership(
       membershipId: json['membershipId'] as String? ?? '',
       uid: json['uid'] as String? ?? '',
       firmId: json['firmId'] as String? ?? '',
       status: json['status'] == 'revoked' ? MembershipStatus.revoked : MembershipStatus.active,
-      role: json['role'] == 'admin' ? MembershipRole.admin : MembershipRole.employee,
+      role: role,
+      departmentId: json['departmentId'] as String?,
       joinedAt: json['joinedAt'] != null
           ? DateTime.tryParse(json['joinedAt'].toString()) ?? DateTime.now()
           : DateTime.now(),
@@ -143,6 +165,7 @@ class Membership {
       'firmId': firmId,
       'status': status.name,
       'role': role.name,
+      if (departmentId != null) 'departmentId': departmentId,
       'joinedAt': joinedAt.toIso8601String(),
       'createdAt': createdAt.toIso8601String(),
     };

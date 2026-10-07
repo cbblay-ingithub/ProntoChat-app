@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../services/csv_upload_service.dart';
 import '../services/snackbar_service.dart';
+import '../services/db_service.dart';
 
 class BulkOnboardingView extends StatefulWidget {
   final String firmId;
@@ -19,6 +20,7 @@ class BulkOnboardingView extends StatefulWidget {
 
 class _BulkOnboardingViewState extends State<BulkOnboardingView> {
   List<Map<String, dynamic>> _parsedStaff = [];
+  List<String> _missingDepartments = [];
   bool _isLoading = false;
   bool _isUploading = false;
   String? _errorMessage;
@@ -27,14 +29,37 @@ class _BulkOnboardingViewState extends State<BulkOnboardingView> {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
+      _missingDepartments = [];
     });
 
     try {
       final staffList = await CsvUploadService.instance.pickAndParseCsv();
       if (!mounted) return;
+
+      // Identify missing departments by checking existing departments in Firestore
+      final deptsSnapshot = await FirebaseFirestore.instance
+          .collection('Firms')
+          .doc(widget.firmId)
+          .collection('departments')
+          .get();
+
+      final existingDeptNames = deptsSnapshot.docs
+          .map((d) => (d.data()['name'] as String? ?? '').toLowerCase().trim())
+          .toSet();
+
+      final missing = <String>{};
+      for (final s in staffList) {
+        final dept = (s['department'] as String?)?.trim() ?? '';
+        if (dept.isNotEmpty && !existingDeptNames.contains(dept.toLowerCase())) {
+          missing.add(dept);
+        }
+      }
+
       setState(() {
         _parsedStaff = staffList;
+        _missingDepartments = missing.toList();
       });
+
       if (staffList.isNotEmpty) {
         SnackbarService().showSnackbar('Loaded ${staffList.length} staff records from CSV.');
       }
@@ -64,11 +89,39 @@ class _BulkOnboardingViewState extends State<BulkOnboardingView> {
     });
 
     try {
-      await CsvUploadService.instance.uploadPreApprovedStaff(widget.firmId, _parsedStaff);
+      // 1. Create missing departments if any
+      final deptMap = <String, String>{};
+      final deptsSnapshot = await FirebaseFirestore.instance
+          .collection('Firms')
+          .doc(widget.firmId)
+          .collection('departments')
+          .get();
+
+      for (final doc in deptsSnapshot.docs) {
+        final name = (doc.data()['name'] as String? ?? '').trim();
+        deptMap[name] = doc.id;
+      }
+
+      for (final missingDept in _missingDepartments) {
+        final newId = await DBService.instance.createDepartment(
+          firmId: widget.firmId,
+          name: missingDept,
+        );
+        deptMap[missingDept] = newId;
+      }
+
+      // 2. Upload PreApprovedStaff with mapped department IDs
+      await CsvUploadService.instance.uploadPreApprovedStaff(
+        widget.firmId,
+        _parsedStaff,
+        departmentNameToIdMap: deptMap,
+      );
+
       if (!mounted) return;
       SnackbarService().showSnackbar('Successfully pre-approved ${_parsedStaff.length} employees!');
       setState(() {
         _parsedStaff = [];
+        _missingDepartments = [];
       });
     } catch (e) {
       final msg = 'Upload failed: ${e.toString().replaceFirst("Exception: ", "")}';
@@ -114,7 +167,10 @@ class _BulkOnboardingViewState extends State<BulkOnboardingView> {
                       Row(
                         children: [
                           TextButton(
-                            onPressed: () => setState(() => _parsedStaff = []),
+                            onPressed: () => setState(() {
+                              _parsedStaff = [];
+                              _missingDepartments = [];
+                            }),
                             child: const Text('Cancel'),
                           ),
                           const SizedBox(width: 8),
@@ -133,17 +189,17 @@ class _BulkOnboardingViewState extends State<BulkOnboardingView> {
                                       color: Colors.white,
                                     ),
                                   )
-                                : Text('Confirm & Import ${_parsedStaff.length} Employees'),
+                                : Text('Confirm & Import (${_parsedStaff.length})'),
                           ),
                         ],
                       ),
                   ],
                 ),
                 if (_errorMessage != null) ...[
+                  const SizedBox(height: 12),
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
-                    margin: const EdgeInsets.only(bottom: 12),
                     decoration: BoxDecoration(
                       color: Colors.red.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(8),
@@ -163,9 +219,34 @@ class _BulkOnboardingViewState extends State<BulkOnboardingView> {
                     ),
                   ),
                 ],
+                if (_missingDepartments.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.info_outline, color: Colors.amber, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Missing departments to create on confirmation: ${_missingDepartments.join(", ")}',
+                            style: const TextStyle(color: Colors.amber, fontSize: 13, fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 if (_parsedStaff.isEmpty) ...[
+                  const SizedBox(height: 8),
                   Text(
-                    'Upload a CSV file containing your existing staff list. Bypasses manual onboarding approval queues.',
+                    'Upload a CSV file with columns: name, identifier (email), department, role. Pre-approves employees and assigns departments automatically.',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: Colors.grey[400],
                         ),
@@ -187,7 +268,7 @@ class _BulkOnboardingViewState extends State<BulkOnboardingView> {
                         ),
                         SizedBox(height: 4),
                         Text(
-                          'Name,Email,JobTitle\nJohn Doe,john.doe@company.com,Senior Engineer\nJane Smith,jane.smith@company.com,Product Manager',
+                          'name,identifier,department,role\nAlice Johnson,alice@company.com,Engineering,lead\nBob Smith,bob@company.com,Marketing,employee',
                           style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.blueGrey),
                         ),
                       ],
@@ -214,7 +295,7 @@ class _BulkOnboardingViewState extends State<BulkOnboardingView> {
                     ),
                   ),
                 ] else ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   // DataTable preview
                   Container(
                     width: double.infinity,
@@ -228,15 +309,17 @@ class _BulkOnboardingViewState extends State<BulkOnboardingView> {
                         headingRowColor: WidgetStateProperty.all(Colors.black26),
                         columns: const [
                           DataColumn(label: Text('Name', style: TextStyle(fontWeight: FontWeight.bold))),
-                          DataColumn(label: Text('Email', style: TextStyle(fontWeight: FontWeight.bold))),
-                          DataColumn(label: Text('Job Title', style: TextStyle(fontWeight: FontWeight.bold))),
+                          DataColumn(label: Text('Identifier', style: TextStyle(fontWeight: FontWeight.bold))),
+                          DataColumn(label: Text('Department', style: TextStyle(fontWeight: FontWeight.bold))),
+                          DataColumn(label: Text('Role', style: TextStyle(fontWeight: FontWeight.bold))),
                         ],
                         rows: _parsedStaff.map((staff) {
                           return DataRow(
                             cells: [
                               DataCell(Text(staff['name'] ?? '')),
                               DataCell(Text(staff['email'] ?? '')),
-                              DataCell(Text(staff['jobTitle'] ?? '')),
+                              DataCell(Text(staff['department'] ?? '—')),
+                              DataCell(Text((staff['role'] ?? 'employee').toString().toUpperCase())),
                             ],
                           );
                         }).toList(),
@@ -250,6 +333,7 @@ class _BulkOnboardingViewState extends State<BulkOnboardingView> {
                       OutlinedButton(
                         onPressed: () => setState(() {
                           _parsedStaff = [];
+                          _missingDepartments = [];
                           _errorMessage = null;
                         }),
                         child: const Text('Pick Different File'),
@@ -267,7 +351,7 @@ class _BulkOnboardingViewState extends State<BulkOnboardingView> {
                                 ),
                               )
                             : const Icon(Icons.cloud_upload),
-                        label: Text('Confirm & Import ${_parsedStaff.length} Employees'),
+                        label: Text('Confirm & Import (${_parsedStaff.length})'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: widget.primaryColor,
                           foregroundColor: Colors.white,

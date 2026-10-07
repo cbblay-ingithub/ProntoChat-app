@@ -12,16 +12,14 @@ service cloud.firestore {
 
     // Checks whether the caller is an active admin of the firm
     function isFirmAdmin(firmId) {
-      return isSignedIn() && (
+      return isSignedIn() && exists(/databases/$(database)/documents/Firms/$(firmId)) && (
         (exists(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.role == 'admin') ||
-        (exists(/databases/$(database)/documents/Firms/$(firmId)) &&
-         get(/databases/$(database)/documents/Firms/$(firmId)).data.ownerUid == request.auth.uid) ||
-        (exists(/databases/$(database)/documents/Firms/$(firmId)) &&
-         get(/databases/$(database)/documents/Firms/$(firmId)).data.adminId == request.auth.uid) ||
+         get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.get('role', '') == 'admin') ||
+        get(/databases/$(database)/documents/Firms/$(firmId)).data.get('ownerUid', '') == request.auth.uid ||
+        get(/databases/$(database)/documents/Firms/$(firmId)).data.get('adminId', '') == request.auth.uid ||
         (exists(/databases/$(database)/documents/Memberships/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.firmId == firmId &&
-         get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.role == 'admin')
+         get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.get('firmId', '') == firmId &&
+         get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.get('role', '') == 'admin')
       );
     }
 
@@ -29,14 +27,14 @@ service cloud.firestore {
     function isActiveMember(firmId) {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/Firms/$(firmId)) &&
-        get(/databases/$(database)/documents/Firms/$(firmId)).data.status != 'suspended' &&
+        get(/databases/$(database)/documents/Firms/$(firmId)).data.get('status', 'active') != 'suspended' &&
         (
+          isFirmAdmin(firmId) ||
           (exists(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)) &&
-           get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.status == 'active') ||
+           get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.get('status', '') == 'active') ||
           (exists(/databases/$(database)/documents/Memberships/$(request.auth.uid)) &&
-           get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.firmId == firmId &&
-           (get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.status == 'active' ||
-            get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.status == 'approved'))
+           get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.get('firmId', '') == firmId &&
+           (get(/databases/$(database)/documents/Memberships/$(request.auth.uid)).data.get('status', '') in ['active', 'approved']))
         );
     }
 
@@ -47,6 +45,28 @@ service cloud.firestore {
          request.auth.uid in getAfter(/databases/$(database)/documents/Conversations/$(conversationId)).data.members) ||
         (exists(/databases/$(database)/documents/Conversations/$(conversationId)) &&
          request.auth.uid in get(/databases/$(database)/documents/Conversations/$(conversationId)).data.members)
+      );
+    }
+
+    // Helper to evaluate conversation membership within a firm context.
+    // NOTE: Admin role grants NO conversation or message read access.
+    function isFirmConvMember(firmId, convData) {
+      return isActiveMember(firmId) && (
+        // Department channel: derived strictly from member's departmentId or headUid on department
+        (convData.type == 'department' &&
+         'departmentId' in convData &&
+         ((exists(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)) &&
+           'departmentId' in get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data &&
+           get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.departmentId != null &&
+           get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.departmentId == convData.departmentId) ||
+          (exists(/databases/$(database)/documents/Firms/$(firmId)/departments/$(convData.departmentId)) &&
+           get(/databases/$(database)/documents/Firms/$(firmId)/departments/$(convData.departmentId)).data.get('headUid', '') == request.auth.uid))) ||
+        // Direct and Project chats: caller must be in participantIds (or legacy members)
+        ((convData.type == 'direct' || convData.type == 'project' || !('type' in convData)) &&
+         (('participantIds' in convData && request.auth.uid in convData.participantIds) ||
+          ('members' in convData && request.auth.uid in convData.members))) ||
+        // All-staff channel: all active members can read
+        (convData.type == 'allStaff')
       );
     }
 
@@ -129,12 +149,115 @@ service cloud.firestore {
         // Created during onboarding or firm creation
         allow create: if isSignedIn() && (
           (request.auth.uid == memberId && isFirmAdmin(firmId)) ||
-          (request.auth.uid == memberId && request.resource.data.role == 'employee' && request.resource.data.status == 'active')
+          (request.auth.uid == memberId &&
+           request.resource.data.role in ['employee', 'lead'] &&
+           request.resource.data.status == 'active')
         );
 
-        // Role-checked admin updates (e.g. revoking or restoring members)
-        allow update: if isFirmAdmin(firmId) && (
-          request.resource.data.status in ['active', 'revoked']
+        // Role-checked admin updates (e.g. revoking, restoring, assigning departments or roles)
+        // DECISION 3: Only admins assign departments.
+        // DECISION: Admin may NOT change their own departmentId. Employees and leads cannot change it at all.
+        allow update: if isFirmAdmin(firmId) &&
+          request.resource.data.status in ['active', 'revoked'] &&
+          request.resource.data.role in ['admin', 'lead', 'employee'] &&
+          (!('departmentId' in request.resource.data) ||
+           request.auth.uid != memberId ||
+           (!('departmentId' in resource.data) && request.resource.data.departmentId == null) ||
+           request.resource.data.departmentId == resource.data.departmentId);
+
+        allow delete: if false;
+      }
+
+      // ── Departments Subcollection ───────────────
+      match /departments/{deptId} {
+        allow read: if isFirmAdmin(firmId) || isActiveMember(firmId);
+
+        // Admin only. Creating a department also creates its conversation in the same batched write.
+        allow create: if isFirmAdmin(firmId) &&
+          request.resource.data.status == 'active' &&
+          request.resource.data.createdBy == request.auth.uid &&
+          'conversationId' in request.resource.data &&
+          existsAfter(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(request.resource.data.conversationId));
+
+        // Admin can rename, set head label, or archive
+        allow update: if isFirmAdmin(firmId) &&
+          request.resource.data.conversationId == resource.data.conversationId &&
+          request.resource.data.status in ['active', 'archived'];
+
+        allow delete: if false;
+      }
+
+      // ── Conversations Subcollection ─────────────
+      match /conversations/{conversationId} {
+        // DECISION 4: Admins must NOT be able to read message content in any conversation
+        // they are not a real participant in. Admin role must NEVER appear as a grant here.
+        allow read: if isFirmConvMember(firmId, resource.data);
+
+        allow create: if isSignedIn() && (isActiveMember(firmId) || isFirmAdmin(firmId)) && (
+          // Department conversation: created in batch with department by admin
+          (request.resource.data.type == 'department' &&
+           isFirmAdmin(firmId) &&
+           'departmentId' in request.resource.data &&
+           existsAfter(/databases/$(database)/documents/Firms/$(firmId)/departments/$(request.resource.data.departmentId))) ||
+
+          // Project conversation: allowed for role 'lead' or 'admin'; caller must be ownerUid and participant
+          (request.resource.data.type == 'project' &&
+           exists(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.role in ['lead', 'admin'] &&
+           request.resource.data.ownerUid == request.auth.uid &&
+           request.auth.uid in request.resource.data.participantIds) ||
+
+          // Direct conversation: caller must be in participantIds
+          (request.resource.data.type == 'direct' &&
+           request.auth.uid in request.resource.data.participantIds) ||
+
+          // All-staff channel: created with firm setup or backfilled by admin
+          (request.resource.data.type == 'allStaff' && isFirmAdmin(firmId))
+        );
+
+        allow update: if isActiveMember(firmId) && (
+          // Project conversation: owner may add/remove participants, archive, or transfer ownership
+          (resource.data.type == 'project' &&
+           resource.data.ownerUid == request.auth.uid &&
+           request.resource.data.type == 'project') ||
+
+          // Department or allStaff channel metadata updates by admin
+          (resource.data.type in ['department', 'allStaff'] &&
+           isFirmAdmin(firmId) &&
+           request.resource.data.type == resource.data.type) ||
+
+          // Participants can update conversation previews/timestamps
+          (isFirmConvMember(firmId, resource.data))
+        );
+
+        allow delete: if false;
+
+        // ── Messages Subcollection ──────────────────
+        match /messages/{messageId} {
+          allow read: if isFirmConvMember(firmId, get(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(conversationId)).data);
+
+          allow create: if isFirmConvMember(firmId, get(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(conversationId)).data) &&
+            request.resource.data.senderId == request.auth.uid &&
+            // allStaff channel: all active members read; ONLY admins and leads post
+            (get(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(conversationId)).data.type != 'allStaff' ||
+             get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.role in ['admin', 'lead']);
+
+          allow update, delete: if false;
+        }
+      }
+
+      // ── Projects (Metadata-only oversight collection) ──
+      match /projects/{projectId} {
+        // Admin sees metadata only (group existence, owner, memberCount)
+        allow read: if isFirmAdmin(firmId) || isActiveMember(firmId);
+
+        allow create: if isActiveMember(firmId) &&
+          exists(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.role in ['lead', 'admin'] &&
+          request.resource.data.ownerUid == request.auth.uid;
+
+        allow update: if isActiveMember(firmId) && (
+          resource.data.ownerUid == request.auth.uid || isFirmAdmin(firmId)
         );
 
         allow delete: if false;
@@ -146,6 +269,7 @@ service cloud.firestore {
 
         // Enforce seatLimit: batch must increment seatCount by 1 and remain <= seatLimit
         allow create: if isFirmAdmin(firmId) &&
+          request.resource.data.role in ['admin', 'lead', 'employee'] &&
           getAfter(/databases/$(database)/documents/Firms/$(firmId)).data.seatCount == get(/databases/$(database)/documents/Firms/$(firmId)).data.seatCount + 1 &&
           getAfter(/databases/$(database)/documents/Firms/$(firmId)).data.seatCount <= get(/databases/$(database)/documents/Firms/$(firmId)).data.seatLimit;
 
@@ -160,7 +284,7 @@ service cloud.firestore {
         );
       }
 
-      // ── Messages Subcollection ──────────────────
+      // ── Legacy Firm Messages Subcollection ──────
       match /Messages/{messageId} {
         allow read: if isFirmAdmin(firmId) || isActiveMember(firmId);
         allow create: if (isFirmAdmin(firmId) || isActiveMember(firmId)) && request.resource.data.senderId == request.auth.uid;
@@ -184,7 +308,8 @@ service cloud.firestore {
 
       allow update: if isSignedIn() && (
         request.auth.uid == membershipId ||
-        (resource != null && 'firmId' in resource.data && isFirmAdmin(resource.data.firmId))
+        (resource != null && 'firmId' in resource.data && isFirmAdmin(resource.data.firmId)) ||
+        ('firmId' in request.resource.data && isFirmAdmin(request.resource.data.firmId))
       );
 
       allow delete: if false;

@@ -8,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pronto_chat/models/firm.dart';
 import 'package:pronto_chat/models/membership.dart';
 import 'package:pronto_chat/models/user.dart';
+import 'package:pronto_chat/models/department.dart';
+import 'package:pronto_chat/models/project_group.dart';
 import 'package:pronto_chat/providers/firm/providers.dart';
 import 'package:pronto_chat/services/db_service.dart';
 import 'package:pronto_chat/services/snackbar_service.dart';
@@ -78,6 +80,8 @@ class AdminDashboard extends ConsumerStatefulWidget {
 class _AdminDashboardState extends ConsumerState<AdminDashboard> {
   // Track loading state for individual action buttons (e.g. key: 'approve_uid', value: true)
   final Map<String, bool> _actionLoading = {};
+  // Selected member UIDs for bulk operations on active staff
+  final Set<String> _selectedActiveMemberIds = {};
 
   @override
   void initState() {
@@ -286,6 +290,14 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
 
                 // 4 & 5. Tabbed Staff Management (Pending Requests vs Active Staff)
                 _buildStaffTabs(context, firm.firmId, primaryColor),
+                const SizedBox(height: 16),
+
+                // Departments & Department Chats Oversight Card
+                _buildDepartmentsCard(context, firm.firmId, primaryColor),
+                const SizedBox(height: 16),
+
+                // Project Groups Metadata Oversight Card
+                _buildProjectGroupsCard(context, firm.firmId, primaryColor),
                 const SizedBox(height: 16),
 
                 // 6. CSV Bulk Upload Card
@@ -1111,101 +1123,173 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     final random = Random();
     final code = List.generate(6, (index) => chars[random.nextInt(chars.length)]).join();
+    MembershipRole selectedRole = MembershipRole.employee;
+    String? selectedDeptId;
 
     showDialog(
       context: context,
-      builder: (dialogCtx) => AlertDialog(
-        backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Add Pre-Authorized Staff', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Pre-authorizing an employee reserves 1 trial seat and allows them to onboard immediately with this one-time code.',
-              style: TextStyle(color: Colors.grey, fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: nameController,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                labelText: 'Employee Name',
-                labelStyle: const TextStyle(color: Colors.grey),
-                filled: true,
-                fillColor: const Color.fromRGBO(24, 23, 23, 1),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: emailController,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                labelText: 'Employee Email',
-                labelStyle: const TextStyle(color: Colors.grey),
-                hintText: 'name@company.com',
-                hintStyle: TextStyle(color: Colors.grey[600]),
-                filled: true,
-                fillColor: const Color.fromRGBO(24, 23, 23, 1),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color.fromRGBO(41, 116, 188, 0.12),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color.fromRGBO(41, 116, 188, 0.3)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.key, color: Color.fromRGBO(41, 116, 188, 1), size: 20),
-                  const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Add Pre-Authorized Staff', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Pre-authorizing an employee reserves 1 trial seat and allows them to onboard immediately with this one-time code.',
+                  style: TextStyle(color: Colors.grey, fontSize: 13),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: nameController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: 'Employee Name',
+                    labelStyle: const TextStyle(color: Colors.grey),
+                    filled: true,
+                    fillColor: const Color.fromRGBO(24, 23, 23, 1),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: emailController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: 'Employee Email',
+                    labelStyle: const TextStyle(color: Colors.grey),
+                    hintText: 'name@company.com',
+                    hintStyle: TextStyle(color: Colors.grey[600]),
+                    filled: true,
+                    fillColor: const Color.fromRGBO(24, 23, 23, 1),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // Role Dropdown
+                DropdownButtonFormField<MembershipRole>(
+                  value: selectedRole,
+                  dropdownColor: const Color.fromRGBO(34, 33, 33, 1),
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: 'Initial Role',
+                    labelStyle: const TextStyle(color: Colors.grey),
+                    filled: true,
+                    fillColor: const Color.fromRGBO(24, 23, 23, 1),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: MembershipRole.employee,
+                      child: Text('Employee (Standard)', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: MembershipRole.lead,
+                      child: Text('Lead (Can manage project groups)', style: TextStyle(color: Colors.purpleAccent)),
+                    ),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) {
+                      setDialogState(() => selectedRole = val);
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                // Department Dropdown
+                StreamBuilder<List<Department>>(
+                  stream: DBService.instance.streamDepartments(firmId),
+                  builder: (context, deptSnapshot) {
+                    final departments = deptSnapshot.data?.where((d) => d.isActive).toList() ?? [];
+                    return DropdownButtonFormField<String?>(
+                      value: selectedDeptId,
+                      dropdownColor: const Color.fromRGBO(34, 33, 33, 1),
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: 'Department (Optional)',
+                        labelStyle: const TextStyle(color: Colors.grey),
+                        filled: true,
+                        fillColor: const Color.fromRGBO(24, 23, 23, 1),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      items: [
+                        const DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('None (Unassigned)', style: TextStyle(color: Colors.grey)),
+                        ),
+                        ...departments.map(
+                          (d) => DropdownMenuItem<String?>(
+                            value: d.deptId,
+                            child: Text(d.name, style: const TextStyle(color: Colors.white)),
+                          ),
+                        ),
+                      ],
+                      onChanged: (val) {
+                        setDialogState(() => selectedDeptId = val);
+                      },
+                    );
+                  },
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color.fromRGBO(41, 116, 188, 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color.fromRGBO(41, 116, 188, 0.3)),
+                  ),
+                  child: Row(
                     children: [
-                      const Text('Generated One-Time Code', style: TextStyle(fontSize: 10, color: Colors.grey)),
-                      Text(code, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 1.2)),
+                      const Icon(Icons.key, color: Color.fromRGBO(41, 116, 188, 1), size: 20),
+                      const SizedBox(width: 10),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Generated One-Time Code', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                          Text(code, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 1.2)),
+                        ],
+                      ),
                     ],
                   ),
-                ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+            ElevatedButton(
+              onPressed: () async {
+                final email = emailController.text.trim();
+                final name = nameController.text.trim();
+                if (email.isEmpty || !email.contains('@')) {
+                  SnackbarService().showSnackbar('Please enter a valid email address.', isError: true);
+                  return;
+                }
+                Navigator.pop(dialogCtx);
+                try {
+                  await DBService.instance.addPreApprovedStaff(
+                    firmId: firmId,
+                    email: email,
+                    name: name.isEmpty ? email : name,
+                    code: code,
+                    role: selectedRole,
+                    departmentId: selectedDeptId,
+                  );
+                  SnackbarService().showSnackbar('Added $email (Code: $code) successfully!');
+                } catch (e) {
+                  SnackbarService().showSnackbar('Error: ${e.toString().replaceAll('Exception:', '')}', isError: true);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color.fromRGBO(41, 116, 188, 1),
+                foregroundColor: Colors.white,
               ),
+              child: const Text('Save & Issue Code'),
             ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
-          ElevatedButton(
-            onPressed: () async {
-              final email = emailController.text.trim();
-              final name = nameController.text.trim();
-              if (email.isEmpty || !email.contains('@')) {
-                SnackbarService().showSnackbar('Please enter a valid email address.', isError: true);
-                return;
-              }
-              Navigator.pop(dialogCtx);
-              try {
-                await DBService.instance.addPreApprovedStaff(
-                  firmId: firmId,
-                  email: email,
-                  name: name.isEmpty ? email : name,
-                  code: code,
-                );
-                SnackbarService().showSnackbar('Added $email (Code: $code) successfully!');
-              } catch (e) {
-                SnackbarService().showSnackbar('Error: ${e.toString().replaceAll('Exception:', '')}', isError: true);
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color.fromRGBO(41, 116, 188, 1),
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Save & Issue Code'),
-          ),
-        ],
       ),
     );
   }
@@ -1345,131 +1429,1533 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     );
   }
 
-  /// Step 3: The "Active Staff" View
+  /// Step 3: The "Active Staff" View (with Department & Role management, and Bulk Actions)
   Widget _buildActiveStaffTab(
     BuildContext context,
     String firmId,
     Color primaryColor,
   ) {
-    return StreamBuilder<List<Membership>>(
-      stream: DBService.instance.getMembershipsByStatus(firmId, 'approved'),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return Center(
-            child: Text(
-              'Error loading active staff: ${snapshot.error}',
-              style: const TextStyle(color: Colors.red),
-            ),
-          );
-        }
+    return StreamBuilder<List<Department>>(
+      stream: DBService.instance.streamDepartments(firmId),
+      builder: (context, deptSnapshot) {
+        final departments = deptSnapshot.data ?? [];
+        final Map<String, String> deptMap = {
+          for (final d in departments) d.deptId: d.name,
+        };
 
-        final memberships = snapshot.data ?? [];
-        if (memberships.isEmpty) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.people_outline, size: 48, color: Colors.grey[600]),
-                  const SizedBox(height: 8),
-                  Text(
-                    'No active staff members',
-                    style: TextStyle(color: Colors.grey[500], fontSize: 14),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
+        return StreamBuilder<List<Membership>>(
+          stream: DBService.instance.getMembershipsByStatus(firmId, 'approved'),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Center(
+                child: Text(
+                  'Error loading active staff: ${snapshot.error}',
+                  style: const TextStyle(color: Colors.red),
+                ),
+              );
+            }
 
-        final currentUid = FirebaseAuth.instance.currentUser?.uid;
-
-        return ListView.separated(
-          padding: const EdgeInsets.all(16),
-          itemCount: memberships.length,
-          separatorBuilder: (context, index) => const Divider(),
-          itemBuilder: (context, index) {
-            final m = memberships[index];
-            final isRevoking = _actionLoading['revoke_${m.membershipId}'] == true;
-            final isSelfAdmin = (currentUid != null && m.uid == currentUid) || m.role.name == 'admin';
-
-            return FutureBuilder<AppUser?>(
-              future: DBService.instance.getUserDetails(m.uid),
-              builder: (context, userSnapshot) {
-                final appUser = userSnapshot.data;
-                final name = (appUser != null && appUser.name.isNotEmpty)
-                    ? appUser.name
-                    : 'Staff Member (${m.uid.substring(0, m.uid.length > 6 ? 6 : m.uid.length)})';
-                final email = (appUser != null && appUser.email.isNotEmpty)
-                    ? appUser.email
-                    : 'UID: ${m.uid}';
-                final avatarUrl = appUser?.image ??
-                    'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(name)}';
-
-                return ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: CircleAvatar(
-                    backgroundImage: NetworkImage(avatarUrl),
-                    onBackgroundImageError: (_, __) {},
-                  ),
-                  title: Row(
+            final memberships = snapshot.data ?? [];
+            if (memberships.isEmpty) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                      if (isSelfAdmin) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Text(
-                            'Admin',
-                            style: TextStyle(color: Colors.blue, fontSize: 10, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
+                      Icon(Icons.people_outline, size: 48, color: Colors.grey[600]),
+                      const SizedBox(height: 8),
+                      Text(
+                        'No active staff members',
+                        style: TextStyle(color: Colors.grey[500], fontSize: 14),
+                      ),
                     ],
                   ),
-                  subtitle: Text(
-                    email,
-                    style: TextStyle(color: Colors.grey[400], fontSize: 12),
-                  ),
-                  trailing: isSelfAdmin
-                      ? null
-                      : ElevatedButton(
-                          onPressed: isRevoking
-                              ? null
-                              : () => _revokeMembership(context, m.membershipId, name),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red[600],
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          child: isRevoking
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Text('Revoke Access'),
+                ),
+              );
+            }
+
+            final currentUid = FirebaseAuth.instance.currentUser?.uid;
+
+            return Column(
+              children: [
+                if (_selectedActiveMemberIds.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    color: primaryColor.withOpacity(0.12),
+                    child: Row(
+                      children: [
+                        Text(
+                          '${_selectedActiveMemberIds.length} staff selected',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                         ),
-                );
-              },
+                        const Spacer(),
+                        TextButton.icon(
+                          icon: const Icon(Icons.corporate_fare, size: 16),
+                          label: const Text('Assign Dept'),
+                          onPressed: () => _showBulkAssignDeptDialog(
+                            context,
+                            firmId,
+                            _selectedActiveMemberIds.toList(),
+                            departments,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton.icon(
+                          icon: const Icon(Icons.shield_outlined, size: 16),
+                          label: const Text('Set Role'),
+                          onPressed: () => _showBulkSetRoleDialog(
+                            context,
+                            firmId,
+                            _selectedActiveMemberIds.toList(),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 18),
+                          tooltip: 'Clear selection',
+                          onPressed: () => setState(() => _selectedActiveMemberIds.clear()),
+                        ),
+                      ],
+                    ),
+                  ),
+                Expanded(
+                  child: ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: memberships.length,
+                    separatorBuilder: (context, index) => const Divider(),
+                    itemBuilder: (context, index) {
+                      final m = memberships[index];
+                      final isRevoking = _actionLoading['revoke_${m.membershipId}'] == true;
+                      final isSelfAdmin = (currentUid != null && m.uid == currentUid) || m.role.name == 'admin';
+                      final isSelected = _selectedActiveMemberIds.contains(m.uid);
+                      final deptName = m.departmentId != null ? deptMap[m.departmentId] : null;
+
+                      return FutureBuilder<AppUser?>(
+                        future: DBService.instance.getUserDetails(m.uid),
+                        builder: (context, userSnapshot) {
+                          final appUser = userSnapshot.data;
+                          final name = (appUser != null && appUser.name.isNotEmpty)
+                              ? appUser.name
+                              : 'Staff Member (${m.uid.substring(0, m.uid.length > 6 ? 6 : m.uid.length)})';
+                          final email = (appUser != null && appUser.email.isNotEmpty)
+                              ? appUser.email
+                              : 'UID: ${m.uid}';
+                          final avatarUrl = appUser?.image ??
+                              'https://api.dicebear.com/7.x/avataaars/png?seed=${Uri.encodeComponent(name)}';
+
+                          return ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (!isSelfAdmin)
+                                  Checkbox(
+                                    value: isSelected,
+                                    activeColor: primaryColor,
+                                    onChanged: (checked) {
+                                      setState(() {
+                                        if (checked == true) {
+                                          _selectedActiveMemberIds.add(m.uid);
+                                        } else {
+                                          _selectedActiveMemberIds.remove(m.uid);
+                                        }
+                                      });
+                                    },
+                                  )
+                                else
+                                  const SizedBox(width: 24),
+                                CircleAvatar(
+                                  backgroundImage: NetworkImage(avatarUrl),
+                                  onBackgroundImageError: (_, __) {},
+                                ),
+                              ],
+                            ),
+                            title: Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    name,
+                                    style: const TextStyle(fontWeight: FontWeight.w600),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                // Role Badge
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: isSelfAdmin
+                                        ? Colors.blue.withOpacity(0.2)
+                                        : (m.isLead
+                                            ? Colors.purple.withOpacity(0.2)
+                                            : Colors.grey.withOpacity(0.2)),
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(
+                                      color: isSelfAdmin
+                                          ? Colors.blueAccent
+                                          : (m.isLead ? Colors.purpleAccent : Colors.grey[700]!),
+                                      width: 0.5,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    isSelfAdmin
+                                        ? 'ADMIN'
+                                        : (m.isLead ? 'LEAD' : 'EMPLOYEE'),
+                                    style: TextStyle(
+                                      color: isSelfAdmin
+                                          ? Colors.blueAccent
+                                          : (m.isLead ? Colors.purpleAccent : Colors.grey[400]),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                // Department Badge
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: deptName != null
+                                        ? primaryColor.withOpacity(0.15)
+                                        : Colors.grey.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    deptName ?? 'No Dept',
+                                    style: TextStyle(
+                                      color: deptName != null ? Colors.white : Colors.grey[500],
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            subtitle: Text(
+                              email,
+                              style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                            ),
+                            trailing: isSelfAdmin
+                                ? null
+                                : PopupMenuButton<String>(
+                                    icon: const Icon(Icons.more_vert, color: Colors.grey),
+                                    onSelected: (action) {
+                                      if (action == 'dept') {
+                                        _showAssignMemberDeptDialog(
+                                          context,
+                                          firmId,
+                                          m.membershipId,
+                                          m.uid,
+                                          m.departmentId,
+                                          departments,
+                                        );
+                                      } else if (action == 'role') {
+                                        _showChangeMemberRoleDialog(
+                                          context,
+                                          firmId,
+                                          m.membershipId,
+                                          m.uid,
+                                          m.role,
+                                          name,
+                                        );
+                                      } else if (action == 'revoke') {
+                                        _revokeMembership(context, m.membershipId, name);
+                                      }
+                                    },
+                                    itemBuilder: (ctx) => [
+                                      const PopupMenuItem(
+                                        value: 'dept',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.corporate_fare, size: 18),
+                                            SizedBox(width: 8),
+                                            Text('Assign Department'),
+                                          ],
+                                        ),
+                                      ),
+                                      PopupMenuItem(
+                                        value: 'role',
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.shield_outlined, size: 18),
+                                            const SizedBox(width: 8),
+                                            Text(m.isLead ? 'Demote to Employee' : 'Promote to Lead'),
+                                          ],
+                                        ),
+                                      ),
+                                      const PopupMenuDivider(),
+                                      const PopupMenuItem(
+                                        value: 'revoke',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.block, color: Colors.redAccent, size: 18),
+                                            SizedBox(width: 8),
+                                            Text('Revoke Access', style: TextStyle(color: Colors.redAccent)),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
             );
           },
         );
       },
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ROLE & DEPARTMENT MANAGEMENT DIALOGS
+  // ══════════════════════════════════════════════════════════════════════════
+
+  Future<void> _showAssignMemberDeptDialog(
+    BuildContext context,
+    String firmId,
+    String membershipId,
+    String uid,
+    String? currentDeptId,
+    List<Department> departments,
+  ) async {
+    String? selectedDeptId = currentDeptId;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Assign Department', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Assigning a department grants automatic derived access to that department\'s group chat.',
+                style: TextStyle(color: Colors.grey, fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String?>(
+                value: selectedDeptId,
+                dropdownColor: const Color.fromRGBO(34, 33, 33, 1),
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: 'Department',
+                  labelStyle: const TextStyle(color: Colors.grey),
+                  filled: true,
+                  fillColor: const Color.fromRGBO(24, 23, 23, 1),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                items: [
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('None (Unassigned)', style: TextStyle(color: Colors.grey)),
+                  ),
+                  ...departments.where((d) => d.isActive).map(
+                    (d) => DropdownMenuItem<String?>(
+                      value: d.deptId,
+                      child: Text(d.name, style: const TextStyle(color: Colors.white)),
+                    ),
+                  ),
+                ],
+                onChanged: (val) {
+                  setDialogState(() => selectedDeptId = val);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                try {
+                  await DBService.instance.assignMemberDepartment(
+                    firmId,
+                    uid,
+                    selectedDeptId,
+                  );
+                  SnackbarService().showSnackbar('Department assignment updated successfully!');
+                } catch (e) {
+                  SnackbarService().showSnackbar('Error updating department: $e', isError: true);
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showChangeMemberRoleDialog(
+    BuildContext context,
+    String firmId,
+    String membershipId,
+    String uid,
+    MembershipRole currentRole,
+    String name,
+  ) async {
+    MembershipRole selectedRole = currentRole == MembershipRole.lead ? MembershipRole.employee : MembershipRole.lead;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          selectedRole == MembershipRole.lead ? 'Promote to Lead?' : 'Demote to Employee?',
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              selectedRole == MembershipRole.lead
+                  ? 'Promoting $name to Lead will grant permissions to create/manage project groups and post in #all-staff.\n\nNote: For all privileges to immediately reflect on the user\'s screen, an app restart is recommended.'
+                  : 'Demoting $name to Employee will remove their permissions to create project groups.',
+              style: const TextStyle(color: Colors.grey, fontSize: 13),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: selectedRole == MembershipRole.lead ? Colors.purple : Colors.blueGrey,
+            ),
+            child: Text(selectedRole == MembershipRole.lead ? 'Promote to Lead' : 'Demote to Employee'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await DBService.instance.updateMemberRole(firmId, uid, selectedRole);
+        SnackbarService().showSnackbar(
+          'Updated $name\'s role to ${selectedRole.name.toUpperCase()}.' +
+              (selectedRole == MembershipRole.lead ? ' An app restart is recommended for full reflection.' : ''),
+        );
+      } catch (e) {
+        SnackbarService().showSnackbar('Error updating role: $e', isError: true);
+      }
+    }
+  }
+
+  Future<void> _showBulkAssignDeptDialog(
+    BuildContext context,
+    String firmId,
+    List<String> memberIds,
+    List<Department> departments,
+  ) async {
+    String? selectedDeptId;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('Bulk Assign Department (${memberIds.length} staff)', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Assign all selected staff to a department. Their access to the department chat will be automatically granted.',
+                style: TextStyle(color: Colors.grey, fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String?>(
+                value: selectedDeptId,
+                dropdownColor: const Color.fromRGBO(34, 33, 33, 1),
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: 'Target Department',
+                  labelStyle: const TextStyle(color: Colors.grey),
+                  filled: true,
+                  fillColor: const Color.fromRGBO(24, 23, 23, 1),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                items: [
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('None (Remove Department)', style: TextStyle(color: Colors.grey)),
+                  ),
+                  ...departments.where((d) => d.isActive).map(
+                    (d) => DropdownMenuItem<String?>(
+                      value: d.deptId,
+                      child: Text(d.name, style: const TextStyle(color: Colors.white)),
+                    ),
+                  ),
+                ],
+                onChanged: (val) {
+                  setDialogState(() => selectedDeptId = val);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                try {
+                  await DBService.instance.bulkAssignDepartment(
+                    firmId,
+                    memberIds,
+                    selectedDeptId,
+                  );
+                  setState(() => _selectedActiveMemberIds.clear());
+                  SnackbarService().showSnackbar('Bulk assigned ${memberIds.length} members to department.');
+                } catch (e) {
+                  SnackbarService().showSnackbar('Error in bulk department assignment: $e', isError: true);
+                }
+              },
+              child: const Text('Apply to All Selected'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showBulkSetRoleDialog(
+    BuildContext context,
+    String firmId,
+    List<String> memberIds,
+  ) async {
+    MembershipRole selectedRole = MembershipRole.lead;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('Bulk Set Role (${memberIds.length} staff)', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Change the role for all selected members simultaneously.',
+                style: TextStyle(color: Colors.grey, fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<MembershipRole>(
+                value: selectedRole,
+                dropdownColor: const Color.fromRGBO(34, 33, 33, 1),
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: 'Target Role',
+                  labelStyle: const TextStyle(color: Colors.grey),
+                  filled: true,
+                  fillColor: const Color.fromRGBO(24, 23, 23, 1),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: MembershipRole.lead,
+                    child: Text('Lead (Manage Project Groups & Post #all-staff)', style: TextStyle(color: Colors.purpleAccent)),
+                  ),
+                  DropdownMenuItem(
+                    value: MembershipRole.employee,
+                    child: Text('Employee (Standard Member)', style: TextStyle(color: Colors.white)),
+                  ),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    setDialogState(() => selectedRole = val);
+                  }
+                },
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Note: When upgrading staff to Lead, affected users should restart their app for privileges to fully reflect.',
+                style: TextStyle(color: Colors.orangeAccent, fontSize: 12),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                try {
+                  await DBService.instance.bulkUpdateRoles(
+                    firmId,
+                    memberIds,
+                    selectedRole,
+                  );
+                  setState(() => _selectedActiveMemberIds.clear());
+                  SnackbarService().showSnackbar('Bulk updated ${memberIds.length} members to ${selectedRole.name}. Note: App restart recommended.');
+                } catch (e) {
+                  SnackbarService().showSnackbar('Error updating roles: $e', isError: true);
+                }
+              },
+              child: const Text('Apply Role'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // DEPARTMENTS OVERSIGHT CARD
+  // ══════════════════════════════════════════════════════════════════════════
+
+  Widget _buildDepartmentsCard(BuildContext context, String firmId, Color primaryColor) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.corporate_fare, color: primaryColor, size: 22),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Departments & Department Chats',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                  ],
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => _showCreateDepartmentDialog(context, firmId),
+                  icon: const Icon(Icons.add, size: 16),
+                  label: const Text('New Department'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Access is derived automatically: assigning an employee to a department gives them access to its group chat without managing participant lists.',
+              style: TextStyle(color: Colors.grey[400], fontSize: 12),
+            ),
+            const SizedBox(height: 16),
+            StreamBuilder<List<Department>>(
+              stream: DBService.instance.streamDepartments(firmId),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: CircularProgressIndicator(),
+                    ),
+                  );
+                }
+                final departments = snapshot.data ?? [];
+                if (departments.isEmpty) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24.0),
+                      child: Column(
+                        children: [
+                          Icon(Icons.corporate_fare_outlined, size: 40, color: Colors.grey[600]),
+                          const SizedBox(height: 8),
+                          Text('No departments created yet', style: TextStyle(color: Colors.grey[400])),
+                          const SizedBox(height: 4),
+                          Text('Create a department to establish group channels and organize your team.',
+                              style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                return ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: departments.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final dept = departments[index];
+
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
+                        backgroundColor: primaryColor.withOpacity(0.15),
+                        child: Icon(Icons.folder_shared_outlined, color: primaryColor, size: 20),
+                      ),
+                      title: Row(
+                        children: [
+                          Text(dept.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: dept.isActive ? Colors.green.withOpacity(0.15) : Colors.grey.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              dept.status.toUpperCase(),
+                              style: TextStyle(
+                                color: dept.isActive ? Colors.greenAccent : Colors.grey,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      subtitle: Row(
+                        children: [
+                          // Headcount
+                          FutureBuilder<int>(
+                            future: DBService.instance.getDepartmentHeadcount(firmId, dept.deptId),
+                            builder: (context, countSnapshot) {
+                              final count = countSnapshot.data ?? 0;
+                              return Text(
+                                '$count active staff',
+                                style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                              );
+                            },
+                          ),
+                          const SizedBox(width: 12),
+                          // Head label
+                          if (dept.headUid != null)
+                            FutureBuilder<AppUser?>(
+                              future: DBService.instance.getUserDetails(dept.headUid!),
+                              builder: (context, headSnap) {
+                                final headName = headSnap.data?.name ?? 'Assigned Head';
+                                return Text(
+                                  '• Head: $headName',
+                                  style: const TextStyle(color: Colors.amberAccent, fontSize: 12),
+                                );
+                              },
+                            )
+                          else
+                            Text(
+                              '• No Head Assigned',
+                              style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                            ),
+                        ],
+                      ),
+                      onTap: () => _showManageDepartmentMembersDialog(context, firmId, dept),
+                      trailing: PopupMenuButton<String>(
+                        icon: const Icon(Icons.more_vert, color: Colors.grey),
+                        onSelected: (action) {
+                          if (action == 'members') {
+                            _showManageDepartmentMembersDialog(context, firmId, dept);
+                          } else if (action == 'head') {
+                            _showAssignDepartmentHeadDialog(context, firmId, dept);
+                          } else if (action == 'rename') {
+                            _showRenameDepartmentDialog(context, firmId, dept);
+                          } else if (action == 'archive') {
+                            _showArchiveDepartmentDialog(context, firmId, dept);
+                          }
+                        },
+                        itemBuilder: (ctx) => [
+                          const PopupMenuItem(
+                            value: 'members',
+                            child: Row(
+                              children: [
+                                Icon(Icons.people_outline, size: 16),
+                                SizedBox(width: 8),
+                                Text('Assign / Manage Employees'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'head',
+                            child: Row(
+                              children: [
+                                Icon(Icons.badge_outlined, size: 16),
+                                SizedBox(width: 8),
+                                Text('Assign Department Head (Lead)'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'rename',
+                            child: Row(
+                              children: [
+                                Icon(Icons.edit, size: 16),
+                                SizedBox(width: 8),
+                                Text('Rename Department'),
+                              ],
+                            ),
+                          ),
+                          if (dept.isActive) ...[
+                            const PopupMenuDivider(),
+                            const PopupMenuItem(
+                              value: 'archive',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.archive_outlined, color: Colors.redAccent, size: 16),
+                                  SizedBox(width: 8),
+                                  Text('Archive Department', style: TextStyle(color: Colors.redAccent)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showCreateDepartmentDialog(BuildContext context, String firmId) async {
+    final nameCtrl = TextEditingController();
+    String? selectedHeadUid;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Create Department', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'A dedicated group conversation will be automatically established for this department in the mobile app.',
+                style: TextStyle(color: Colors.grey, fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: nameCtrl,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(
+                  labelText: 'Department Name',
+                  hintText: 'e.g. Engineering, Sales, Marketing',
+                  hintStyle: TextStyle(color: Colors.grey[600]),
+                  labelStyle: const TextStyle(color: Colors.grey),
+                  filled: true,
+                  fillColor: const Color.fromRGBO(24, 23, 23, 1),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
+              const SizedBox(height: 14),
+              StreamBuilder<List<Membership>>(
+                stream: DBService.instance.getMembershipsByStatus(firmId, 'approved'),
+                builder: (context, snapshot) {
+                  final members = snapshot.data ?? [];
+                  return DropdownButtonFormField<String?>(
+                    value: selectedHeadUid,
+                    dropdownColor: const Color.fromRGBO(34, 33, 33, 1),
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: 'Department Head / Lead (Optional)',
+                      labelStyle: const TextStyle(color: Colors.grey),
+                      filled: true,
+                      fillColor: const Color.fromRGBO(24, 23, 23, 1),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    items: [
+                      const DropdownMenuItem<String?>(
+                        value: null,
+                        child: Text('Assign Later (No Head)', style: TextStyle(color: Colors.grey)),
+                      ),
+                      ...members.map(
+                        (m) => DropdownMenuItem<String?>(
+                          value: m.uid,
+                          child: FutureBuilder<AppUser?>(
+                            future: DBService.instance.getUserDetails(m.uid),
+                            builder: (context, userSnap) {
+                              final appUser = userSnap.data;
+                              final name = (appUser != null && appUser.name.isNotEmpty)
+                                  ? appUser.name
+                                  : (appUser?.email.isNotEmpty == true ? appUser!.email : m.uid);
+                              return Text(name, style: const TextStyle(color: Colors.white));
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: (val) {
+                      setDialogState(() => selectedHeadUid = val);
+                    },
+                  );
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+            ElevatedButton(
+              onPressed: () async {
+                final name = nameCtrl.text.trim();
+                if (name.isEmpty) {
+                  SnackbarService().showSnackbar('Please enter a department name.', isError: true);
+                  return;
+                }
+                Navigator.pop(ctx);
+                try {
+                  await DBService.instance.createDepartment(
+                    firmId: firmId,
+                    name: name,
+                    headUid: selectedHeadUid,
+                  );
+                  SnackbarService().showSnackbar('Department "$name" created successfully!');
+                } catch (e) {
+                  SnackbarService().showSnackbar('Error creating department: $e', isError: true);
+                }
+              },
+              child: const Text('Create'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showRenameDepartmentDialog(BuildContext context, String firmId, Department dept) async {
+    final nameCtrl = TextEditingController(text: dept.name);
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Rename Department', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: nameCtrl,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            labelText: 'Department Name',
+            labelStyle: const TextStyle(color: Colors.grey),
+            filled: true,
+            fillColor: const Color.fromRGBO(24, 23, 23, 1),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+          ElevatedButton(
+            onPressed: () async {
+              final newName = nameCtrl.text.trim();
+              if (newName.isEmpty) return;
+              Navigator.pop(ctx);
+              try {
+                await DBService.instance.renameDepartment(firmId, dept.deptId, dept.conversationId, newName);
+                SnackbarService().showSnackbar('Department renamed to "$newName".');
+              } catch (e) {
+                SnackbarService().showSnackbar('Error renaming department: $e', isError: true);
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showAssignDepartmentHeadDialog(BuildContext context, String firmId, Department dept) async {
+    String? selectedHeadUid = dept.headUid;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('Assign Head: ${dept.name}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Assigning a Department Head designates them as Team Lead, grants Lead privileges in the mobile application, and automatically assigns them to this department.',
+                style: TextStyle(color: Colors.grey, fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              StreamBuilder<List<Membership>>(
+                stream: DBService.instance.getMembershipsByStatus(firmId, 'approved'),
+                builder: (context, snapshot) {
+                  final members = snapshot.data ?? [];
+                  return DropdownButtonFormField<String?>(
+                    value: selectedHeadUid,
+                    dropdownColor: const Color.fromRGBO(34, 33, 33, 1),
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: 'Department Head / Lead',
+                      labelStyle: const TextStyle(color: Colors.grey),
+                      filled: true,
+                      fillColor: const Color.fromRGBO(24, 23, 23, 1),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    items: [
+                      const DropdownMenuItem<String?>(
+                        value: null,
+                        child: Text('No Head (Clear Head)', style: TextStyle(color: Colors.grey)),
+                      ),
+                      ...members.map(
+                        (m) => DropdownMenuItem<String?>(
+                          value: m.uid,
+                          child: FutureBuilder<AppUser?>(
+                            future: DBService.instance.getUserDetails(m.uid),
+                            builder: (context, userSnap) {
+                              final appUser = userSnap.data;
+                              final name = (appUser != null && appUser.name.isNotEmpty)
+                                  ? appUser.name
+                                  : (appUser?.email.isNotEmpty == true ? appUser!.email : m.uid);
+                              return Text(name, style: const TextStyle(color: Colors.white));
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: (val) {
+                      setDialogState(() => selectedHeadUid = val);
+                    },
+                  );
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                try {
+                  await DBService.instance.updateDepartmentHead(firmId, dept.deptId, selectedHeadUid);
+                  SnackbarService().showSnackbar('Department head updated. Lead privileges and department assigned.');
+                } catch (e) {
+                  SnackbarService().showSnackbar('Error updating department head: $e', isError: true);
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Dialog to assign and manage employees directly from the department card.
+  Future<void> _showManageDepartmentMembersDialog(
+    BuildContext context,
+    String firmId,
+    Department dept,
+  ) async {
+    final searchCtrl = TextEditingController();
+    Set<String>? selectedUids;
+    Set<String>? initialUids;
+    String searchQuery = '';
+    final Map<String, AppUser> userCache = {};
+    bool isFetchingUsers = false;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return StreamBuilder<List<Membership>>(
+            stream: DBService.instance.getMembershipsByStatus(firmId, 'approved'),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting && selectedUids == null) {
+                return const AlertDialog(
+                  backgroundColor: Color.fromRGBO(34, 33, 33, 1),
+                  content: SizedBox(
+                    height: 120,
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                );
+              }
+
+              final allMembers = snapshot.data ?? [];
+              if (selectedUids == null) {
+                initialUids = allMembers
+                    .where((m) => m.departmentId == dept.deptId || m.uid == dept.headUid)
+                    .map((m) => m.uid)
+                    .toSet();
+                selectedUids = Set<String>.from(initialUids!);
+              }
+
+              if (!isFetchingUsers && userCache.length < allMembers.length) {
+                isFetchingUsers = true;
+                Future.wait(
+                  allMembers.where((m) => !userCache.containsKey(m.uid)).map((m) async {
+                    final u = await DBService.instance.getUserDetails(m.uid);
+                    if (u != null) userCache[m.uid] = u;
+                  }),
+                ).then((_) {
+                  if (ctx.mounted) {
+                    setDialogState(() {});
+                  }
+                });
+              }
+
+              final filteredMembers = allMembers.where((m) {
+                if (searchQuery.isEmpty) return true;
+                final user = userCache[m.uid];
+                final name = user?.name.toLowerCase() ?? '';
+                final email = user?.email.toLowerCase() ?? '';
+                return name.contains(searchQuery) ||
+                    email.contains(searchQuery) ||
+                    m.uid.toLowerCase().contains(searchQuery);
+              }).toList();
+
+              return AlertDialog(
+                backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                title: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.group_outlined, color: Colors.blueAccent, size: 22),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Manage Members: ${dept.name}',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Assigned employees receive automatic access to the #${dept.name} department chat in the mobile app.',
+                      style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                    ),
+                  ],
+                ),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: searchCtrl,
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: 'Search staff by name or email...',
+                          hintStyle: TextStyle(color: Colors.grey[500], fontSize: 13),
+                          prefixIcon: const Icon(Icons.search, color: Colors.grey, size: 20),
+                          filled: true,
+                          fillColor: const Color.fromRGBO(24, 23, 23, 1),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onChanged: (val) {
+                          setDialogState(() => searchQuery = val.trim().toLowerCase());
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '${selectedUids!.length} member(s) assigned',
+                            style: const TextStyle(color: Colors.blueAccent, fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
+                          Row(
+                            children: [
+                              TextButton(
+                                onPressed: () {
+                                  setDialogState(() {
+                                    selectedUids!.addAll(allMembers.map((m) => m.uid));
+                                  });
+                                },
+                                style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                                child: const Text('Select All', style: TextStyle(fontSize: 12)),
+                              ),
+                              TextButton(
+                                onPressed: () {
+                                  setDialogState(() {
+                                    selectedUids!.clear();
+                                    if (dept.headUid != null) {
+                                      selectedUids!.add(dept.headUid!);
+                                    }
+                                  });
+                                },
+                                style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                                child: const Text('Clear', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      const Divider(color: Colors.white12, height: 16),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 280),
+                        child: filteredMembers.isEmpty
+                            ? const Padding(
+                                padding: EdgeInsets.all(24.0),
+                                child: Center(
+                                  child: Text('No members found', style: TextStyle(color: Colors.grey)),
+                                ),
+                              )
+                            : ListView.builder(
+                                shrinkWrap: true,
+                                itemCount: filteredMembers.length,
+                                itemBuilder: (ctx, idx) {
+                                  final m = filteredMembers[idx];
+                                  final isHead = m.uid == dept.headUid;
+                                  final isSelected = selectedUids!.contains(m.uid);
+                                  final isOtherDept = m.departmentId != null &&
+                                      m.departmentId != dept.deptId &&
+                                      !isSelected;
+                                  final user = userCache[m.uid];
+                                  final displayName = (user != null && user.name.isNotEmpty)
+                                      ? user.name
+                                      : (user != null && user.email.isNotEmpty
+                                          ? user.email
+                                          : 'Staff (${m.uid.substring(0, m.uid.length > 6 ? 6 : m.uid.length)})');
+                                  final displayEmail = (user != null && user.email.isNotEmpty)
+                                      ? user.email
+                                      : 'UID: ${m.uid}';
+
+                                  return CheckboxListTile(
+                                    value: isSelected,
+                                    activeColor: Colors.blueAccent,
+                                    checkColor: Colors.white,
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                                    controlAffinity: ListTileControlAffinity.leading,
+                                    onChanged: isHead
+                                        ? null
+                                        : (bool? checked) {
+                                            setDialogState(() {
+                                              if (checked == true) {
+                                                selectedUids!.add(m.uid);
+                                              } else {
+                                                selectedUids!.remove(m.uid);
+                                              }
+                                            });
+                                          },
+                                    title: Row(
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            displayName,
+                                            style: const TextStyle(color: Colors.white, fontSize: 14),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        if (isHead) ...[
+                                          const SizedBox(width: 6),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: Colors.amber.withOpacity(0.2),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: const Text(
+                                              'HEAD / LEAD',
+                                              style: TextStyle(color: Colors.amberAccent, fontSize: 9, fontWeight: FontWeight.bold),
+                                            ),
+                                          ),
+                                        ],
+                                        if (isOtherDept) ...[
+                                          const SizedBox(width: 6),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: Colors.grey.withOpacity(0.2),
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            child: const Text(
+                                              'Other Dept',
+                                              style: TextStyle(color: Colors.grey, fontSize: 9),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                    subtitle: Text(
+                                      displayEmail,
+                                      style: TextStyle(color: Colors.grey[500], fontSize: 11),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                  ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      try {
+                        final assigned = selectedUids!.toList();
+                        final unassigned = initialUids!.difference(selectedUids!).toList();
+                        await DBService.instance.updateDepartmentMembers(
+                          firmId: firmId,
+                          deptId: dept.deptId,
+                          assignedUids: assigned,
+                          unassignedUids: unassigned,
+                        );
+                        SnackbarService().showSnackbar('Updated department members for ${dept.name} successfully.');
+                      } catch (e) {
+                        SnackbarService().showSnackbar('Error updating members: $e', isError: true);
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+                    child: const Text('Save Members'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _showArchiveDepartmentDialog(BuildContext context, String firmId, Department dept) async {
+    final count = await DBService.instance.getDepartmentHeadcount(firmId, dept.deptId);
+    if (!context.mounted) return;
+
+    if (count > 0) {
+      await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Cannot Archive Department', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          content: Text(
+            'This department currently has $count active staff members assigned to it. '
+            'Please reassign or unassign all members before archiving.',
+            style: const TextStyle(color: Colors.grey, fontSize: 13),
+          ),
+          actions: [
+            ElevatedButton(onPressed: () => Navigator.pop(ctx), child: const Text('Understood')),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Archive ${dept.name}?', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: const Text(
+          'Archiving this department will freeze its group conversation.',
+          style: TextStyle(color: Colors.grey, fontSize: 13),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: const Text('Archive'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        await DBService.instance.archiveDepartment(firmId, dept.deptId);
+        SnackbarService().showSnackbar('Department "${dept.name}" archived.');
+      } catch (e) {
+        SnackbarService().showSnackbar('Error: ${e.toString().replaceAll('Exception:', '')}', isError: true);
+      }
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // PROJECT GROUPS METADATA OVERSIGHT CARD
+  // ══════════════════════════════════════════════════════════════════════════
+
+  Widget _buildProjectGroupsCard(BuildContext context, String firmId, Color primaryColor) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.work_outline, color: primaryColor, size: 22),
+                const SizedBox(width: 8),
+                Text(
+                  'Project Groups (Metadata Oversight)',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Zero-message oversight: Admins observe project names, owners, and headcount without reading private project messages.',
+              style: TextStyle(color: Colors.grey[400], fontSize: 12),
+            ),
+            const SizedBox(height: 16),
+            StreamBuilder<List<ProjectGroup>>(
+              stream: DBService.instance.streamProjectGroupsForAdmin(firmId),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: CircularProgressIndicator(),
+                    ),
+                  );
+                }
+                final projects = snapshot.data ?? [];
+                if (projects.isEmpty) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24.0),
+                      child: Column(
+                        children: [
+                          Icon(Icons.work_off_outlined, size: 40, color: Colors.grey[600]),
+                          const SizedBox(height: 8),
+                          Text('No project groups created yet', style: TextStyle(color: Colors.grey[400])),
+                          const SizedBox(height: 4),
+                          Text('Leads can create project groups for cross-functional collaboration.',
+                              style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                return ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: projects.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final p = projects[index];
+
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.purple.withOpacity(0.15),
+                        child: const Icon(Icons.group_work, color: Colors.purpleAccent, size: 20),
+                      ),
+                      title: Row(
+                        children: [
+                          Text(p.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: p.isActive ? Colors.purple.withOpacity(0.2) : Colors.grey.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              p.status.toUpperCase(),
+                              style: TextStyle(
+                                color: p.isActive ? Colors.purpleAccent : Colors.grey,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      subtitle: Row(
+                        children: [
+                          Text(
+                            '${p.memberCount} member(s)',
+                            style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                          ),
+                          const SizedBox(width: 12),
+                          FutureBuilder<AppUser?>(
+                            future: DBService.instance.getUserDetails(p.ownerUid),
+                            builder: (context, ownerSnap) {
+                              final ownerName = ownerSnap.data?.name ?? p.ownerUid;
+                              return Text(
+                                '• Owner: $ownerName',
+                                style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                      trailing: p.isActive
+                          ? OutlinedButton.icon(
+                              onPressed: () async {
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                    title: Text('Archive Project ${p.name}?'),
+                                    content: const Text(
+                                      'Archiving will freeze this project group.',
+                                      style: TextStyle(color: Colors.grey, fontSize: 13),
+                                    ),
+                                    actions: [
+                                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                      ElevatedButton(
+                                        onPressed: () => Navigator.pop(ctx, true),
+                                        style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                                        child: const Text('Archive'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (confirm == true) {
+                                  try {
+                                    await DBService.instance.archiveProjectGroup(
+                                      firmId: firmId,
+                                      projectId: p.projectId,
+                                      conversationId: p.conversationId,
+                                    );
+                                    SnackbarService().showSnackbar('Project "${p.name}" archived.');
+                                  } catch (e) {
+                                    SnackbarService().showSnackbar('Error archiving project: $e', isError: true);
+                                  }
+                                }
+                              },
+                              icon: const Icon(Icons.archive_outlined, size: 14),
+                              label: const Text('Archive'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.grey[400],
+                                side: BorderSide(color: Colors.grey[700]!),
+                              ),
+                            )
+                          : null,
+                    );
+                  },
+                );
+              },
+            ),
+          ],
+        ),
+      ),
     );
   }
 

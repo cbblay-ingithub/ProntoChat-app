@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/firm.dart';
 import '../../services/db_service.dart';
 import '../../screens/employee/firm_chat_screen.dart';
+import '../../screens/employee/channel_chat_screen.dart';
 import '../convo_page.dart';
 import '../search_page.dart';
 
@@ -128,66 +129,129 @@ class EmployeeHomeTab extends StatelessWidget {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Greeting Card ────────────────────────────────────────────────
-            _buildGreetingCard(context, primaryColor),
+      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: DBService.instance.streamMember(firm.firmId, uid),
+        builder: (context, memberSnapshot) {
+          final memberData = memberSnapshot.data?.data() ?? {};
+          final userRole = memberData['role'] as String? ?? 'employee';
+          final departmentId = memberData['departmentId'] as String?;
 
-            const SizedBox(height: 20),
-
-            // ── Quick Actions ────────────────────────────────────────────────
-            const Text(
-              'Quick Actions',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 12),
-            _buildQuickActions(context, primaryColor),
-
-            const SizedBox(height: 24),
-
-            // ── Recent / Pinned Conversations ────────────────────────────────
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          return SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // ── Lead Upgrade Notification Banner ─────────────────────────
+                if (userRole == 'lead')
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 14),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.purple.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.purpleAccent.withOpacity(0.3)),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.star, color: Colors.purpleAccent, size: 20),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Lead Privileges Active',
+                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                              ),
+                              Text(
+                                'You can create project groups and post in #all-staff. (Restart app if privileges newly applied)',
+                                style: TextStyle(color: Colors.grey, fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                // ── Greeting Card ────────────────────────────────────────────
+                _buildGreetingCard(context, primaryColor),
+
+                const SizedBox(height: 20),
+
+                // ── Quick Actions ────────────────────────────────────────────
                 const Text(
-                  'Recent Conversations',
+                  'Quick Actions',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                TextButton(
-                  onPressed: () => onNavigateToTab(1), // Switch to Chats tab
-                  child: Text(
-                    'View all',
-                    style: TextStyle(
-                      color: primaryColor,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                const SizedBox(height: 12),
+                _buildQuickActions(context, primaryColor, departmentId),
+
+                const SizedBox(height: 24),
+
+                // ── Company Channels & Recent Conversations ─────────────────
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Company Channels',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
+                    TextButton(
+                      onPressed: () => onNavigateToTab(1), // Switch to Chats tab
+                      child: Text(
+                        'View all',
+                        style: TextStyle(
+                          color: primaryColor,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+                // #all-staff Channel Tile
+                _buildAllStaffTile(context, primaryColor),
+
+                const SizedBox(height: 10),
+
+                // Department Tile
+                if (departmentId != null) ...[
+                  _buildDepartmentTile(context, primaryColor, departmentId),
+                  const SizedBox(height: 10),
+                ],
+
+                // Pinned General Team Chat Tile
+                _buildPinnedTeamChatTile(context, primaryColor),
+
+                const SizedBox(height: 18),
+
+                const Text(
+                  'Recent Direct Messages',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
+                const SizedBox(height: 10),
+
+                // Direct Chats Overview Stream
+                _buildRecentDirectChats(context, primaryColor),
               ],
             ),
-            const SizedBox(height: 8),
-
-            // Pinned General Team Chat Tile
-            _buildPinnedTeamChatTile(context, primaryColor),
-
-            const SizedBox(height: 10),
-
-            // Direct Chats Overview Stream
-            _buildRecentDirectChats(context, primaryColor),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -268,10 +332,39 @@ class EmployeeHomeTab extends StatelessWidget {
     );
   }
 
-  Widget _buildQuickActions(BuildContext context, Color primaryColor) {
+  Widget _buildQuickActions(BuildContext context, Color primaryColor, String? departmentId) {
     return Row(
       children: [
-        // Action 1: General Team Chat
+        // Action 1: #all-staff
+        Expanded(
+          child: _QuickActionCard(
+            title: '#all-staff',
+            subtitle: 'Notices',
+            icon: Icons.campaign,
+            iconColor: Colors.blueAccent,
+            onTap: () async {
+              await DBService.instance.ensureAllStaffChannel(firm.firmId);
+              if (context.mounted) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ChannelChatScreen(
+                      channelType: ChannelType.allStaff,
+                      firmId: firm.firmId,
+                      conversationId: 'all_staff',
+                      title: '#all-staff',
+                      uid: uid,
+                      userName: userName,
+                    ),
+                  ),
+                );
+              }
+            },
+          ),
+        ),
+        const SizedBox(width: 8),
+
+        // Action 2: Team Chat
         Expanded(
           child: _QuickActionCard(
             title: 'Team Chat',
@@ -292,15 +385,15 @@ class EmployeeHomeTab extends StatelessWidget {
             },
           ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 8),
 
-        // Action 2: Message Someone
+        // Action 3: Message
         Expanded(
           child: _QuickActionCard(
             title: 'Message',
             subtitle: 'Direct chat',
             icon: Icons.chat_bubble_outline,
-            iconColor: Colors.blueAccent,
+            iconColor: Colors.tealAccent,
             onTap: () {
               Navigator.push(
                 context,
@@ -309,9 +402,9 @@ class EmployeeHomeTab extends StatelessWidget {
             },
           ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 8),
 
-        // Action 3: Staff Directory
+        // Action 4: Directory
         Expanded(
           child: _QuickActionCard(
             title: 'Directory',
@@ -322,6 +415,202 @@ class EmployeeHomeTab extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildAllStaffTile(BuildContext context, Color primaryColor) {
+    return InkWell(
+      onTap: () async {
+        await DBService.instance.ensureAllStaffChannel(firm.firmId);
+        if (context.mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ChannelChatScreen(
+                channelType: ChannelType.allStaff,
+                firmId: firm.firmId,
+                conversationId: 'all_staff',
+                title: '#all-staff',
+                uid: uid,
+                userName: userName,
+              ),
+            ),
+          );
+        }
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color.fromRGBO(36, 35, 35, 1),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: Colors.blueAccent.withOpacity(0.3),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 20,
+              backgroundColor: Colors.blueAccent.withOpacity(0.2),
+              child: const Icon(Icons.campaign, color: Colors.blueAccent, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Text(
+                        '#all-staff Channel',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.blueAccent.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text(
+                          'OFFICIAL',
+                          style: TextStyle(
+                            color: Colors.blueAccent,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    'Company-wide official announcements and updates',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDepartmentTile(BuildContext context, Color primaryColor, String departmentId) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('Firms')
+          .doc(firm.firmId)
+          .collection('departments')
+          .doc(departmentId)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+          return const SizedBox.shrink();
+        }
+        final data = snapshot.data?.data() ?? {};
+        final name = data['name'] as String? ?? 'Department';
+        final convId = data['conversationId'] as String?;
+        if (convId == null || convId.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        return InkWell(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => ChannelChatScreen(
+                  channelType: ChannelType.department,
+                  firmId: firm.firmId,
+                  conversationId: convId,
+                  title: name,
+                  uid: uid,
+                  userName: userName,
+                ),
+              ),
+            );
+          },
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color.fromRGBO(36, 35, 35, 1),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: primaryColor.withOpacity(0.3),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: primaryColor.withOpacity(0.2),
+                  child: Icon(Icons.corporate_fare, color: primaryColor, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              name,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: primaryColor.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              'DEPARTMENT',
+                              style: TextStyle(
+                                color: primaryColor,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Your team department channel',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
