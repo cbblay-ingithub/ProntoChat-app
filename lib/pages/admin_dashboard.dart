@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -1012,101 +1013,11 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                       separatorBuilder: (_, __) => const Divider(),
                       itemBuilder: (context, index) {
                         final staff = staffList[index];
-                        final staffId = staff['id'] as String? ?? '';
-                        final email = staff['email'] as String? ?? '';
-                        final name = staff['name'] as String? ?? email;
-                        final code = staff['code'] as String? ?? 'N/A';
-                        final status = staff['status'] as String? ?? 'invited';
-                        final isJoined = status == 'joined';
-
-                        return ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: CircleAvatar(
-                            backgroundColor: isJoined ? Colors.green.withOpacity(0.2) : primaryColor.withOpacity(0.2),
-                            child: Icon(
-                              isJoined ? Icons.check : Icons.key,
-                              color: isJoined ? Colors.greenAccent : primaryColor,
-                              size: 18,
-                            ),
-                          ),
-                          title: Row(
-                            children: [
-                              Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: isJoined ? Colors.green.withOpacity(0.2) : Colors.orange.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  status.toUpperCase(),
-                                  style: TextStyle(
-                                    color: isJoined ? Colors.greenAccent : Colors.orangeAccent,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(email, style: TextStyle(color: Colors.grey[400], fontSize: 12)),
-                              const SizedBox(height: 2),
-                              Row(
-                                children: [
-                                  Text(
-                                    'Code: $code',
-                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 0.8),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.copy, size: 14, color: Colors.grey),
-                                    tooltip: 'Copy Code',
-                                    onPressed: () async {
-                                      await Clipboard.setData(ClipboardData(text: code));
-                                      SnackbarService().showSnackbar('Code $code copied!');
-                                    },
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                          trailing: isJoined
-                              ? null
-                              : IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
-                                  tooltip: 'Remove',
-                                  onPressed: () async {
-                                    final confirm = await showDialog<bool>(
-                                      context: context,
-                                      builder: (ctx) => AlertDialog(
-                                        title: const Text('Remove Staff Entry?'),
-                                        content: Text('Remove $email from pre-approved staff? This will free 1 trial seat.'),
-                                        actions: [
-                                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                                          TextButton(
-                                            onPressed: () => Navigator.pop(ctx, true),
-                                            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
-                                            child: const Text('Remove'),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                    if (confirm == true) {
-                                      await DBService.instance.removePreApprovedStaff(
-                                        firmId: firmId,
-                                        staffDocId: staffId,
-                                      );
-                                      if (context.mounted) {
-                                        SnackbarService().showSnackbar('Pre-authorized staff entry removed.');
-                                      }
-                                    }
-                                  },
-                                ),
+                        return _PreApprovedStaffTile(
+                          key: ValueKey(staff['id'] ?? index),
+                          staff: staff,
+                          firmId: firmId,
+                          primaryColor: primaryColor,
                         );
                       },
                     ),
@@ -1120,9 +1031,6 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
   void _showAddPreApprovedStaffDialog(BuildContext context, String firmId) {
     final emailController = TextEditingController();
     final nameController = TextEditingController();
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    final random = Random();
-    final code = List.generate(6, (index) => chars[random.nextInt(chars.length)]).join();
     MembershipRole selectedRole = MembershipRole.employee;
     String? selectedDeptId;
 
@@ -1139,7 +1047,7 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Pre-authorizing an employee reserves 1 trial seat and allows them to onboard immediately with this one-time code.',
+                  'Pre-authorizing an employee reserves 1 seat. A 5-minute staff code will be auto-generated and active as soon as you save.',
                   style: TextStyle(color: Colors.grey, fontSize: 13),
                 ),
                 const SizedBox(height: 16),
@@ -1240,16 +1148,22 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: const Color.fromRGBO(41, 116, 188, 0.3)),
                   ),
-                  child: Row(
+                  child: const Row(
                     children: [
-                      const Icon(Icons.key, color: Color.fromRGBO(41, 116, 188, 1), size: 20),
-                      const SizedBox(width: 10),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Generated One-Time Code', style: TextStyle(fontSize: 10, color: Colors.grey)),
-                          Text(code, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 1.2)),
-                        ],
+                      Icon(Icons.autorenew, color: Color.fromRGBO(41, 116, 188, 1), size: 22),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Auto-Generated Staff Code', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                            SizedBox(height: 2),
+                            Text(
+                              'A 6-character code will be automatically issued. It will reset every 5 minutes until the employee onboards, and can also be manually reset at any time.',
+                              style: TextStyle(fontSize: 11, color: Colors.grey),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -1269,15 +1183,14 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                 }
                 Navigator.pop(dialogCtx);
                 try {
-                  await DBService.instance.addPreApprovedStaff(
+                  final issuedCode = await DBService.instance.addPreApprovedStaff(
                     firmId: firmId,
                     email: email,
                     name: name.isEmpty ? email : name,
-                    code: code,
                     role: selectedRole,
                     departmentId: selectedDeptId,
                   );
-                  SnackbarService().showSnackbar('Added $email (Code: $code) successfully!');
+                  SnackbarService().showSnackbar('Added $email! Code: $issuedCode (valid for 5 mins)');
                 } catch (e) {
                   SnackbarService().showSnackbar('Error: ${e.toString().replaceAll('Exception:', '')}', isError: true);
                 }
@@ -3559,3 +3472,330 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     return '$day/$month/$year';
   }
 }
+
+/// Tile for a pre-approved staff member.
+/// Handles:
+/// - Auto-reset of staff code every 5 minutes when pending
+/// - Live countdown indicator
+/// - Manual code reset button
+/// - Hiding staff code entirely if the employee has already onboarded
+class _PreApprovedStaffTile extends StatefulWidget {
+  final Map<String, dynamic> staff;
+  final String firmId;
+  final Color primaryColor;
+
+  const _PreApprovedStaffTile({
+    super.key,
+    required this.staff,
+    required this.firmId,
+    required this.primaryColor,
+  });
+
+  @override
+  State<_PreApprovedStaffTile> createState() => _PreApprovedStaffTileState();
+}
+
+class _PreApprovedStaffTileState extends State<_PreApprovedStaffTile> {
+  Timer? _countdownTimer;
+  bool _isResetting = false;
+  DateTime? _lastAutoResetAttempt;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimerIfNeeded();
+  }
+
+  @override
+  void didUpdateWidget(covariant _PreApprovedStaffTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _startTimerIfNeeded();
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startTimerIfNeeded() {
+    final status = widget.staff['status'] as String? ?? 'invited';
+    if (status == 'joined') {
+      _countdownTimer?.cancel();
+      _countdownTimer = null;
+      return;
+    }
+
+    if (_countdownTimer == null || !_countdownTimer!.isActive) {
+      _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (!mounted) {
+          timer.cancel();
+          return;
+        }
+        _checkAndHandleCountdown();
+      });
+    }
+  }
+
+  DateTime? get _expiresAt {
+    final exp = widget.staff['codeExpiresAt'];
+    if (exp is Timestamp) return exp.toDate();
+    return null;
+  }
+
+  int get _remainingSeconds {
+    final expires = _expiresAt;
+    if (expires == null) return 0;
+    final diff = expires.difference(DateTime.now()).inSeconds;
+    return diff > 0 ? diff : 0;
+  }
+
+  void _checkAndHandleCountdown() {
+    final status = widget.staff['status'] as String? ?? 'invited';
+    if (status == 'joined') return;
+
+    final remaining = _remainingSeconds;
+    setState(() {});
+
+    // If expired or missing, auto-reset every 5 minutes
+    if (remaining <= 0 && !_isResetting) {
+      final now = DateTime.now();
+      if (_lastAutoResetAttempt == null ||
+          now.difference(_lastAutoResetAttempt!).inSeconds >= 10) {
+        _lastAutoResetAttempt = now;
+        _triggerReset(isManual: false);
+      }
+    }
+  }
+
+  Future<void> _triggerReset({required bool isManual}) async {
+    if (_isResetting || !mounted) return;
+    setState(() => _isResetting = true);
+
+    final staffId = widget.staff['id'] as String? ?? '';
+    final email = widget.staff['email'] as String? ?? '';
+    if (staffId.isEmpty) {
+      if (mounted) setState(() => _isResetting = false);
+      return;
+    }
+
+    try {
+      final newCode = await DBService.instance.resetStaffCode(
+        firmId: widget.firmId,
+        staffDocId: staffId,
+      );
+      if (mounted && isManual) {
+        SnackbarService().showSnackbar('New code for $email: $newCode (valid for 5 mins)');
+      }
+    } catch (e) {
+      debugPrint('Error resetting code for $staffId: $e');
+      if (mounted && isManual) {
+        SnackbarService().showSnackbar('Failed to reset code: $e', isError: true);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isResetting = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final staffId = widget.staff['id'] as String? ?? '';
+    final email = widget.staff['email'] as String? ?? '';
+    final name = widget.staff['name'] as String? ?? email;
+    final code = widget.staff['code'] as String? ?? '';
+    final status = widget.staff['status'] as String? ?? 'invited';
+    final isJoined = status == 'joined';
+    final remaining = _remainingSeconds;
+
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: CircleAvatar(
+        backgroundColor: isJoined
+            ? Colors.green.withOpacity(0.2)
+            : widget.primaryColor.withOpacity(0.2),
+        child: Icon(
+          isJoined ? Icons.check : Icons.key,
+          color: isJoined ? Colors.greenAccent : widget.primaryColor,
+          size: 18,
+        ),
+      ),
+      title: Row(
+        children: [
+          Flexible(
+            child: Text(
+              name,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: isJoined
+                  ? Colors.green.withOpacity(0.2)
+                  : Colors.orange.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              isJoined ? 'ONBOARDED' : 'PENDING ONBOARDING',
+              style: TextStyle(
+                color: isJoined ? Colors.greenAccent : Colors.orangeAccent,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(email, style: TextStyle(color: Colors.grey[400], fontSize: 12)),
+          const SizedBox(height: 4),
+          if (isJoined)
+            // Note: NO staff code for already onboarded users
+            Row(
+              children: [
+                Icon(Icons.verified_outlined, size: 14, color: Colors.greenAccent.withOpacity(0.8)),
+                const SizedBox(width: 4),
+                Text(
+                  'Onboarded (Active Member)',
+                  style: TextStyle(
+                    color: Colors.greenAccent.withOpacity(0.9),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            )
+          else ...[
+            // Staff code with 5-minute auto-reset and manual reset option
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color.fromRGBO(24, 23, 23, 1),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.grey.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Code: ', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                      Text(
+                        code.isNotEmpty ? code : '...',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.copy, size: 14, color: Colors.grey),
+                  tooltip: 'Copy Code',
+                  onPressed: code.isEmpty
+                      ? null
+                      : () async {
+                          await Clipboard.setData(ClipboardData(text: code));
+                          SnackbarService().showSnackbar('Code $code copied!');
+                        },
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  constraints: const BoxConstraints(),
+                ),
+                const SizedBox(width: 6),
+                // Remaining time indicator
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: remaining < 60
+                        ? Colors.red.withOpacity(0.15)
+                        : Colors.blue.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.timer_outlined,
+                        size: 11,
+                        color: remaining < 60 ? Colors.redAccent : Colors.lightBlueAccent,
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        remaining > 0
+                            ? '${remaining ~/ 60}:${(remaining % 60).toString().padLeft(2, '0')}'
+                            : 'Resetting...',
+                        style: TextStyle(
+                          color: remaining < 60 ? Colors.redAccent : Colors.lightBlueAccent,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                // Manual Reset Button
+                if (_isResetting)
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  IconButton(
+                    icon: const Icon(Icons.refresh, size: 16, color: Colors.blueAccent),
+                    tooltip: 'Reset code manually',
+                    onPressed: () => _triggerReset(isManual: true),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    constraints: const BoxConstraints(),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+      trailing: isJoined
+          ? null
+          : IconButton(
+              icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+              tooltip: 'Remove',
+              onPressed: () async {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Remove Staff Entry?'),
+                    content: Text('Remove $email from pre-approved staff? This will free 1 trial seat.'),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+                        child: const Text('Remove'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirm == true) {
+                  await DBService.instance.removePreApprovedStaff(
+                    firmId: widget.firmId,
+                    staffDocId: staffId,
+                  );
+                  if (context.mounted) {
+                    SnackbarService().showSnackbar('Pre-authorized staff entry removed.');
+                  }
+                }
+              },
+            ),
+    );
+  }
+}
+

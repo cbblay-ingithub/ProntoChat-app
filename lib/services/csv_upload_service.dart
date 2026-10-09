@@ -217,11 +217,14 @@ class CsvUploadService {
           final String role = (staff['role'] as String?) ?? 'employee';
 
           final docRef = preApprovedCollection.doc();
+          final now = DateTime.now();
 
           batch.set(docRef, {
             'name': staff['name'],
             'email': email,
             'code': generateCode(),
+            'codeExpiresAt': Timestamp.fromDate(now.add(const Duration(minutes: 5))),
+            'codeUpdatedAt': FieldValue.serverTimestamp(),
             'firmId': firmId,
             'status': 'invited',
             'role': role,

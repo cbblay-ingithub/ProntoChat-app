@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -687,7 +688,7 @@ class DBService {
         }, SetOptions(merge: true));
       }
 
-      // 3. If approved and preApprovedDocId exists, mark PreApprovedStaff as joined
+      // 3. If approved and preApprovedDocId exists, mark PreApprovedStaff as joined and clear staff code
       if (newStatus == 'approved' && preApprovedDocId != null && preApprovedDocId.isNotEmpty && firmId.isNotEmpty) {
         final preApprovedRef = _db
             .collection(_firmsCollection)
@@ -697,6 +698,9 @@ class DBService {
         batch.update(preApprovedRef, {
           'status': 'joined',
           'joinedAt': FieldValue.serverTimestamp(),
+          'code': FieldValue.delete(),
+          'codeExpiresAt': FieldValue.delete(),
+          'codeUpdatedAt': FieldValue.delete(),
         });
       }
 
@@ -808,12 +812,19 @@ class DBService {
     }
   }
 
-  /// Add pre-approved staff member with one-time verification code and increment seatCount.
-  Future<void> addPreApprovedStaff({
+  /// Generate a secure 6-character alphanumeric staff code.
+  static String generateStaffCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final random = Random.secure();
+    return List.generate(6, (index) => chars[random.nextInt(chars.length)]).join();
+  }
+
+  /// Add pre-approved staff member with auto-generated 5-minute rotating verification code and increment seatCount.
+  Future<String> addPreApprovedStaff({
     required String firmId,
     required String email,
     required String name,
-    required String code,
+    String? code,
     String? departmentId,
     MembershipRole role = MembershipRole.employee,
   }) async {
@@ -830,6 +841,10 @@ class DBService {
       }
 
       final cleanEmail = email.trim().toLowerCase();
+      final finalCode = (code != null && code.trim().isNotEmpty) ? code.trim() : generateStaffCode();
+      final now = DateTime.now();
+      final codeExpiresAt = now.add(const Duration(minutes: 5));
+
       final staffRef = _db
           .collection(_firmsCollection)
           .doc(firmId)
@@ -840,7 +855,9 @@ class DBService {
       batch.set(staffRef, {
         'email': cleanEmail,
         'name': name.trim(),
-        'code': code.trim(),
+        'code': finalCode,
+        'codeExpiresAt': Timestamp.fromDate(codeExpiresAt),
+        'codeUpdatedAt': FieldValue.serverTimestamp(),
         'status': 'invited',
         'role': role.name,
         if (departmentId != null && departmentId.isNotEmpty) 'departmentId': departmentId,
@@ -852,9 +869,40 @@ class DBService {
       });
 
       await batch.commit();
-      debugPrint('✅ Pre-approved staff added: $cleanEmail (role: ${role.name}, dept: $departmentId)');
+      debugPrint('✅ Pre-approved staff added: $cleanEmail (code: $finalCode, role: ${role.name}, dept: $departmentId, expires: $codeExpiresAt)');
+      return finalCode;
     } catch (e) {
       debugPrint('❌ Error adding pre-approved staff: $e');
+      rethrow;
+    }
+  }
+
+  /// Reset / regenerate staff code for a pending employee with a fresh 5-minute expiration.
+  Future<String> resetStaffCode({
+    required String firmId,
+    required String staffDocId,
+  }) async {
+    try {
+      final newCode = generateStaffCode();
+      final now = DateTime.now();
+      final codeExpiresAt = now.add(const Duration(minutes: 5));
+
+      final staffRef = _db
+          .collection(_firmsCollection)
+          .doc(firmId)
+          .collection('PreApprovedStaff')
+          .doc(staffDocId);
+
+      await staffRef.update({
+        'code': newCode,
+        'codeExpiresAt': Timestamp.fromDate(codeExpiresAt),
+        'codeUpdatedAt': FieldValue.serverTimestamp(),
+      });
+
+      debugPrint('🔄 Reset staff code for $staffDocId in firm $firmId to $newCode (expires in 5m)');
+      return newCode;
+    } catch (e) {
+      debugPrint('❌ Error resetting staff code: $e');
       rethrow;
     }
   }
@@ -940,16 +988,26 @@ class DBService {
       }
 
       final matchedData = matchedDoc.data();
+      final expiresAt = (matchedData['codeExpiresAt'] as Timestamp?)?.toDate();
+      if (expiresAt != null && DateTime.now().isAfter(expiresAt)) {
+        throw Exception(
+          'This staff code has expired. Staff codes reset every 5 minutes. Please request the latest code from your administrator.',
+        );
+      }
+
       final assignedDeptId = matchedData['departmentId'] as String?;
       final assignedRole = (matchedData['role'] as String?)?.toLowerCase() ?? 'employee';
 
       final WriteBatch batch = _db.batch();
 
-      // 1. Mark pre-approved record as joined
+      // 1. Mark pre-approved record as joined and completely remove staff code
       batch.update(matchedDoc.reference, {
         'status': 'joined',
         'joinedAt': FieldValue.serverTimestamp(),
         'uid': uid,
+        'code': FieldValue.delete(),
+        'codeExpiresAt': FieldValue.delete(),
+        'codeUpdatedAt': FieldValue.delete(),
       });
 
       // 2. Write active membership in firms/{firmId}/members/{uid}
