@@ -45,6 +45,10 @@ class Firm {
   /// Optional invite token
   final String? inviteToken;
 
+  /// Privacy settings
+  final bool showLastSeen;
+  final bool showReadReceipts;
+
   Firm({
     required this.firmId,
     required this.name,
@@ -60,6 +64,8 @@ class Firm {
     this.secondaryColor,
     this.logoUrl,
     this.inviteToken,
+    this.showLastSeen = true,
+    this.showReadReceipts = true,
   })  : ownerUid = ownerUid ?? adminId ?? '',
         createdAt = createdAt ?? DateTime.now(),
         termsAcceptedAt = termsAcceptedAt ?? createdAt ?? DateTime.now();
@@ -81,6 +87,8 @@ class Firm {
     String? secondaryColor,
     String? logoUrl,
     String? inviteToken,
+    bool? showLastSeen,
+    bool? showReadReceipts,
   }) {
     return Firm(
       firmId: firmId ?? this.firmId,
@@ -96,6 +104,8 @@ class Firm {
       secondaryColor: secondaryColor ?? this.secondaryColor,
       logoUrl: logoUrl ?? this.logoUrl,
       inviteToken: inviteToken ?? this.inviteToken,
+      showLastSeen: showLastSeen ?? this.showLastSeen,
+      showReadReceipts: showReadReceipts ?? this.showReadReceipts,
     );
   }
 
@@ -118,6 +128,8 @@ class Firm {
       secondaryColor: json['secondaryColor'] as String?,
       logoUrl: json['logoUrl'] as String?,
       inviteToken: json['inviteToken'] as String?,
+      showLastSeen: json['showLastSeen'] as bool? ?? true,
+      showReadReceipts: json['showReadReceipts'] as bool? ?? true,
     );
   }
 
@@ -137,6 +149,8 @@ class Firm {
       if (secondaryColor != null) 'secondaryColor': secondaryColor,
       if (logoUrl != null) 'logoUrl': logoUrl,
       if (inviteToken != null) 'inviteToken': inviteToken,
+      'showLastSeen': showLastSeen,
+      'showReadReceipts': showReadReceipts,
     };
   }
 
@@ -168,6 +182,8 @@ class Firm {
       secondaryColor: data['secondaryColor'] as String?,
       logoUrl: data['logoUrl'] as String?,
       inviteToken: data['inviteToken'] as String?,
+      showLastSeen: data['showLastSeen'] as bool? ?? true,
+      showReadReceipts: data['showReadReceipts'] as bool? ?? true,
     );
   }
 
@@ -186,6 +202,8 @@ class Firm {
       if (secondaryColor != null) 'secondaryColor': secondaryColor,
       if (logoUrl != null) 'logoUrl': logoUrl,
       if (inviteToken != null) 'inviteToken': inviteToken,
+      'showLastSeen': showLastSeen,
+      'showReadReceipts': showReadReceipts,
     };
   }
 }

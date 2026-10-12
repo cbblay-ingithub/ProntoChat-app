@@ -1,9 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import '../../models/chat_message.dart';
+import '../../models/firm.dart';
 import '../../models/user.dart';
 import '../../services/db_service.dart';
 import '../../services/snackbar_service.dart';
+import '../../widgets/chat/unified_chat_view.dart';
 
 enum ChannelType { allStaff, department, project }
 
@@ -17,6 +18,7 @@ class ChannelChatScreen extends StatefulWidget {
   final String userName;
   final String? projectId;
   final String? projectOwnerUid;
+  final String? departmentId;
 
   const ChannelChatScreen({
     super.key,
@@ -29,6 +31,7 @@ class ChannelChatScreen extends StatefulWidget {
     required this.userName,
     this.projectId,
     this.projectOwnerUid,
+    this.departmentId,
   });
 
   @override
@@ -36,78 +39,12 @@ class ChannelChatScreen extends StatefulWidget {
 }
 
 class _ChannelChatScreenState extends State<ChannelChatScreen> {
-  final TextEditingController _messageController = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
-  bool _isSending = false;
-
-  @override
-  void dispose() {
-    _messageController.dispose();
-    _scrollController.dispose();
-    super.dispose();
-  }
-
   bool _canPost(String? userRole) {
     if (widget.channelType == ChannelType.allStaff) {
       final role = userRole?.toLowerCase();
       return role == 'admin' || role == 'super_admin' || role == 'lead';
     }
     return true;
-  }
-
-  Future<void> _handleSendMessage() async {
-    final text = _messageController.text.trim();
-    if (text.isEmpty || _isSending) return;
-
-    setState(() => _isSending = true);
-    _messageController.clear();
-
-    try {
-      if (widget.channelType == ChannelType.allStaff) {
-        await DBService.instance.sendAllStaffMessage(
-          firmId: widget.firmId,
-          senderId: widget.uid,
-          senderName: widget.userName,
-          text: text,
-        );
-      } else if (widget.channelType == ChannelType.department) {
-        await DBService.instance.sendDepartmentMessage(
-          firmId: widget.firmId,
-          conversationId: widget.conversationId,
-          senderId: widget.uid,
-          senderName: widget.userName,
-          text: text,
-        );
-      } else if (widget.channelType == ChannelType.project) {
-        await DBService.instance.sendProjectMessage(
-          firmId: widget.firmId,
-          conversationId: widget.conversationId,
-          senderId: widget.uid,
-          senderName: widget.userName,
-          text: text,
-        );
-      }
-      _scrollToBottom();
-    } catch (e) {
-      _messageController.text = text;
-      SnackbarService().showSnackbar('Failed to send message: ${e.toString()}', isError: true);
-    } finally {
-      if (mounted) {
-        setState(() => _isSending = false);
-      }
-    }
-  }
-
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          0.0,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
-    });
   }
 
   void _showProjectParticipantsDialog() {
@@ -283,14 +220,17 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
                               conversationId: widget.conversationId,
                               participantIds: updated,
                             );
-                            SnackbarService().showSnackbar('Added $mName to project.');
+                            SnackbarService().showSnackbar('Added $mName to project group.');
                           },
                         );
                       },
                     ),
                   ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close', style: TextStyle(color: Colors.grey))),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Close', style: TextStyle(color: Colors.grey)),
+              ),
             ],
           );
         },
@@ -303,273 +243,59 @@ class _ChannelChatScreenState extends State<ChannelChatScreen> {
     final theme = Theme.of(context);
     final primaryColor = theme.colorScheme.primary;
 
+    final UnifiedChatKind kind = switch (widget.channelType) {
+      ChannelType.allStaff => UnifiedChatKind.allStaff,
+      ChannelType.department => UnifiedChatKind.department,
+      ChannelType.project => UnifiedChatKind.project,
+    };
+
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: DBService.instance.streamMember(widget.firmId, widget.uid),
       builder: (context, memberSnap) {
-        final memberData = memberSnap.data?.data();
-        final userRole = memberData?['role'] as String? ?? 'employee';
+        final memberData = memberSnap.data?.data() ?? {};
+        final userRole = memberData['role'] as String? ?? 'employee';
         final canPost = _canPost(userRole);
 
-        return Scaffold(
-          backgroundColor: const Color.fromRGBO(28, 27, 27, 1),
-          appBar: AppBar(
-            backgroundColor: const Color.fromRGBO(28, 27, 27, 1),
-            elevation: 0,
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-            title: Row(
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance.collection('Firms').doc(widget.firmId).snapshots(),
+          builder: (context, firmSnap) {
+            Firm? firm;
+            if (firmSnap.hasData && firmSnap.data!.exists) {
+              firm = Firm.fromFirestore(firmSnap.data!);
+            }
+
+            return Stack(
               children: [
-                CircleAvatar(
-                  radius: 18,
-                  backgroundColor: widget.channelType == ChannelType.project
-                      ? Colors.purple.withOpacity(0.2)
-                      : primaryColor.withOpacity(0.2),
-                  child: Icon(
-                    widget.channelType == ChannelType.project
-                        ? Icons.work_outline
-                        : (widget.channelType == ChannelType.department ? Icons.folder_shared : Icons.tag),
-                    color: widget.channelType == ChannelType.project ? Colors.purpleAccent : primaryColor,
-                    size: 18,
-                  ),
+                UnifiedChatView(
+                  kind: kind,
+                  firmId: widget.firmId,
+                  firm: firm,
+                  conversationId: widget.conversationId,
+                  title: widget.title,
+                  subtitle: widget.subtitle,
+                  currentUid: widget.uid,
+                  currentUserName: widget.userName,
+                  currentUserRole: userRole,
+                  primaryColor: widget.channelType == ChannelType.project ? Colors.purpleAccent : primaryColor,
+                  canPost: canPost,
+                  projectOwnerUid: widget.projectOwnerUid,
+                  departmentId: widget.departmentId,
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        widget.subtitle ??
-                            (widget.channelType == ChannelType.allStaff
-                                ? 'Announcement Channel'
-                                : (widget.channelType == ChannelType.department ? 'Department Chat' : 'Project Group')),
-                        style: TextStyle(color: Colors.grey[400], fontSize: 11),
-                      ),
-                    ],
+                if (widget.channelType == ChannelType.project)
+                  Positioned(
+                    top: MediaQuery.of(context).padding.top + 4,
+                    right: 8,
+                    child: IconButton(
+                      icon: const Icon(Icons.people_alt_outlined, color: Colors.white, size: 22),
+                      tooltip: 'Project Participants',
+                      onPressed: _showProjectParticipantsDialog,
+                    ),
                   ),
-                ),
               ],
-            ),
-            actions: [
-              if (widget.channelType == ChannelType.project)
-                IconButton(
-                  icon: const Icon(Icons.people_alt_outlined, color: Colors.white),
-                  tooltip: 'Project Participants',
-                  onPressed: _showProjectParticipantsDialog,
-                ),
-            ],
-          ),
-          body: Column(
-            children: [
-              // Notice banner if user cannot post in allStaff
-              if (widget.channelType == ChannelType.allStaff && !canPost)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  color: Colors.amber.withOpacity(0.12),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.info_outline, color: Colors.amberAccent, size: 16),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Only Admins and Leads can post announcements in #all-staff.',
-                          style: TextStyle(color: Colors.amber[200], fontSize: 12),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-              // Messages list stream
-              Expanded(
-                child: StreamBuilder<List<ChatMessage>>(
-                  stream: widget.channelType == ChannelType.allStaff
-                      ? DBService.instance.streamAllStaffMessages(widget.firmId)
-                      : (widget.channelType == ChannelType.department
-                          ? DBService.instance.streamDepartmentMessages(widget.firmId, widget.conversationId)
-                          : DBService.instance.streamProjectMessages(widget.firmId, widget.conversationId)),
-                  builder: (context, msgSnapshot) {
-                    if (msgSnapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    if (msgSnapshot.hasError) {
-                      return Center(
-                        child: Text(
-                          'Error loading messages: ${msgSnapshot.error}',
-                          style: const TextStyle(color: Colors.red),
-                        ),
-                      );
-                    }
-
-                    final messages = msgSnapshot.data ?? [];
-                    if (messages.isEmpty) {
-                      return Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.forum_outlined, size: 48, color: Colors.grey[600]),
-                            const SizedBox(height: 12),
-                            Text(
-                              'No messages yet in ${widget.title}.\nStart the discussion!',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.grey[500]),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-
-                    return ListView.builder(
-                      controller: _scrollController,
-                      reverse: true,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      itemCount: messages.length,
-                      itemBuilder: (context, index) {
-                        final msg = messages[index];
-                        final isMine = msg.senderId == widget.uid;
-                        return _buildMessageRow(msg, isMine, primaryColor);
-                      },
-                    );
-                  },
-                ),
-              ),
-
-              // Message Input composer area
-              _buildInputArea(canPost, primaryColor),
-            ],
-          ),
+            );
+          },
         );
       },
     );
-  }
-
-  Widget _buildMessageRow(ChatMessage msg, bool isMine, Color primaryColor) {
-    final bubbleColor = isMine
-        ? (widget.channelType == ChannelType.project ? Colors.purple[700]! : primaryColor)
-        : Colors.grey[850]!;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Column(
-        crossAxisAlignment: isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-        children: [
-          if (!isMine)
-            Padding(
-              padding: const EdgeInsets.only(left: 8, bottom: 2),
-              child: Text(
-                msg.senderName,
-                style: const TextStyle(
-                  color: Colors.grey,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          Row(
-            mainAxisAlignment: isMine ? MainAxisAlignment.end : MainAxisAlignment.start,
-            children: [
-              Container(
-                constraints: BoxConstraints(
-                  maxWidth: MediaQuery.of(context).size.width * 0.75,
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(
-                  color: bubbleColor,
-                  borderRadius: BorderRadius.only(
-                    topLeft: const Radius.circular(16),
-                    topRight: const Radius.circular(16),
-                    bottomLeft: isMine ? const Radius.circular(16) : Radius.zero,
-                    bottomRight: isMine ? Radius.zero : const Radius.circular(16),
-                  ),
-                ),
-                child: Text(
-                  msg.text,
-                  style: const TextStyle(color: Colors.white, fontSize: 15),
-                ),
-              ),
-            ],
-          ),
-          Padding(
-            padding: const EdgeInsets.only(top: 2, left: 4, right: 4),
-            child: Text(
-              _formatTime(msg.timestamp),
-              style: TextStyle(color: Colors.grey[600], fontSize: 10),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInputArea(bool canPost, Color primaryColor) {
-    if (!canPost) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        color: const Color.fromRGBO(20, 20, 20, 1),
-        child: const SafeArea(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.lock_outline, size: 16, color: Colors.grey),
-              SizedBox(width: 8),
-              Text(
-                'Only Admins and Leads can post in this channel.',
-                style: TextStyle(color: Colors.grey, fontSize: 13),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: const Color.fromRGBO(20, 20, 20, 1),
-      child: SafeArea(
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _messageController,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  hintText: 'Type a message...',
-                  hintStyle: TextStyle(color: Colors.grey[600]),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                ),
-                onSubmitted: (_) => _handleSendMessage(),
-              ),
-            ),
-            IconButton(
-              icon: Icon(
-                Icons.send,
-                color: widget.channelType == ChannelType.project ? Colors.purpleAccent : primaryColor,
-              ),
-              onPressed: _handleSendMessage,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _formatTime(DateTime dateTime) {
-    final localTime = dateTime.toLocal();
-    final hour = localTime.hour.toString().padLeft(2, '0');
-    final minute = localTime.minute.toString().padLeft(2, '0');
-    return '$hour:$minute';
   }
 }

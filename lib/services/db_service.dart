@@ -8,6 +8,7 @@ import 'package:pronto_chat/models/user.dart';
 import 'package:pronto_chat/models/department.dart';
 import 'package:pronto_chat/models/project_group.dart';
 import 'package:pronto_chat/models/chat_message.dart';
+import 'package:pronto_chat/models/chat_polish_models.dart';
 
 class DBService {
   // ══════════════════════════════════════════════════════════════════════════
@@ -289,6 +290,9 @@ class DBService {
     required String receiverId,
     required String type,
     required String content,
+    String? senderName,
+    List<MessageMention>? mentions,
+    MessageReplyTo? replyTo,
     String? thumbnail,
     int? duration,
     int? size,
@@ -297,11 +301,25 @@ class DBService {
       // ── Build message payload ─────────────────────────────────────────────
       final Map<String, dynamic> messageData = {
         'senderId': senderId,
+        'senderName': senderName ?? '',
         'type': type,
         'content': content,
+        'text': content,
         'timestamp': FieldValue.serverTimestamp(),
         'seenBy': [senderId], // sender has implicitly seen their own message
+        'deleted': false,
       };
+
+      if (mentions != null && mentions.isNotEmpty) {
+        messageData['mentions'] = mentions.map((m) => m.toMap()).toList();
+        if (mentions.any((m) => m.uid == 'all')) {
+          messageData['hasAllMention'] = true;
+        }
+      }
+
+      if (replyTo != null) {
+        messageData['replyTo'] = replyTo.toMap();
+      }
 
       // Only write optional fields when they carry a value — keeps docs lean
       if (thumbnail != null) messageData['thumbnail'] = thumbnail;
@@ -318,7 +336,7 @@ class DBService {
         _ => 'New message',
       };
 
-      // ── Atomic batch: 4 writes ────────────────────────────────────────────
+      // ── Atomic batch: writes message, master preview, user previews, mentions ──
       final WriteBatch batch = _db.batch();
 
       // 1. New message document (auto-ID)
@@ -335,25 +353,28 @@ class DBService {
           .update(_db.collection(_conversationCollection).doc(conversationId), {
             'lastMessage': preview,
             'lastMessageSender': senderId,
+            'lastMessageSenderId': senderId,
+            'lastMessageId': messageRef.id,
+            'lastMessageAt': FieldValue.serverTimestamp(),
             'timestamp': FieldValue.serverTimestamp(),
           });
 
-      // 3. Update sender's conversation preview (no unseenCount bump).
-      // FIX: set(merge:true) instead of update() — update() throws if the
-      // doc doesn't exist. merge:true creates it if missing, updates if present.
+      // 3. Update sender's conversation preview
       batch.set(
         _db
             .collection(_userCollection)
             .doc(senderId)
             .collection(_userConvSubcollection)
             .doc(conversationId),
-        {'lastMessage': preview, 'timestamp': FieldValue.serverTimestamp()},
+        {
+          'lastMessage': preview,
+          'timestamp': FieldValue.serverTimestamp(),
+          'lastMessageAt': FieldValue.serverTimestamp(),
+        },
         SetOptions(merge: true),
       );
 
-      // 4. Update receiver's preview + atomically increment their unseenCount.
-      // FIX: set(merge:true) instead of update() for same reason as above.
-      // FieldValue.increment() is safe under concurrent writes.
+      // 4. Update receiver's preview + atomically increment their unseenCount
       batch.set(
         _db
             .collection(_userCollection)
@@ -363,10 +384,26 @@ class DBService {
         {
           'lastMessage': preview,
           'timestamp': FieldValue.serverTimestamp(),
+          'lastMessageAt': FieldValue.serverTimestamp(),
           'unseenCount': FieldValue.increment(1),
         },
         SetOptions(merge: true),
       );
+
+      // 5. If receiver was mentioned, set hasMention = true on receiver's reads doc
+      if (mentions != null && mentions.any((m) => m.uid == receiverId || m.uid == 'all')) {
+        final receiverReadRef = _db
+            .collection(_conversationCollection)
+            .doc(conversationId)
+            .collection('reads')
+            .doc(receiverId);
+
+        batch.set(
+          receiverReadRef,
+          {'hasMention': true},
+          SetOptions(merge: true),
+        );
+      }
 
       await batch.commit();
     } catch (e) {
@@ -1430,6 +1467,8 @@ class DBService {
     required String senderId,
     required String senderName,
     required String text,
+    List<MessageMention>? mentions,
+    MessageReplyTo? replyTo,
   }) async {
     final msgId = 'msg_${DateTime.now().millisecondsSinceEpoch}';
     final chatMsg = ChatMessage(
@@ -1438,6 +1477,8 @@ class DBService {
       senderName: senderName,
       text: text,
       timestamp: DateTime.now(),
+      mentions: mentions ?? const [],
+      replyTo: replyTo,
     );
 
     final WriteBatch batch = _db.batch();
@@ -1459,15 +1500,49 @@ class DBService {
     batch.update(convRef, {
       'lastMessage': text,
       'lastMessageSender': senderId,
+      'lastMessageSenderId': senderId,
+      'lastMessageId': msgId,
+      'lastMessageAt': FieldValue.serverTimestamp(),
       'timestamp': FieldValue.serverTimestamp(),
     });
+
+    if (mentions != null && mentions.isNotEmpty) {
+      for (final m in mentions) {
+        if (m.uid.isNotEmpty && m.uid != 'all' && m.uid != senderId) {
+          final targetReadRef = convRef.collection('reads').doc(m.uid);
+          batch.set(targetReadRef, {'hasMention': true}, SetOptions(merge: true));
+        }
+      }
+    }
 
     await batch.commit();
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // ALL-STAFF CHANNEL
+  // GENERAL & ALL-STAFF CHANNELS
   // ══════════════════════════════════════════════════════════════════════════
+
+  /// Ensures that the default general open chat conversation exists for the given firm.
+  Future<String> ensureGeneralChannel(String firmId) async {
+    final convRef = _db
+        .collection(_firmsCollection)
+        .doc(firmId)
+        .collection('conversations')
+        .doc(firmId);
+
+    final doc = await convRef.get();
+    if (!doc.exists) {
+      await convRef.set({
+        'type': 'general',
+        'name': 'General Team Chat',
+        'createdAt': FieldValue.serverTimestamp(),
+        'timestamp': FieldValue.serverTimestamp(),
+        'lastMessage': '',
+      }, SetOptions(merge: true));
+      debugPrint('✅ General team chat initialized for firm: $firmId');
+    }
+    return firmId;
+  }
 
   /// Ensures that the default allStaff conversation exists for the given firm.
   Future<String> ensureAllStaffChannel(String firmId) async {
@@ -1510,12 +1585,15 @@ class DBService {
     });
   }
 
-  /// Post a message to the allStaff channel (admins and leads only).
+  /// Post a message to the allStaff channel or general chat.
   Future<void> sendAllStaffMessage({
     required String firmId,
+    String conversationId = 'all_staff',
     required String senderId,
     required String senderName,
     required String text,
+    List<MessageMention>? mentions,
+    MessageReplyTo? replyTo,
   }) async {
     final msgId = 'msg_${DateTime.now().millisecondsSinceEpoch}';
     final chatMsg = ChatMessage(
@@ -1524,6 +1602,8 @@ class DBService {
       senderName: senderName,
       text: text,
       timestamp: DateTime.now(),
+      mentions: mentions ?? const [],
+      replyTo: replyTo,
     );
 
     final WriteBatch batch = _db.batch();
@@ -1531,7 +1611,7 @@ class DBService {
         .collection(_firmsCollection)
         .doc(firmId)
         .collection('conversations')
-        .doc('all_staff')
+        .doc(conversationId)
         .collection('messages')
         .doc(msgId);
 
@@ -1539,14 +1619,27 @@ class DBService {
         .collection(_firmsCollection)
         .doc(firmId)
         .collection('conversations')
-        .doc('all_staff');
+        .doc(conversationId);
 
     batch.set(msgRef, chatMsg.toMap());
-    batch.update(convRef, {
+    batch.set(convRef, {
+      'type': conversationId == 'all_staff' ? 'allStaff' : 'general',
       'lastMessage': text,
       'lastMessageSender': senderId,
+      'lastMessageSenderId': senderId,
+      'lastMessageId': msgId,
+      'lastMessageAt': FieldValue.serverTimestamp(),
       'timestamp': FieldValue.serverTimestamp(),
-    });
+    }, SetOptions(merge: true));
+
+    if (mentions != null && mentions.isNotEmpty) {
+      for (final m in mentions) {
+        if (m.uid.isNotEmpty && m.uid != 'all' && m.uid != senderId) {
+          final targetReadRef = convRef.collection('reads').doc(m.uid);
+          batch.set(targetReadRef, {'hasMention': true}, SetOptions(merge: true));
+        }
+      }
+    }
 
     await batch.commit();
   }
@@ -1669,6 +1762,8 @@ class DBService {
     required String senderId,
     required String senderName,
     required String text,
+    List<MessageMention>? mentions,
+    MessageReplyTo? replyTo,
   }) async {
     final msgId = 'msg_${DateTime.now().millisecondsSinceEpoch}';
     final chatMsg = ChatMessage(
@@ -1677,6 +1772,8 @@ class DBService {
       senderName: senderName,
       text: text,
       timestamp: DateTime.now(),
+      mentions: mentions ?? const [],
+      replyTo: replyTo,
     );
 
     final WriteBatch batch = _db.batch();
@@ -1698,8 +1795,20 @@ class DBService {
     batch.update(convRef, {
       'lastMessage': text,
       'lastMessageSender': senderId,
+      'lastMessageSenderId': senderId,
+      'lastMessageId': msgId,
+      'lastMessageAt': FieldValue.serverTimestamp(),
       'timestamp': FieldValue.serverTimestamp(),
     });
+
+    if (mentions != null && mentions.isNotEmpty) {
+      for (final m in mentions) {
+        if (m.uid.isNotEmpty && m.uid != 'all' && m.uid != senderId) {
+          final targetReadRef = convRef.collection('reads').doc(m.uid);
+          batch.set(targetReadRef, {'hasMention': true}, SetOptions(merge: true));
+        }
+      }
+    }
 
     await batch.commit();
   }
@@ -2005,5 +2114,720 @@ class DBService {
         .doc(uid)
         .snapshots();
   }
-  // ────────────────────────────────────────────────────────────────────────────────
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // CHAT POLISH FEATURES (PHASE 1)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  DateTime? _lastPresenceUpdate;
+  String? _lastPresenceFirmId;
+
+  /// Update user last-seen presence in Firms/{firmId}/presence/{uid}.
+  /// Throttled to at most once every 5 minutes while active, plus on app lifecycle changes.
+  Future<void> updatePresence({
+    required String firmId,
+    required String uid,
+    bool force = false,
+  }) async {
+    final now = DateTime.now();
+    if (!force &&
+        _lastPresenceFirmId == firmId &&
+        _lastPresenceUpdate != null &&
+        now.difference(_lastPresenceUpdate!).inMinutes < 5) {
+      return;
+    }
+    _lastPresenceUpdate = now;
+    _lastPresenceFirmId = firmId;
+
+    try {
+      await _db
+          .collection(_firmsCollection)
+          .doc(firmId)
+          .collection('presence')
+          .doc(uid)
+          .set({
+        'uid': uid,
+        'lastSeenAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Notice: presence update error: $e');
+    }
+  }
+
+  /// Stream a single user's presence document (used in chat headers and profile screens).
+  /// Never streams the entire directory's presence.
+  Stream<UserPresence?> streamPresence(String firmId, String uid) {
+    return _db
+        .collection(_firmsCollection)
+        .doc(firmId)
+        .collection('presence')
+        .doc(uid)
+        .snapshots()
+        .map((doc) => doc.exists ? UserPresence.fromFirestore(doc) : null);
+  }
+
+  /// Update transient typing indicator in .../typing/{uid}.
+  /// Written at most once every 3 to 4 seconds while active.
+  Future<void> setTypingStatus({
+    String? firmId,
+    required String conversationId,
+    required String uid,
+    required String userName,
+    required bool isTyping,
+  }) async {
+    try {
+      final typingRef = (firmId != null && firmId.isNotEmpty)
+          ? _db
+              .collection(_firmsCollection)
+              .doc(firmId)
+              .collection('conversations')
+              .doc(conversationId)
+              .collection('typing')
+              .doc(uid)
+          : _db
+              .collection(_conversationCollection)
+              .doc(conversationId)
+              .collection('typing')
+              .doc(uid);
+
+      if (isTyping) {
+        await typingRef.set({
+          'userName': userName,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        await typingRef.delete();
+      }
+    } catch (e) {
+      debugPrint('Notice: typing status error: $e');
+    }
+  }
+
+  /// Stream active typing indicators for conversations with <= 10 participants.
+  Stream<List<TypingIndicatorStatus>> streamTyping({
+    String? firmId,
+    required String conversationId,
+  }) {
+    final typingCollection = (firmId != null && firmId.isNotEmpty)
+        ? _db
+            .collection(_firmsCollection)
+            .doc(firmId)
+            .collection('conversations')
+            .doc(conversationId)
+            .collection('typing')
+        : _db
+            .collection(_conversationCollection)
+            .doc(conversationId)
+            .collection('typing');
+
+    return typingCollection.snapshots().map((snapshot) {
+      return snapshot.docs
+          .map((d) => TypingIndicatorStatus.fromFirestore(d))
+          .where((t) => t.isActive)
+          .toList();
+    });
+  }
+
+  /// Write read pointer to .../reads/{uid}.
+  /// Resets unseen count and clears hasMention flag.
+  Future<void> markReadPointer({
+    String? firmId,
+    required String conversationId,
+    required String uid,
+    required String lastMessageId,
+  }) async {
+    try {
+      final readsRef = (firmId != null && firmId.isNotEmpty)
+          ? _db
+              .collection(_firmsCollection)
+              .doc(firmId)
+              .collection('conversations')
+              .doc(conversationId)
+              .collection('reads')
+              .doc(uid)
+          : _db
+              .collection(_conversationCollection)
+              .doc(conversationId)
+              .collection('reads')
+              .doc(uid);
+
+      final WriteBatch batch = _db.batch();
+      batch.set(
+        readsRef,
+        {
+          'lastReadMessageId': lastMessageId,
+          'lastReadAt': FieldValue.serverTimestamp(),
+          'hasMention': false,
+        },
+        SetOptions(merge: true),
+      );
+
+      // If direct chat, also reset user preview unseenCount
+      if (firmId == null || firmId.isEmpty) {
+        final userConvRef = _db
+            .collection(_userCollection)
+            .doc(uid)
+            .collection(_userConvSubcollection)
+            .doc(conversationId);
+
+        batch.set(
+          userConvRef,
+          {
+            'unseenCount': 0,
+            'lastReadTimestamp': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+
+      await batch.commit();
+    } catch (e) {
+      debugPrint('Notice: markReadPointer error: $e');
+    }
+  }
+
+  /// Stream all read pointers in a conversation for read ticks and "Seen by N".
+  Stream<Map<String, ReadPointer>> streamReadPointers({
+    String? firmId,
+    required String conversationId,
+  }) {
+    final readsCollection = (firmId != null && firmId.isNotEmpty)
+        ? _db
+            .collection(_firmsCollection)
+            .doc(firmId)
+            .collection('conversations')
+            .doc(conversationId)
+            .collection('reads')
+        : _db
+            .collection(_conversationCollection)
+            .doc(conversationId)
+            .collection('reads');
+
+    return readsCollection.snapshots().map((snapshot) {
+      final Map<String, ReadPointer> map = {};
+      for (final doc in snapshot.docs) {
+        map[doc.id] = ReadPointer.fromFirestore(doc);
+      }
+      return map;
+    });
+  }
+
+  /// Stream whether current user has an unseen mention in this conversation.
+  Stream<bool> streamHasMention({
+    String? firmId,
+    required String conversationId,
+    required String uid,
+  }) {
+    final readDoc = (firmId != null && firmId.isNotEmpty)
+        ? _db
+            .collection(_firmsCollection)
+            .doc(firmId)
+            .collection('conversations')
+            .doc(conversationId)
+            .collection('reads')
+            .doc(uid)
+        : _db
+            .collection(_conversationCollection)
+            .doc(conversationId)
+            .collection('reads')
+            .doc(uid);
+
+    return readDoc.snapshots().map((snapshot) {
+      return snapshot.data()?['hasMention'] == true;
+    });
+  }
+
+  /// Pin a message to the conversation master doc (capped at 3).
+  Future<void> pinMessage({
+    String? firmId,
+    required String conversationId,
+    required PinnedMessage pin,
+  }) async {
+    final convRef = (firmId != null && firmId.isNotEmpty)
+        ? _db
+            .collection(_firmsCollection)
+            .doc(firmId)
+            .collection('conversations')
+            .doc(conversationId)
+        : _db.collection(_conversationCollection).doc(conversationId);
+
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(convRef);
+      final data = snapshot.data() ?? {};
+      final rawPinned = (data['pinned'] as List<dynamic>?) ?? [];
+      final List<Map<String, dynamic>> pinnedList = rawPinned
+          .whereType<Map<String, dynamic>>()
+          .toList();
+
+      pinnedList.removeWhere((p) => p['messageId'] == pin.messageId);
+      pinnedList.insert(0, pin.toMap());
+      if (pinnedList.length > 3) {
+        pinnedList.removeRange(3, pinnedList.length);
+      }
+
+      if (!snapshot.exists) {
+        transaction.set(
+          convRef,
+          {
+            'type': conversationId == 'all_staff'
+                ? 'allStaff'
+                : (conversationId == firmId ? 'general' : 'general'),
+            'pinned': pinnedList,
+            'timestamp': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      } else {
+        transaction.update(convRef, {'pinned': pinnedList});
+      }
+    });
+  }
+
+  /// Remove a pinned message from the conversation master doc.
+  Future<void> unpinMessage({
+    String? firmId,
+    required String conversationId,
+    required String messageId,
+  }) async {
+    final convRef = (firmId != null && firmId.isNotEmpty)
+        ? _db
+            .collection(_firmsCollection)
+            .doc(firmId)
+            .collection('conversations')
+            .doc(conversationId)
+        : _db.collection(_conversationCollection).doc(conversationId);
+
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(convRef);
+      if (!snapshot.exists) return;
+      final data = snapshot.data() ?? {};
+      final rawPinned = (data['pinned'] as List<dynamic>?) ?? [];
+      final List<Map<String, dynamic>> pinnedList = rawPinned
+          .whereType<Map<String, dynamic>>()
+          .toList();
+
+      pinnedList.removeWhere((p) => p['messageId'] == messageId);
+      transaction.update(convRef, {'pinned': pinnedList});
+    });
+  }
+
+  /// Stream pinned messages banner list from the conversation doc.
+  Stream<List<PinnedMessage>> streamPinnedMessages({
+    String? firmId,
+    required String conversationId,
+  }) {
+    final convRef = (firmId != null && firmId.isNotEmpty)
+        ? _db
+            .collection(_firmsCollection)
+            .doc(firmId)
+            .collection('conversations')
+            .doc(conversationId)
+        : _db.collection(_conversationCollection).doc(conversationId);
+
+    return convRef.snapshots().map((snapshot) {
+      final data = snapshot.data() ?? {};
+      final rawPinned = (data['pinned'] as List<dynamic>?) ?? [];
+      return rawPinned
+          .whereType<Map<String, dynamic>>()
+          .map((m) => PinnedMessage.fromMap(m))
+          .where((p) => !p.isExpired)
+          .toList();
+    });
+  }
+
+  /// Edit an existing message (allowed only by sender).
+  Future<void> editMessage({
+    String? firmId,
+    required String conversationId,
+    required String messageId,
+    required String newText,
+  }) async {
+    final msgRef = (firmId != null && firmId.isNotEmpty)
+        ? _db
+            .collection(_firmsCollection)
+            .doc(firmId)
+            .collection('conversations')
+            .doc(conversationId)
+            .collection('messages')
+            .doc(messageId)
+        : _db
+            .collection(_conversationCollection)
+            .doc(conversationId)
+            .collection(_messagesSubcollection)
+            .doc(messageId);
+
+    await msgRef.update({
+      'text': newText,
+      'content': newText,
+      'editedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Delete a message as a tombstone (allowed only by sender).
+  Future<void> deleteMessage({
+    String? firmId,
+    required String conversationId,
+    required String messageId,
+  }) async {
+    final msgRef = (firmId != null && firmId.isNotEmpty)
+        ? _db
+            .collection(_firmsCollection)
+            .doc(firmId)
+            .collection('conversations')
+            .doc(conversationId)
+            .collection('messages')
+            .doc(messageId)
+        : _db
+            .collection(_conversationCollection)
+            .doc(conversationId)
+            .collection(_messagesSubcollection)
+            .doc(messageId);
+
+    await msgRef.update({
+      'text': '',
+      'content': '',
+      'deleted': true,
+      'editedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Stream messages in paged chunks of about 30 messages, ordered newest first.
+  Stream<QuerySnapshot<Map<String, dynamic>>> streamMessagesQuery({
+    String? firmId,
+    required String conversationId,
+    int limit = 30,
+  }) {
+    final collection = (firmId != null && firmId.isNotEmpty)
+        ? _db
+            .collection(_firmsCollection)
+            .doc(firmId)
+            .collection('conversations')
+            .doc(conversationId)
+            .collection('messages')
+        : _db
+            .collection(_conversationCollection)
+            .doc(conversationId)
+            .collection(_messagesSubcollection);
+
+    return collection
+        .orderBy('timestamp', descending: true)
+        .limit(limit)
+        .snapshots(includeMetadataChanges: true);
+  }
+
+  /// Load older messages beyond the initial 30 for infinite scroll pagination.
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> loadOlderMessagesQuery({
+    String? firmId,
+    required String conversationId,
+    required DocumentSnapshot lastVisibleDoc,
+    int limit = 30,
+  }) async {
+    final collection = (firmId != null && firmId.isNotEmpty)
+        ? _db
+            .collection(_firmsCollection)
+            .doc(firmId)
+            .collection('conversations')
+            .doc(conversationId)
+            .collection('messages')
+        : _db
+            .collection(_conversationCollection)
+            .doc(conversationId)
+            .collection(_messagesSubcollection);
+
+    final snapshot = await collection
+        .orderBy('timestamp', descending: true)
+        .startAfterDocument(lastVisibleDoc)
+        .limit(limit)
+        .get();
+
+    return snapshot.docs;
+  }
+
+  /// Fetch participants eligible for @mentions in a conversation.
+  Future<List<Map<String, String>>> getConversationParticipants({
+    String? firmId,
+    required String conversationId,
+    String? conversationType,
+    String? departmentId,
+  }) async {
+    final List<Map<String, String>> participants = [];
+    final Set<String> seenUids = {};
+
+    try {
+      if (firmId != null && firmId.isNotEmpty) {
+        // Pre-fetch firm members subcollection (primary source of truth)
+        QuerySnapshot<Map<String, dynamic>>? membersSnapshot;
+        try {
+          membersSnapshot = await _db
+              .collection(_firmsCollection)
+              .doc(firmId)
+              .collection('members')
+              .get();
+        } catch (e) {
+          debugPrint('Notice: Error fetching firm members subcollection: $e');
+        }
+
+        final Map<String, Map<String, String>> memberDirectory = {};
+        if (membersSnapshot != null) {
+          for (final doc in membersSnapshot.docs) {
+            final data = doc.data();
+            if (data['status'] == 'revoked') continue;
+            String name = (data['name'] as String? ?? '').trim();
+            if (name.isEmpty) name = (data['displayName'] as String? ?? '').trim();
+            String email = (data['email'] as String? ?? '').trim();
+            if (name.isEmpty && email.isNotEmpty) {
+              name = email.split('@').first.trim();
+            }
+            final dept = (data['departmentId'] as String? ?? '').trim();
+            memberDirectory[doc.id] = {
+              'uid': doc.id,
+              'name': name,
+              'email': email,
+              'departmentId': dept,
+            };
+          }
+        }
+
+        if (conversationType == 'department') {
+          // Resolve departmentId from param, conversation doc, or conversationId
+          String? resolvedDeptId = departmentId;
+          if (resolvedDeptId == null || resolvedDeptId.isEmpty) {
+            final convDoc = await _db
+                .collection(_firmsCollection)
+                .doc(firmId)
+                .collection('conversations')
+                .doc(conversationId)
+                .get();
+            resolvedDeptId = convDoc.data()?['departmentId'] as String?;
+            if ((resolvedDeptId == null || resolvedDeptId.isEmpty) &&
+                conversationId != firmId &&
+                conversationId != 'general' &&
+                conversationId != 'all_staff') {
+              resolvedDeptId = conversationId;
+            }
+          }
+
+          // Check department document for headUid
+          String? deptHeadUid;
+          if (resolvedDeptId != null && resolvedDeptId.isNotEmpty) {
+            try {
+              final deptDoc = await _db
+                  .collection(_firmsCollection)
+                  .doc(firmId)
+                  .collection('departments')
+                  .doc(resolvedDeptId)
+                  .get();
+              if (deptDoc.exists) {
+                deptHeadUid = deptDoc.data()?['headUid'] as String?;
+              }
+            } catch (_) {}
+          }
+
+          // Add department members and department head
+          for (final entry in memberDirectory.entries) {
+            final uid = entry.key;
+            final info = entry.value;
+            final isDeptMember = resolvedDeptId != null && info['departmentId'] == resolvedDeptId;
+            final isDeptHead = deptHeadUid != null && uid == deptHeadUid;
+
+            if (isDeptMember || isDeptHead) {
+              seenUids.add(uid);
+              participants.add({
+                'uid': uid,
+                'name': info['name']!.isNotEmpty ? info['name']! : 'Colleague',
+                'email': info['email'] ?? '',
+              });
+            }
+          }
+
+          // Fallback: If headUid not in membersDirectory, fetch from Users
+          if (deptHeadUid != null && deptHeadUid.isNotEmpty && !seenUids.contains(deptHeadUid)) {
+            try {
+              final uDoc = await _db.collection(_userCollection).doc(deptHeadUid).get();
+              if (uDoc.exists) {
+                final uData = uDoc.data() ?? {};
+                String name = (uData['name'] as String? ?? '').trim();
+                String email = (uData['email'] as String? ?? '').trim();
+                if (name.isEmpty && email.isNotEmpty) name = email.split('@').first.trim();
+                seenUids.add(deptHeadUid);
+                participants.add({
+                  'uid': deptHeadUid,
+                  'name': name.isNotEmpty ? name : 'Lead',
+                  'email': email,
+                });
+              }
+            } catch (_) {}
+          }
+        } else if (conversationType == 'project') {
+          // Project participants: read participantIds and ownerUid
+          final convDoc = await _db
+              .collection(_firmsCollection)
+              .doc(firmId)
+              .collection('conversations')
+              .doc(conversationId)
+              .get();
+
+          List<String> pIds = (convDoc.data()?['participantIds'] as List<dynamic>?)
+                  ?.map((e) => e.toString())
+                  .toList() ??
+              [];
+          final ownerUid = convDoc.data()?['ownerUid'] as String?;
+
+          if (pIds.isEmpty) {
+            final projDoc = await _db
+                .collection(_firmsCollection)
+                .doc(firmId)
+                .collection('projects')
+                .doc(conversationId)
+                .get();
+            pIds = (projDoc.data()?['participantIds'] as List<dynamic>?)
+                    ?.map((e) => e.toString())
+                    .toList() ??
+                [];
+          }
+
+          if (ownerUid != null && ownerUid.isNotEmpty && !pIds.contains(ownerUid)) {
+            pIds.add(ownerUid);
+          }
+
+          for (final pUid in pIds) {
+            if (seenUids.contains(pUid)) continue;
+            final fromDir = memberDirectory[pUid];
+            String name = fromDir?['name'] ?? '';
+            String email = fromDir?['email'] ?? '';
+            if (name.isEmpty || name == 'Colleague') {
+              try {
+                final userDoc = await _db.collection(_userCollection).doc(pUid).get();
+                if (userDoc.exists) {
+                  name = (userDoc.data()?['name'] as String? ?? '').trim();
+                  email = (userDoc.data()?['email'] as String? ?? '').trim();
+                  if (name.isEmpty && email.isNotEmpty) name = email.split('@').first.trim();
+                }
+              } catch (_) {}
+            }
+            if (name.isEmpty) name = 'Colleague';
+            seenUids.add(pUid);
+            participants.add({'uid': pUid, 'name': name, 'email': email});
+          }
+        } else {
+          // General team chat or all-staff channel: all active members of the firm
+          for (final entry in memberDirectory.entries) {
+            final uid = entry.key;
+            final info = entry.value;
+            seenUids.add(uid);
+            participants.add({
+              'uid': uid,
+              'name': info['name']!.isNotEmpty ? info['name']! : 'Colleague',
+              'email': info['email'] ?? '',
+            });
+          }
+
+          // Fallback 1: Query Users collection where firmIds contains firmId
+          if (participants.isEmpty) {
+            try {
+              final usersSnap = await _db
+                  .collection(_userCollection)
+                  .where('firmIds', arrayContains: firmId)
+                  .get();
+              for (final doc in usersSnap.docs) {
+                if (seenUids.contains(doc.id)) continue;
+                final data = doc.data();
+                String name = (data['name'] as String? ?? '').trim();
+                String email = (data['email'] as String? ?? '').trim();
+                if (name.isEmpty && email.isNotEmpty) name = email.split('@').first.trim();
+                if (name.isEmpty) name = 'Colleague';
+                seenUids.add(doc.id);
+                participants.add({'uid': doc.id, 'name': name, 'email': email});
+              }
+            } catch (e) {
+              debugPrint('Notice: Error querying Users by firmIds: $e');
+            }
+          }
+
+          // Fallback 2: Query Memberships collection (gracefully catch permission errors)
+          if (participants.isEmpty) {
+            try {
+              final legacySnap = await _db
+                  .collection(_membershipsCollection)
+                  .where('firmId', isEqualTo: firmId)
+                  .get();
+              for (final doc in legacySnap.docs) {
+                final data = doc.data();
+                if (data['status'] == 'revoked') continue;
+                final uid = (data['uid'] as String? ?? doc.id);
+                if (seenUids.contains(uid)) continue;
+                String name = (data['name'] as String? ?? '').trim();
+                String email = (data['email'] as String? ?? '').trim();
+                if (name.isEmpty && email.isNotEmpty) name = email.split('@').first.trim();
+                if (name.isEmpty) name = 'Colleague';
+                seenUids.add(uid);
+                participants.add({'uid': uid, 'name': name, 'email': email});
+              }
+            } catch (e) {
+              debugPrint('Notice: Error querying Memberships fallback: $e');
+            }
+          }
+        }
+
+        // Post-process: resolve actual names from Users doc for any participant whose name is missing or 'Colleague'
+        for (var i = 0; i < participants.length; i++) {
+          final p = participants[i];
+          final currentName = p['name'] ?? '';
+          if (currentName.isEmpty || currentName == 'Colleague') {
+            try {
+              final uDoc = await _db.collection(_userCollection).doc(p['uid']).get();
+              if (uDoc.exists) {
+                final uData = uDoc.data() ?? {};
+                String realName = (uData['name'] as String? ?? '').trim();
+                String email = (uData['email'] as String? ?? '').trim();
+                if (realName.isEmpty && email.isNotEmpty) {
+                  realName = email.split('@').first.trim();
+                }
+                if (realName.isNotEmpty) {
+                  participants[i] = {
+                    'uid': p['uid']!,
+                    'name': realName,
+                    'email': email.isNotEmpty ? email : (p['email'] ?? ''),
+                  };
+                }
+              }
+            } catch (_) {}
+          }
+        }
+      } else {
+        // Direct chat participants from conversation doc
+        final convDoc = await _db
+            .collection(_conversationCollection)
+            .doc(conversationId)
+            .get();
+        final members = (convDoc.data()?['members'] as List<dynamic>?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            [];
+
+        for (final mUid in members) {
+          try {
+            final userDoc = await _db.collection(_userCollection).doc(mUid).get();
+            final uData = userDoc.data() ?? {};
+            String name = (uData['name'] as String? ?? '').trim();
+            final email = (uData['email'] as String? ?? '').trim();
+            if (name.isEmpty && email.isNotEmpty) name = email.split('@').first.trim();
+            participants.add({
+              'uid': mUid,
+              'name': name.isNotEmpty ? name : 'Colleague',
+              'email': email,
+            });
+          } catch (_) {
+            participants.add({'uid': mUid, 'name': 'Colleague', 'email': ''});
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Notice: getConversationParticipants error: $e');
+    }
+
+    // Sort alphabetically by name
+    participants.sort((a, b) => (a['name'] ?? '').toLowerCase().compareTo((b['name'] ?? '').toLowerCase()));
+    return participants;
+  }
 }

@@ -537,6 +537,7 @@ class EmployeeHomeTab extends StatelessWidget {
                   title: name,
                   uid: uid,
                   userName: userName,
+                  departmentId: departmentId,
                 ),
               ),
             );

@@ -7,6 +7,8 @@ import '../../screens/employee/firm_chat_screen.dart';
 import '../../screens/employee/channel_chat_screen.dart';
 import '../convo_page.dart';
 import '../search_page.dart';
+import '../../models/chat_polish_models.dart';
+import '../../widgets/chat/typing_indicator_widget.dart';
 
 class EmployeeChatsTab extends StatefulWidget {
   final String uid;
@@ -25,17 +27,32 @@ class EmployeeChatsTab extends StatefulWidget {
 }
 
 class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
+  @override
+  void initState() {
+    super.initState();
+    DBService.instance.updatePresence(
+      firmId: widget.firm.firmId,
+      uid: widget.uid,
+    );
+  }
+
   String _formatTimestamp(Timestamp? ts) {
     if (ts == null) return '';
     final dt = ts.toDate();
     final now = DateTime.now();
     final isToday = dt.year == now.year && dt.month == now.month && dt.day == now.day;
+    final yesterday = now.subtract(const Duration(days: 1));
+    final isYesterday = dt.year == yesterday.year && dt.month == yesterday.month && dt.day == yesterday.day;
     if (isToday) {
       final hour = dt.hour.toString().padLeft(2, '0');
       final minute = dt.minute.toString().padLeft(2, '0');
       return '$hour:$minute';
+    } else if (isYesterday) {
+      return 'Yesterday';
+    } else {
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return '${dt.day} ${months[dt.month - 1]}';
     }
-    return '${dt.day}/${dt.month}';
   }
 
   String _otherUid(String conversationId, String myUid) {
@@ -612,6 +629,7 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                           subtitle: 'Department Channel',
                           uid: widget.uid,
                           userName: widget.userName,
+                          departmentId: departmentId,
                         ),
                       ),
                     );
@@ -798,6 +816,7 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
     required String image,
     required String lastMessage,
     required int unseenCount,
+    bool hasMention = false,
     required Timestamp? ts,
     required Color primaryColor,
   }) {
@@ -811,20 +830,54 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
         ),
         child: ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-          leading: CircleAvatar(
-            radius: 22,
-            backgroundColor: primaryColor.withOpacity(0.25),
-            backgroundImage: image.isNotEmpty ? NetworkImage(image) : null,
-            child: image.isEmpty
-                ? Text(
-                    name.isNotEmpty ? name[0].toUpperCase() : '?',
-                    style: TextStyle(
-                      color: primaryColor,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  )
-                : null,
+          leading: Stack(
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: primaryColor.withOpacity(0.25),
+                backgroundImage: image.isNotEmpty ? NetworkImage(image) : null,
+                child: image.isEmpty
+                    ? Text(
+                        name.isNotEmpty ? name[0].toUpperCase() : '?',
+                        style: TextStyle(
+                          color: primaryColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      )
+                    : null,
+              ),
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: StreamBuilder<UserPresence?>(
+                  stream: DBService.instance.streamPresence(widget.firm.firmId, otherUserId),
+                  builder: (context, presSnap) {
+                    final isOnline = presSnap.data?.isOnline == true;
+                    if (!isOnline) return const SizedBox.shrink();
+                    return Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00E676),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: const Color.fromRGBO(34, 33, 33, 1),
+                          width: 2.0,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF00E676).withOpacity(0.85),
+                            blurRadius: 4,
+                            spreadRadius: 0.5,
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
           title: Text(
             name,
@@ -834,15 +887,41 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
               fontSize: 15,
             ),
           ),
-          subtitle: Text(
-            lastMessage.isNotEmpty ? lastMessage : 'No messages yet',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: unseenCount > 0 ? Colors.white70 : Colors.grey[500],
-              fontWeight: unseenCount > 0 ? FontWeight.w600 : FontWeight.normal,
-              fontSize: 13,
+          subtitle: StreamBuilder<List<TypingIndicatorStatus>>(
+            stream: DBService.instance.streamTyping(
+              conversationId: chatId,
             ),
+            builder: (context, typeSnap) {
+              final isTyping = (typeSnap.data ?? [])
+                  .any((t) => t.uid != widget.uid && t.isActive);
+              if (isTyping) {
+                return const Row(
+                  children: [
+                    BouncingDots(color: Color(0xFF00E5FF), dotSize: 3.5),
+                    SizedBox(width: 5),
+                    Text(
+                      'typing...',
+                      style: TextStyle(
+                        color: Color(0xFF00E5FF),
+                        fontWeight: FontWeight.w600,
+                        fontStyle: FontStyle.italic,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                );
+              }
+              return Text(
+                lastMessage.isNotEmpty ? lastMessage : 'No messages yet',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: unseenCount > 0 ? Colors.white70 : Colors.grey[500],
+                  fontWeight: unseenCount > 0 ? FontWeight.w600 : FontWeight.normal,
+                  fontSize: 13,
+                ),
+              );
+            },
           ),
           trailing: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -856,24 +935,46 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                 ),
               ),
               const SizedBox(height: 4),
-              if (unseenCount > 0)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: primaryColor,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    unseenCount > 99 ? '99+' : '$unseenCount',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (hasMention)
+                    Container(
+                      margin: const EdgeInsets.only(right: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: Colors.amber,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        '@',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                  ),
-                )
-              else
-                const SizedBox(height: 16),
+                  if (unseenCount > 0)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: primaryColor,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        unseenCount > 99 ? '99+' : '$unseenCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    )
+                  else if (!hasMention)
+                    const SizedBox(height: 16),
+                ],
+              ),
             ],
           ),
           onTap: () {
@@ -885,6 +986,8 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                   otherUserId: otherUserId,
                   otherUserName: name,
                   otherUserImage: image,
+                  firmId: widget.firm.firmId,
+                  firm: widget.firm,
                 ),
               ),
             );

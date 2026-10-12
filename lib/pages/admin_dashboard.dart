@@ -305,6 +305,10 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                 BulkOnboardingView(firmId: firm.firmId, primaryColor: primaryColor),
                 const SizedBox(height: 16),
 
+                // Chat & Privacy Settings
+                _buildChatPrivacySettingsCard(context, firm, primaryColor),
+                const SizedBox(height: 16),
+
                 // 7. Danger Zone
                 _buildDangerZone(context, firm),
               ],
@@ -3136,6 +3140,107 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
   }
 
 
+
+  /// Chat & Privacy Settings Card (showLastSeen & showReadReceipts toggles)
+  Widget _buildChatPrivacySettingsCard(BuildContext context, Firm firm, Color primaryColor) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.security, color: primaryColor),
+                const SizedBox(width: 8),
+                const Text(
+                  'Chat & Privacy Settings',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Configure firm-wide chat privacy and presence indicators for all team members.',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+            const Divider(height: 24),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              activeColor: primaryColor,
+              title: const Text(
+                'Show Last Seen & Online Status',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+              ),
+              subtitle: const Text(
+                'Allow members to see when teammates were last active in chats.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              value: firm.showLastSeen,
+              onChanged: (bool value) async {
+                try {
+                  await FirebaseFirestore.instance
+                      .collection('Firms')
+                      .doc(firm.firmId)
+                      .update({'showLastSeen': value});
+                  ref.read(firmNotifierProvider.notifier).loadFirm(firm.firmId);
+                  if (context.mounted) {
+                    SnackbarService().showSnackbar(
+                      'Last seen privacy setting updated.',
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    SnackbarService().showSnackbar(
+                      'Failed to update setting: $e',
+                      isError: true,
+                    );
+                  }
+                }
+              },
+            ),
+            const Divider(height: 16),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              activeColor: primaryColor,
+              title: const Text(
+                'Show Read Receipts',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+              ),
+              subtitle: const Text(
+                'Show double checkmarks on direct chats and read participant counts in group chats.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              value: firm.showReadReceipts,
+              onChanged: (bool value) async {
+                try {
+                  await FirebaseFirestore.instance
+                      .collection('Firms')
+                      .doc(firm.firmId)
+                      .update({'showReadReceipts': value});
+                  ref.read(firmNotifierProvider.notifier).loadFirm(firm.firmId);
+                  if (context.mounted) {
+                    SnackbarService().showSnackbar(
+                      'Read receipts setting updated.',
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    SnackbarService().showSnackbar(
+                      'Failed to update setting: $e',
+                      isError: true,
+                    );
+                  }
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   /// 7. Brand Settings & Danger Zone builder (collapsible)
   Widget _buildDangerZone(BuildContext context, Firm firm) {
