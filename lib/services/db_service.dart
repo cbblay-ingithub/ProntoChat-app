@@ -9,6 +9,9 @@ import 'package:pronto_chat/models/department.dart';
 import 'package:pronto_chat/models/project_group.dart';
 import 'package:pronto_chat/models/chat_message.dart';
 import 'package:pronto_chat/models/chat_polish_models.dart';
+import 'package:pronto_chat/models/poll_model.dart';
+import 'package:pronto_chat/models/mention_inbox_item.dart';
+import 'package:pronto_chat/utils/search_token_util.dart';
 
 class DBService {
   // ══════════════════════════════════════════════════════════════════════════
@@ -1460,6 +1463,73 @@ class DBService {
     });
   }
 
+  /// Fan out mentions to individual reads documents and to the mentions inbox.
+  /// Deduplicates recipients, caps fan-out to 5, and records @all without fan-out.
+  void _fanOutMentionsToBatch({
+    required WriteBatch batch,
+    String? firmId,
+    required String conversationId,
+    required DocumentReference convRef,
+    required String msgId,
+    required String senderId,
+    required String senderName,
+    required String text,
+    List<MessageMention>? mentions,
+  }) {
+    if (mentions == null || mentions.isEmpty) return;
+
+    final Set<String> distinctTargetUids = {};
+    bool hasAll = false;
+
+    for (final m in mentions) {
+      if (m.uid == 'all') {
+        hasAll = true;
+      } else if (m.uid.isNotEmpty && m.uid != senderId) {
+        distinctTargetUids.add(m.uid);
+      }
+    }
+
+    if (hasAll) {
+      batch.set(
+        convRef,
+        {'lastAllMentionAt': FieldValue.serverTimestamp()},
+        SetOptions(merge: true),
+      );
+    }
+
+    // Cap fan-out per message to 5
+    int count = 0;
+    for (final targetUid in distinctTargetUids) {
+      if (count >= 5) break;
+      count++;
+
+      // 1. Mark hasMention on receiver's reads doc
+      final targetReadRef = convRef.collection('reads').doc(targetUid);
+      batch.set(targetReadRef, {'hasMention': true}, SetOptions(merge: true));
+
+      // 2. Mentions inbox: firms/{firmId}/mentions/{uid}/items/{messageId}
+      if (firmId != null && firmId.isNotEmpty) {
+        final mentionInboxRef = _db
+            .collection(_firmsCollection)
+            .doc(firmId)
+            .collection('mentions')
+            .doc(targetUid)
+            .collection('items')
+            .doc(msgId);
+
+        batch.set(mentionInboxRef, {
+          'conversationId': conversationId,
+          'messageId': msgId,
+          'senderId': senderId,
+          'senderName': senderName,
+          'snippet': text.length > 100 ? text.substring(0, 100) : text,
+          'createdAt': FieldValue.serverTimestamp(),
+          'read': false,
+        });
+      }
+    }
+  }
+
   /// Send a message to a department conversation.
   Future<void> sendDepartmentMessage({
     required String firmId,
@@ -1506,14 +1576,17 @@ class DBService {
       'timestamp': FieldValue.serverTimestamp(),
     });
 
-    if (mentions != null && mentions.isNotEmpty) {
-      for (final m in mentions) {
-        if (m.uid.isNotEmpty && m.uid != 'all' && m.uid != senderId) {
-          final targetReadRef = convRef.collection('reads').doc(m.uid);
-          batch.set(targetReadRef, {'hasMention': true}, SetOptions(merge: true));
-        }
-      }
-    }
+    _fanOutMentionsToBatch(
+      batch: batch,
+      firmId: firmId,
+      conversationId: conversationId,
+      convRef: convRef,
+      msgId: msgId,
+      senderId: senderId,
+      senderName: senderName,
+      text: text,
+      mentions: mentions,
+    );
 
     await batch.commit();
   }
@@ -1632,14 +1705,17 @@ class DBService {
       'timestamp': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    if (mentions != null && mentions.isNotEmpty) {
-      for (final m in mentions) {
-        if (m.uid.isNotEmpty && m.uid != 'all' && m.uid != senderId) {
-          final targetReadRef = convRef.collection('reads').doc(m.uid);
-          batch.set(targetReadRef, {'hasMention': true}, SetOptions(merge: true));
-        }
-      }
-    }
+    _fanOutMentionsToBatch(
+      batch: batch,
+      firmId: firmId,
+      conversationId: conversationId,
+      convRef: convRef,
+      msgId: msgId,
+      senderId: senderId,
+      senderName: senderName,
+      text: text,
+      mentions: mentions,
+    );
 
     await batch.commit();
   }
@@ -1801,14 +1877,17 @@ class DBService {
       'timestamp': FieldValue.serverTimestamp(),
     });
 
-    if (mentions != null && mentions.isNotEmpty) {
-      for (final m in mentions) {
-        if (m.uid.isNotEmpty && m.uid != 'all' && m.uid != senderId) {
-          final targetReadRef = convRef.collection('reads').doc(m.uid);
-          batch.set(targetReadRef, {'hasMention': true}, SetOptions(merge: true));
-        }
-      }
-    }
+    _fanOutMentionsToBatch(
+      batch: batch,
+      firmId: firmId,
+      conversationId: conversationId,
+      convRef: convRef,
+      msgId: msgId,
+      senderId: senderId,
+      senderName: senderName,
+      text: text,
+      mentions: mentions,
+    );
 
     await batch.commit();
   }
@@ -2456,10 +2535,12 @@ class DBService {
             .collection(_messagesSubcollection)
             .doc(messageId);
 
+    final tokens = SearchTokenUtil.generateTokens(text: newText);
     await msgRef.update({
       'text': newText,
       'content': newText,
       'editedAt': FieldValue.serverTimestamp(),
+      'searchTokens': tokens,
     });
   }
 
@@ -2488,6 +2569,7 @@ class DBService {
       'content': '',
       'deleted': true,
       'editedAt': FieldValue.serverTimestamp(),
+      'searchTokens': <String>[],
     });
   }
 
@@ -2829,5 +2911,312 @@ class DBService {
     // Sort alphabetically by name
     participants.sort((a, b) => (a['name'] ?? '').toLowerCase().compareTo((b['name'] ?? '').toLowerCase()));
     return participants;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // PART A: MESSAGE SEARCH (INSIDE ONE CHAT)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /// Server search within a single conversation using searchTokens array-contains.
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> searchMessagesServer({
+    String? firmId,
+    required String conversationId,
+    required String queryWord,
+    DocumentSnapshot? lastVisibleDoc,
+    int limit = 20,
+  }) async {
+    final collection = (firmId != null && firmId.isNotEmpty)
+        ? _db
+            .collection(_firmsCollection)
+            .doc(firmId)
+            .collection('conversations')
+            .doc(conversationId)
+            .collection('messages')
+        : _db
+            .collection(_conversationCollection)
+            .doc(conversationId)
+            .collection(_messagesSubcollection);
+
+    Query<Map<String, dynamic>> q = collection
+        .where('searchTokens', arrayContains: queryWord.toLowerCase().trim())
+        .orderBy('timestamp', descending: true);
+
+    if (lastVisibleDoc != null) {
+      q = q.startAfterDocument(lastVisibleDoc);
+    }
+
+    final snap = await q.limit(limit).get();
+    return snap.docs;
+  }
+
+  /// Paged read of older message history for Stage 3 client-side substring search.
+  /// Hard capped per session to respect Free Tier read budget.
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> searchOlderMessagesHistory({
+    String? firmId,
+    required String conversationId,
+    DocumentSnapshot? lastVisibleDoc,
+    int limit = 50,
+  }) async {
+    final collection = (firmId != null && firmId.isNotEmpty)
+        ? _db
+            .collection(_firmsCollection)
+            .doc(firmId)
+            .collection('conversations')
+            .doc(conversationId)
+            .collection('messages')
+        : _db
+            .collection(_conversationCollection)
+            .doc(conversationId)
+            .collection(_messagesSubcollection);
+
+    Query<Map<String, dynamic>> q = collection.orderBy('timestamp', descending: true);
+    if (lastVisibleDoc != null) {
+      q = q.startAfterDocument(lastVisibleDoc);
+    }
+
+    final snap = await q.limit(limit).get();
+    return snap.docs;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // PART B: MENTIONS INBOX & PUSH GROUNDWORK
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /// Stream unread mentions inbox items for the current user.
+  Stream<QuerySnapshot<Map<String, dynamic>>> streamUnreadMentions({
+    required String firmId,
+    required String uid,
+    int limit = 15,
+  }) {
+    return _db
+        .collection(_firmsCollection)
+        .doc(firmId)
+        .collection('mentions')
+        .doc(uid)
+        .collection('items')
+        .where('read', isEqualTo: false)
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
+        .snapshots();
+  }
+
+  /// Stream all mentions inbox items for the Mentions screen.
+  Stream<QuerySnapshot<Map<String, dynamic>>> streamMentionsInbox({
+    required String firmId,
+    required String uid,
+    int limit = 50,
+  }) {
+    return _db
+        .collection(_firmsCollection)
+        .doc(firmId)
+        .collection('mentions')
+        .doc(uid)
+        .collection('items')
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
+        .snapshots();
+  }
+
+  /// Mark a mention inbox item as read.
+  Future<void> markMentionItemRead({
+    required String firmId,
+    required String uid,
+    required String messageId,
+  }) async {
+    try {
+      await _db
+          .collection(_firmsCollection)
+          .doc(firmId)
+          .collection('mentions')
+          .doc(uid)
+          .collection('items')
+          .doc(messageId)
+          .update({'read': true});
+    } catch (e) {
+      debugPrint('Notice markMentionItemRead: $e');
+    }
+  }
+
+  /// Register client device token for push notification groundwork.
+  Future<void> registerDeviceToken({
+    required String uid,
+    required String token,
+    String platform = 'android',
+  }) async {
+    try {
+      await _db
+          .collection(_userCollection)
+          .doc(uid)
+          .collection('devices')
+          .doc(token)
+          .set({
+        'token': token,
+        'platform': platform,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Notice registerDeviceToken: $e');
+    }
+  }
+
+  /// Remove device token on sign out.
+  Future<void> unregisterDeviceToken({
+    required String uid,
+    required String token,
+  }) async {
+    try {
+      await _db
+          .collection(_userCollection)
+          .doc(uid)
+          .collection('devices')
+          .doc(token)
+          .delete();
+    } catch (e) {
+      debugPrint('Notice unregisterDeviceToken: $e');
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // PART C: POLLS IN GROUP CHATS
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /// Create a new poll message in a group conversation.
+  Future<String> createPollMessage({
+    String? firmId,
+    required String conversationId,
+    required String senderId,
+    required String senderName,
+    required PollModel poll,
+  }) async {
+    final msgId = 'poll_${DateTime.now().millisecondsSinceEpoch}';
+    final chatMsg = ChatMessage(
+      messageId: msgId,
+      senderId: senderId,
+      senderName: senderName,
+      text: poll.question,
+      timestamp: DateTime.now(),
+      type: 'poll',
+      poll: poll,
+      searchTokens: SearchTokenUtil.generateTokens(text: poll.question, poll: poll),
+    );
+
+    final WriteBatch batch = _db.batch();
+    final convRef = (firmId != null && firmId.isNotEmpty)
+        ? _db.collection(_firmsCollection).doc(firmId).collection('conversations').doc(conversationId)
+        : _db.collection(_conversationCollection).doc(conversationId);
+
+    final msgRef = convRef.collection('messages').doc(msgId);
+
+    batch.set(msgRef, chatMsg.toMap());
+    batch.set(convRef, {
+      'lastMessage': '📊 Poll: ${poll.question}',
+      'lastMessageSender': senderId,
+      'lastMessageSenderId': senderId,
+      'lastMessageId': msgId,
+      'lastMessageAt': FieldValue.serverTimestamp(),
+      'timestamp': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    await batch.commit();
+    return msgId;
+  }
+
+  /// Cast or update a vote on a poll.
+  Future<void> castPollVote({
+    String? firmId,
+    required String conversationId,
+    required String pollMessageId,
+    required String uid,
+    required List<String> optionIds,
+  }) async {
+    final convRef = (firmId != null && firmId.isNotEmpty)
+        ? _db.collection(_firmsCollection).doc(firmId).collection('conversations').doc(conversationId)
+        : _db.collection(_conversationCollection).doc(conversationId);
+
+    final voteRef = convRef
+        .collection('messages')
+        .doc(pollMessageId)
+        .collection('votes')
+        .doc(uid);
+
+    await voteRef.set({
+      'optionIds': optionIds,
+      'votedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Compute tallies per option using Firestore count() aggregate queries.
+  Future<Map<String, int>> getPollOptionCounts({
+    String? firmId,
+    required String conversationId,
+    required String pollMessageId,
+    required List<String> optionIds,
+  }) async {
+    final convRef = (firmId != null && firmId.isNotEmpty)
+        ? _db.collection(_firmsCollection).doc(firmId).collection('conversations').doc(conversationId)
+        : _db.collection(_conversationCollection).doc(conversationId);
+
+    final votesCol = convRef.collection('messages').doc(pollMessageId).collection('votes');
+    final Map<String, int> counts = {};
+
+    for (final optId in optionIds) {
+      try {
+        final aggregate = await votesCol.where('optionIds', arrayContains: optId).count().get();
+        counts[optId] = aggregate.count ?? 0;
+      } catch (e) {
+        counts[optId] = 0;
+      }
+    }
+
+    return counts;
+  }
+
+  /// Real-time stream of the current user's vote document on a poll.
+  Stream<DocumentSnapshot<Map<String, dynamic>>> streamUserPollVote({
+    String? firmId,
+    required String conversationId,
+    required String pollMessageId,
+    required String uid,
+  }) {
+    final convRef = (firmId != null && firmId.isNotEmpty)
+        ? _db.collection(_firmsCollection).doc(firmId).collection('conversations').doc(conversationId)
+        : _db.collection(_conversationCollection).doc(conversationId);
+
+    return convRef
+        .collection('messages')
+        .doc(pollMessageId)
+        .collection('votes')
+        .doc(uid)
+        .snapshots();
+  }
+
+  /// Load voter documents on-demand for "View Votes" bottom sheet.
+  Future<List<Map<String, dynamic>>> loadPollVoters({
+    String? firmId,
+    required String conversationId,
+    required String pollMessageId,
+  }) async {
+    final convRef = (firmId != null && firmId.isNotEmpty)
+        ? _db.collection(_firmsCollection).doc(firmId).collection('conversations').doc(conversationId)
+        : _db.collection(_conversationCollection).doc(conversationId);
+
+    final snap = await convRef.collection('messages').doc(pollMessageId).collection('votes').get();
+    return snap.docs.map((doc) => {'uid': doc.id, ...doc.data()}).toList();
+  }
+
+  /// Close a poll (sets closedAt timestamp).
+  Future<void> closePoll({
+    String? firmId,
+    required String conversationId,
+    required String pollMessageId,
+  }) async {
+    final convRef = (firmId != null && firmId.isNotEmpty)
+        ? _db.collection(_firmsCollection).doc(firmId).collection('conversations').doc(conversationId)
+        : _db.collection(_conversationCollection).doc(conversationId);
+
+    final msgRef = convRef.collection('messages').doc(pollMessageId);
+    await msgRef.update({
+      'poll.closedAt': FieldValue.serverTimestamp(),
+    });
   }
 }

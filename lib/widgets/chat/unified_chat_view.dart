@@ -11,6 +11,8 @@ import 'typing_indicator_widget.dart';
 import 'message_bubble_widget.dart';
 import 'chat_composer_widget.dart';
 import 'chat_date_divider.dart';
+import 'chat_search_sheet.dart';
+import '../../models/poll_model.dart';
 
 enum UnifiedChatKind { direct, department, project, allStaff, general }
 
@@ -69,7 +71,6 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
 
   // Jump / scroll state
   bool _showScrollToBottom = false;
-  int _unreadBelowCount = 0;
   String? _firstUnreadMessageId;
 
   // Participants for @mention
@@ -123,6 +124,7 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
     WidgetsBinding.instance.removeObserver(this);
     _scrollController.dispose();
     _readStreamSub?.cancel();
+    _highlightTimer?.cancel();
     super.dispose();
   }
 
@@ -218,7 +220,19 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
     }
   }
 
-  void _jumpToMessage(String messageId) {
+  String? _highlightedMessageId;
+  Timer? _highlightTimer;
+  List<ChatMessage> _currentLoadedMessages = [];
+
+  void _jumpToMessage(String messageId, {bool highlight = false}) {
+    if (highlight) {
+      _highlightTimer?.cancel();
+      setState(() => _highlightedMessageId = messageId);
+      _highlightTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _highlightedMessageId = null);
+      });
+    }
+
     final key = _messageKeys[messageId];
     if (key != null && key.currentContext != null) {
       Scrollable.ensureVisible(
@@ -228,6 +242,51 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
       );
     } else {
       SnackbarService().showSnackbar('Message is in older history. Scroll up to load.');
+    }
+  }
+
+  void _openSearchSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ChatSearchSheet(
+        firmId: widget.firmId,
+        conversationId: widget.conversationId,
+        cachedMessages: _currentLoadedMessages,
+        participants: _participants,
+        primaryColor: widget.primaryColor,
+        onSelectMessage: (msg) {
+          _jumpToMessage(msg.messageId, highlight: true);
+        },
+      ),
+    );
+  }
+
+  bool _canCreatePoll() {
+    if (widget.kind == UnifiedChatKind.direct) return false;
+    if (widget.kind == UnifiedChatKind.project) return true;
+    if (widget.kind == UnifiedChatKind.general) return true;
+    if (widget.kind == UnifiedChatKind.department ||
+        widget.kind == UnifiedChatKind.allStaff) {
+      final role = widget.currentUserRole.toLowerCase();
+      return role == 'lead' || role == 'admin' || role == 'super_admin';
+    }
+    return false;
+  }
+
+  Future<void> _handleCreatePoll(PollModel poll) async {
+    try {
+      await DBService.instance.createPollMessage(
+        firmId: widget.firmId,
+        conversationId: widget.conversationId,
+        senderId: widget.currentUid,
+        senderName: widget.currentUserName,
+        poll: poll,
+      );
+      _scrollToBottom();
+    } catch (e) {
+      debugPrint('Notice create poll: $e');
     }
   }
 
@@ -412,6 +471,7 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
                         // De-duplicate in case older overlap
                         final seenIds = <String>{};
                         final uniqueMessages = allMessages.where((m) => seenIds.add(m.messageId)).toList();
+                        _currentLoadedMessages = uniqueMessages;
 
                         if (uniqueMessages.isEmpty) {
                           return Center(
@@ -511,6 +571,12 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
                                         );
                                       },
                                       onJumpToQuoted: _jumpToMessage,
+                                      currentUid: widget.currentUid,
+                                      firmId: widget.firmId,
+                                      conversationId: widget.conversationId,
+                                      currentUserRole: widget.currentUserRole,
+                                      participants: _participants,
+                                      isHighlighted: _highlightedMessageId == msg.messageId,
                                     ),
                                   ],
                                 );
@@ -577,6 +643,9 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
                   );
                 },
                 onSendMessage: _handleSendMessage,
+                currentUid: widget.currentUid,
+                canCreatePoll: _canCreatePoll(),
+                onCreatePoll: _handleCreatePoll,
               ),
             ],
           ),
@@ -735,6 +804,11 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
       elevation: 0,
       titleSpacing: 0,
       actions: [
+        IconButton(
+          icon: const Icon(Icons.search, color: Colors.white70, size: 22),
+          tooltip: 'Search Messages',
+          onPressed: _openSearchSheet,
+        ),
         IconButton(
           icon: Badge(
             isLabelVisible: activePins.isNotEmpty,

@@ -118,6 +118,30 @@ service cloud.firestore {
       );
     }
 
+    // Helper to verify poll creation permission in group chats
+    function canCreatePoll(firmId, conversationId, convData) {
+      return isActiveMember(firmId) && (
+        // Project group: any participant
+        (convData.get('type', '') == 'project' &&
+         (('participantIds' in convData && request.auth.uid in convData.participantIds) ||
+          ('members' in convData && request.auth.uid in convData.members))) ||
+        // Department chat: leads, department head, and participating admins
+        (convData.get('type', '') == 'department' && 'departmentId' in convData && (
+          (exists(/databases/$(database)/documents/Firms/$(firmId)/departments/$(convData.departmentId)) &&
+           get(/databases/$(database)/documents/Firms/$(firmId)/departments/$(convData.departmentId)).data.get('headUid', '') == request.auth.uid) ||
+          (exists(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.get('role', '') in ['lead', 'admin', 'super_admin'] &&
+           get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.get('departmentId', '') == convData.departmentId)
+        )) ||
+        // General team chat: all active members can post
+        (conversationId == 'general' || conversationId == firmId || convData.get('type', '') == 'general') ||
+        // All-staff channel: leads and participating admins
+        (convData.get('type', '') == 'allStaff' &&
+         exists(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.get('role', '') in ['lead', 'admin', 'super_admin'])
+      );
+    }
+
     // ── Users ────────────────────────────────────────────────────────────
     match /Users/{userId} {
       allow read: if isSignedIn();
@@ -128,6 +152,10 @@ service cloud.firestore {
       match /conversations/{conversationId} {
         allow read  : if isOwner(userId);
         allow write : if isOwner(userId) || isConversationMember(conversationId);
+      }
+
+      match /devices/{tokenId} {
+        allow read, write: if isOwner(userId);
       }
     }
 
@@ -177,8 +205,8 @@ service cloud.firestore {
           resource.data.senderId == request.auth.uid &&
           request.resource.data.senderId == resource.data.senderId &&
           (
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'content', 'editedAt']) ||
-            (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'content', 'deleted', 'editedAt']) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'content', 'editedAt', 'searchTokens']) ||
+            (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'content', 'deleted', 'editedAt', 'searchTokens']) &&
              request.resource.data.deleted == true)
           );
         allow delete: if false;
@@ -316,19 +344,55 @@ service cloud.firestore {
               (!exists(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(conversationId)) ||
                get(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(conversationId)).data.get('type', '') != 'allStaff')) ||
              get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.role in ['admin', 'lead', 'super_admin']) &&
+            (request.resource.data.get('type', 'text') != 'poll' ||
+             (conversationId != 'direct' &&
+              (conversationId == 'general' || conversationId == firmId ||
+               (exists(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(conversationId)) &&
+                canCreatePoll(firmId, conversationId, get(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(conversationId)).data))))) &&
             (!('hasAllMention' in request.resource.data) || request.resource.data.hasAllMention != true ||
              canMentionAll(firmId));
 
           allow update: if canAccessFirmConversation(firmId, conversationId) &&
-            resource.data.senderId == request.auth.uid &&
-            request.resource.data.senderId == resource.data.senderId &&
             (
-              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'content', 'editedAt']) ||
-              (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'content', 'deleted', 'editedAt']) &&
-               request.resource.data.deleted == true)
+              // Normal text edit or soft delete by sender
+              (resource.data.senderId == request.auth.uid &&
+               request.resource.data.senderId == resource.data.senderId &&
+               (
+                 request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'content', 'editedAt', 'searchTokens']) ||
+                 (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'content', 'deleted', 'editedAt', 'searchTokens']) &&
+                  request.resource.data.deleted == true) ||
+                 (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'content', 'deleted', 'editedAt', 'searchTokens', 'poll']) &&
+                  request.resource.data.deleted == true)
+               )) ||
+              // Closing a poll by creator or participating admin
+              (resource.data.get('type', '') == 'poll' &&
+               (resource.data.senderId == request.auth.uid ||
+                (exists(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)) &&
+                 get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.get('role', '') in ['admin', 'super_admin'])) &&
+               request.resource.data.diff(resource.data).affectedKeys().hasOnly(['poll']) &&
+               resource.data.poll.get('closedAt', null) == null &&
+               request.resource.data.poll.get('closedAt', null) != null &&
+               request.resource.data.poll.diff(resource.data.poll).affectedKeys().hasOnly(['closedAt']))
             );
 
           allow delete: if false;
+
+          // ── Votes Subcollection ─────────────────────
+          match /votes/{voterUid} {
+            allow read: if canAccessFirmConversation(firmId, conversationId);
+            allow write: if isSignedIn() &&
+              request.auth.uid == voterUid &&
+              canAccessFirmConversation(firmId, conversationId) &&
+              exists(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(conversationId)/messages/$(messageId)) &&
+              get(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(conversationId)/messages/$(messageId)).data.get('type', '') == 'poll' &&
+              get(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(conversationId)/messages/$(messageId)).data.poll.get('closedAt', null) == null &&
+              (!('closesAt' in get(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(conversationId)/messages/$(messageId)).data.poll) ||
+               get(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(conversationId)/messages/$(messageId)).data.poll.closesAt == null ||
+               request.time < get(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(conversationId)/messages/$(messageId)).data.poll.closesAt) &&
+              request.resource.data.optionIds.hasOnly(get(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(conversationId)/messages/$(messageId)).data.poll.optionIds) &&
+              (get(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(conversationId)/messages/$(messageId)).data.poll.get('allowMultiple', false) == true ||
+               request.resource.data.optionIds.size() == 1);
+          }
         }
       }
 
@@ -364,6 +428,30 @@ service cloud.firestore {
           isFirmAdmin(firmId) ||
           (request.resource.data.status == 'joined' && resource.data.status == 'invited')
         );
+      }
+
+      // ── Mentions Inbox Subcollection ───────────
+      match /mentions/{targetUid}/items/{messageId} {
+        allow read, delete: if isOwner(targetUid) && isActiveMember(firmId);
+        allow update: if isOwner(targetUid) && isActiveMember(firmId) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']) &&
+          request.resource.data.read == true;
+
+        allow create: if isActiveMember(firmId) &&
+          request.resource.data.senderId == request.auth.uid &&
+          request.resource.data.read == false &&
+          request.resource.data.snippet.size() <= 100 &&
+          canAccessFirmConversation(firmId, request.resource.data.conversationId) &&
+          (
+            request.resource.data.conversationId in ['general', 'all_staff', firmId] ||
+            (exists(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(request.resource.data.conversationId)) &&
+             (get(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(request.resource.data.conversationId)).data.get('type', '') in ['allStaff', 'general'] ||
+              ('participantIds' in get(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(request.resource.data.conversationId)).data &&
+               targetUid in get(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(request.resource.data.conversationId)).data.participantIds) ||
+              (get(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(request.resource.data.conversationId)).data.get('type', '') == 'department' &&
+               exists(/databases/$(database)/documents/Firms/$(firmId)/members/$(targetUid)) &&
+               get(/databases/$(database)/documents/Firms/$(firmId)/members/$(targetUid)).data.get('departmentId', '') == get(/databases/$(database)/documents/Firms/$(firmId)/conversations/$(request.resource.data.conversationId)).data.get('departmentId', ''))))
+          );
       }
 
       // ── Legacy Firm Messages Subcollection ──────

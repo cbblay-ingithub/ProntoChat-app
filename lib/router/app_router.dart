@@ -25,6 +25,7 @@ import '../pages/admin_dashboard.dart';
 import '../pages/search_page.dart';
 import '../screens/employee/firm_chat_screen.dart';
 import '../screens/employee/pending_approval_screen.dart';
+import '../screens/employee/mentions_screen.dart';
 
 /// Reactive notifier that informs GoRouter whenever auth state or membership state changes.
 class RouterNotifier extends ChangeNotifier {
@@ -150,6 +151,19 @@ final goRouterProvider = Provider<GoRouter>((ref) {
             firmId: firmId,
             uid: uid,
             name: name,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/mentions',
+        builder: (context, state) {
+          final firmId = state.uri.queryParameters['firmId'] ?? '';
+          final uid = state.uri.queryParameters['uid'] ?? (FirebaseAuth.instance.currentUser?.uid ?? '');
+          final userName = state.uri.queryParameters['name'] ?? (FirebaseAuth.instance.currentUser?.displayName ?? 'You');
+          return MentionsScreen(
+            firmId: firmId,
+            uid: uid,
+            userName: userName,
           );
         },
       ),

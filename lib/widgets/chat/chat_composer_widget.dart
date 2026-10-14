@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../models/chat_message.dart';
+import '../../models/poll_model.dart';
 import 'chat_mention_picker.dart';
+import 'create_poll_sheet.dart';
 
 class ChatComposerWidget extends StatefulWidget {
   final bool canPost;
@@ -14,6 +16,9 @@ class ChatComposerWidget extends StatefulWidget {
   final VoidCallback onCancelReply;
   final VoidCallback onCancelEdit;
   final ValueChanged<String> onTyping;
+  final String currentUid;
+  final bool canCreatePoll;
+  final ValueChanged<PollModel>? onCreatePoll;
   final Future<void> Function({
     required String text,
     List<MessageMention>? mentions,
@@ -33,6 +38,9 @@ class ChatComposerWidget extends StatefulWidget {
     required this.onCancelReply,
     required this.onCancelEdit,
     required this.onTyping,
+    this.currentUid = '',
+    this.canCreatePoll = false,
+    this.onCreatePoll,
     required this.onSendMessage,
   });
 
@@ -378,6 +386,15 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
+                      if (widget.canCreatePoll && widget.onCreatePoll != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 2, right: 4),
+                          child: IconButton(
+                            icon: const Icon(Icons.add_circle_outline, color: Colors.grey, size: 24),
+                            tooltip: 'Chat actions',
+                            onPressed: () => _showActionsMenu(context),
+                          ),
+                        ),
                       Expanded(
                         child: Container(
                           decoration: BoxDecoration(
@@ -392,8 +409,8 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
                             style: const TextStyle(color: Colors.white, fontSize: 15),
                             decoration: InputDecoration(
                               hintText: widget.editingMessage != null
-                                  ? 'Edit message...'
-                                  : 'Type a message...',
+                                   ? 'Edit message...'
+                                   : 'Type a message...',
                               hintStyle: TextStyle(color: Colors.grey[500]),
                               border: InputBorder.none,
                               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -428,6 +445,54 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
           ),
         ),
       ],
+    );
+  }
+
+  void _showActionsMenu(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color.fromRGBO(34, 33, 35, 1),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.purpleAccent.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.poll_rounded, color: Colors.purpleAccent, size: 20),
+              ),
+              title: const Text('Create Poll', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              subtitle: const Text('Ask a question and gather team votes', style: TextStyle(color: Colors.grey, fontSize: 12)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _openCreatePollSheet(context);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openCreatePollSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => CreatePollSheet(
+        primaryColor: widget.primaryColor,
+        currentUid: widget.currentUid,
+        onPollCreated: (poll) {
+          widget.onCreatePoll?.call(poll);
+        },
+      ),
     );
   }
 }

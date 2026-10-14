@@ -9,6 +9,7 @@ import '../convo_page.dart';
 import '../search_page.dart';
 import '../../models/chat_polish_models.dart';
 import '../../widgets/chat/typing_indicator_widget.dart';
+import '../../screens/employee/mentions_screen.dart';
 
 class EmployeeChatsTab extends StatefulWidget {
   final String uid;
@@ -27,6 +28,9 @@ class EmployeeChatsTab extends StatefulWidget {
 }
 
 class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
   @override
   void initState() {
     super.initState();
@@ -34,6 +38,12 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
       firmId: widget.firm.firmId,
       uid: widget.uid,
     );
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   String _formatTimestamp(Timestamp? ts) {
@@ -241,6 +251,37 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
               ],
             ),
             actions: [
+              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: DBService.instance.streamUnreadMentions(
+                  firmId: widget.firm.firmId,
+                  uid: widget.uid,
+                ),
+                builder: (context, snap) {
+                  final unreadCount = snap.data?.docs.length ?? 0;
+                  return IconButton(
+                    tooltip: 'Mentions Inbox',
+                    icon: Badge(
+                      isLabelVisible: unreadCount > 0,
+                      label: Text('$unreadCount', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                      backgroundColor: Colors.amber,
+                      textColor: Colors.black,
+                      child: const Icon(Icons.alternate_email, color: Colors.white),
+                    ),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => MentionsScreen(
+                            firmId: widget.firm.firmId,
+                            uid: widget.uid,
+                            userName: widget.userName,
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
               IconButton(
                 icon: const Icon(Icons.search, color: Colors.white),
                 tooltip: 'Search messages or people',
@@ -309,12 +350,62 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
               }
 
               final directDocs = directSnapshot.data?.docs ?? [];
+              final filteredDirect = _searchQuery.isEmpty
+                  ? directDocs
+                  : directDocs.where((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      final String otherName = (data['name'] as String? ?? '').toLowerCase();
+                      final String lastMessage = (data['lastMessage'] as String? ?? '').toLowerCase();
+                      return otherName.contains(_searchQuery) || lastMessage.contains(_searchQuery);
+                    }).toList();
+
+              final showAllStaff = _searchQuery.isEmpty ||
+                  '#all-staff'.contains(_searchQuery) ||
+                  'all staff'.contains(_searchQuery) ||
+                  'official firm updates'.contains(_searchQuery);
+              final showDept = _searchQuery.isEmpty ||
+                  'department'.contains(_searchQuery) ||
+                  (departmentId != null && departmentId.toLowerCase().contains(_searchQuery));
+              final showGeneral = _searchQuery.isEmpty ||
+                  'general team chat'.contains(_searchQuery) ||
+                  'open discussion'.contains(_searchQuery);
 
               return ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 children: [
+                  // ── Client-Side In-Memory Filter Bar ────────────────────
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: const Color.fromRGBO(34, 33, 33, 1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white.withOpacity(0.06)),
+                    ),
+                    child: TextField(
+                      controller: _searchController,
+                      onChanged: (val) => setState(() => _searchQuery = val.trim().toLowerCase()),
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      decoration: InputDecoration(
+                        hintText: 'Filter conversations by name...',
+                        hintStyle: TextStyle(color: Colors.grey[500], fontSize: 13),
+                        prefixIcon: const Icon(Icons.filter_list, color: Colors.grey, size: 20),
+                        suffixIcon: _searchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, color: Colors.grey, size: 16),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() => _searchQuery = '');
+                                },
+                              )
+                            : null,
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+                  ),
+
                   // ── Role Upgrade Banner ───────────────────────────────────
-                  if (userRole == 'lead')
+                  if (userRole == 'lead' && _searchQuery.isEmpty)
                     Container(
                       margin: const EdgeInsets.only(bottom: 12),
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -347,29 +438,30 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                     ),
 
                   // ── CHANNELS SECTION ─────────────────────────────────────
-                  const Padding(
-                    padding: EdgeInsets.only(top: 4, bottom: 8, left: 4),
-                    child: Text(
-                      'Company Channels',
-                      style: TextStyle(
-                        color: Colors.grey,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.5,
+                  if (showAllStaff || showDept || showGeneral) ...[
+                    const Padding(
+                      padding: EdgeInsets.only(top: 4, bottom: 8, left: 4),
+                      child: Text(
+                        'Company Channels',
+                        style: TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.5,
+                        ),
                       ),
                     ),
-                  ),
-
-                  // 1. #all-staff channel tile
-                  _buildAllStaffChannelTile(context, primaryColor, userRole),
-                  const SizedBox(height: 8),
-
-                  // 2. Department Group Chat (Derived Access)
-                  _buildDepartmentChannelTile(context, primaryColor, departmentId),
-                  const SizedBox(height: 8),
-
-                  // 3. General Team Chat (Legacy pinned channel)
-                  _buildPinnedTile(context, primaryColor),
+                    if (showAllStaff) ...[
+                      _buildAllStaffChannelTile(context, primaryColor, userRole),
+                      const SizedBox(height: 8),
+                    ],
+                    if (showDept) ...[
+                      _buildDepartmentChannelTile(context, primaryColor, departmentId),
+                      const SizedBox(height: 8),
+                    ],
+                    if (showGeneral)
+                      _buildPinnedTile(context, primaryColor),
+                  ],
 
                   // ── PROJECT GROUPS SECTION ───────────────────────────────
                   Padding(
@@ -402,7 +494,7 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                     ),
                   ),
 
-                  _buildProjectGroupsList(context, primaryColor),
+                  _buildProjectGroupsList(context, primaryColor, searchQuery: _searchQuery),
 
                   // ── DIRECT MESSAGES SECTION ──────────────────────────────
                   const Padding(
@@ -418,10 +510,25 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                     ),
                   ),
 
-                  if (directDocs.isEmpty)
-                    _buildEmptyState(context, primaryColor)
+                  if (filteredDirect.isEmpty)
+                    _searchQuery.isNotEmpty
+                        ? Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: const Color.fromRGBO(34, 33, 33, 1),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: Colors.white.withOpacity(0.04)),
+                            ),
+                            child: Center(
+                              child: Text(
+                                'No direct conversations matching "$_searchQuery".',
+                                style: const TextStyle(color: Colors.grey, fontSize: 12),
+                              ),
+                            ),
+                          )
+                        : _buildEmptyState(context, primaryColor)
                   else
-                    ...directDocs.map((doc) {
+                    ...filteredDirect.map((doc) {
                       final data = doc.data() as Map<String, dynamic>;
                       final String otherName = data['name'] as String? ?? 'Colleague';
                       final String otherImage = data['image'] as String? ?? '';
@@ -642,11 +749,19 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
   }
 
   /// Project Groups List
-  Widget _buildProjectGroupsList(BuildContext context, Color primaryColor) {
+  Widget _buildProjectGroupsList(BuildContext context, Color primaryColor, {String searchQuery = ''}) {
     return StreamBuilder<List<Map<String, dynamic>>>(
       stream: DBService.instance.streamProjectConversationsForUser(widget.firm.firmId, widget.uid),
       builder: (context, snapshot) {
-        final projects = snapshot.data ?? [];
+        var projects = snapshot.data ?? [];
+        if (searchQuery.isNotEmpty) {
+          projects = projects.where((proj) {
+            final name = (proj['name'] as String? ?? '').toLowerCase();
+            final lastMsg = (proj['lastMessage'] as String? ?? '').toLowerCase();
+            return name.contains(searchQuery) || lastMsg.contains(searchQuery);
+          }).toList();
+        }
+
         if (projects.isEmpty) {
           return Container(
             padding: const EdgeInsets.all(16),
@@ -655,10 +770,12 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: Colors.white.withOpacity(0.04)),
             ),
-            child: const Center(
+            child: Center(
               child: Text(
-                'You are not a participant of any project groups yet.',
-                style: TextStyle(color: Colors.grey, fontSize: 12),
+                searchQuery.isNotEmpty
+                    ? 'No project groups matching "$searchQuery".'
+                    : 'You are not a participant of any project groups yet.',
+                style: const TextStyle(color: Colors.grey, fontSize: 12),
               ),
             ),
           );

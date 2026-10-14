@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../../models/chat_message.dart';
 import '../../models/chat_polish_models.dart';
+import 'poll_bubble_widget.dart';
 
 class MessageBubbleWidget extends StatelessWidget {
   final ChatMessage message;
@@ -21,6 +22,12 @@ class MessageBubbleWidget extends StatelessWidget {
   final ValueChanged<ChatMessage> onDelete;
   final ValueChanged<ChatMessage>? onRetry;
   final ValueChanged<String> onJumpToQuoted;
+  final String currentUid;
+  final String? firmId;
+  final String? conversationId;
+  final String currentUserRole;
+  final List<Map<String, String>> participants;
+  final bool isHighlighted;
 
   const MessageBubbleWidget({
     super.key,
@@ -41,6 +48,12 @@ class MessageBubbleWidget extends StatelessWidget {
     required this.onDelete,
     this.onRetry,
     required this.onJumpToQuoted,
+    this.currentUid = '',
+    this.firmId,
+    this.conversationId,
+    this.currentUserRole = 'employee',
+    this.participants = const [],
+    this.isHighlighted = false,
   });
 
   String _formatTime(DateTime dt) {
@@ -495,6 +508,10 @@ class MessageBubbleWidget extends StatelessWidget {
         ? primaryColor
         : const Color.fromRGBO(48, 48, 48, 1);
 
+    final bool mentionsMe = !isMine &&
+        currentUid.isNotEmpty &&
+        message.mentions.any((m) => m.uid == currentUid || m.uid == 'all');
+
     Widget bubble = Align(
       alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(
@@ -521,61 +538,107 @@ class MessageBubbleWidget extends StatelessWidget {
               constraints: BoxConstraints(
                 maxWidth: MediaQuery.of(context).size.width * 0.76,
               ),
-              margin: EdgeInsets.only(
-                top: isConsecutive ? 2 : 4,
-                bottom: 2,
-                left: isMine ? 48 : 0,
-                right: isMine ? 0 : 48,
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: bubbleColor,
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(16),
-                  topRight: const Radius.circular(16),
-                  bottomLeft: Radius.circular(isMine ? 16 : (isConsecutive ? 4 : 4)),
-                  bottomRight: Radius.circular(isMine ? (isConsecutive ? 4 : 4) : 16),
+                margin: EdgeInsets.only(
+                  top: isConsecutive ? 2 : 4,
+                  bottom: 2,
+                  left: isMine ? 48 : 0,
+                  right: isMine ? 0 : 48,
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.12),
-                    blurRadius: 4,
-                    offset: const Offset(0, 1),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: bubbleColor,
+                  borderRadius: BorderRadius.only(
+                    topLeft: const Radius.circular(16),
+                    topRight: const Radius.circular(16),
+                    bottomLeft: Radius.circular(isMine ? 16 : (isConsecutive ? 4 : 4)),
+                    bottomRight: Radius.circular(isMine ? (isConsecutive ? 4 : 4) : 16),
                   ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (isPinned)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 5),
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(4),
+                  border: isHighlighted
+                      ? Border.all(color: Colors.amberAccent, width: 2)
+                      : mentionsMe
+                          ? Border.all(color: Colors.lightBlueAccent, width: 1.2)
+                          : null,
+                  boxShadow: [
+                    if (mentionsMe)
+                      BoxShadow(
+                        color: Colors.lightBlueAccent.withOpacity(0.2),
+                        blurRadius: 8,
+                        spreadRadius: 1,
                       ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.push_pin, size: 11, color: Colors.amberAccent),
-                          SizedBox(width: 4),
-                          Text(
-                            'Pinned',
-                            style: TextStyle(
-                              color: Colors.amberAccent,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.12),
+                      blurRadius: 4,
+                      offset: const Offset(0, 1),
                     ),
-                  _buildQuotedReply(),
-                  _buildTextSpans(context),
-                  const SizedBox(height: 3),
-                  Row(
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (mentionsMe)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 5),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.lightBlueAccent.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.alternate_email, size: 10, color: Colors.lightBlueAccent),
+                            SizedBox(width: 4),
+                            Text(
+                              'Mentioned you',
+                              style: TextStyle(
+                                color: Colors.lightBlueAccent,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (isPinned)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 5),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.push_pin, size: 11, color: Colors.amberAccent),
+                            SizedBox(width: 4),
+                            Text(
+                              'Pinned',
+                              style: TextStyle(
+                                color: Colors.amberAccent,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    _buildQuotedReply(),
+                    if (message.type == 'poll' && message.poll != null)
+                      PollBubbleWidget(
+                        message: message,
+                        firmId: firmId,
+                        conversationId: conversationId ?? '',
+                        currentUid: currentUid,
+                        currentUserRole: currentUserRole,
+                        primaryColor: primaryColor,
+                        participants: participants,
+                      )
+                    else
+                      _buildTextSpans(context),
+                    const SizedBox(height: 3),
+                    Row(
                     mainAxisSize: MainAxisSize.min,
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [

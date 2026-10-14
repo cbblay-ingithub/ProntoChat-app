@@ -1,4 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'poll_model.dart';
+import '../utils/search_token_util.dart';
 
 class MessageMention {
   final String uid;
@@ -37,7 +39,7 @@ class MessageReplyTo {
   final String senderId;
   final String senderName;
   final String snippet;
-  final String kind; // 'text', 'image', etc.
+  final String kind; // 'text', 'image', 'poll', etc.
 
   const MessageReplyTo({
     required this.messageId,
@@ -82,6 +84,8 @@ class ChatMessage {
   final bool isPending;
   final bool isFailed;
   final bool hasPendingWrites;
+  final List<String> searchTokens;
+  final PollModel? poll;
 
   ChatMessage({
     required this.messageId,
@@ -97,6 +101,8 @@ class ChatMessage {
     this.isPending = false,
     this.isFailed = false,
     this.hasPendingWrites = false,
+    this.searchTokens = const [],
+    this.poll,
   });
 
   /// Factory constructor to parse Firestore document into ChatMessage
@@ -136,6 +142,16 @@ class ChatMessage {
       parsedReplyTo = MessageReplyTo.fromMap(Map<String, dynamic>.from(map['replyTo'] as Map));
     }
 
+    List<String> parsedSearchTokens = [];
+    if (map['searchTokens'] is List) {
+      parsedSearchTokens = (map['searchTokens'] as List).map((e) => e.toString()).toList();
+    }
+
+    PollModel? parsedPoll;
+    if (map['poll'] is Map) {
+      parsedPoll = PollModel.fromMap(Map<String, dynamic>.from(map['poll'] as Map));
+    }
+
     // Handles both text and content fields for full backward compatibility
     final rawText = (map['text'] ?? map['content'] ?? '') as String;
 
@@ -151,6 +167,8 @@ class ChatMessage {
       editedAt: parsedEditedTime,
       deleted: map['deleted'] == true,
       hasPendingWrites: hasPendingWrites,
+      searchTokens: parsedSearchTokens,
+      poll: parsedPoll,
     );
   }
 
@@ -165,6 +183,18 @@ class ChatMessage {
       'type': type,
       'deleted': deleted,
     };
+
+    if (deleted) {
+      map['searchTokens'] = <String>[];
+    } else if (searchTokens.isNotEmpty) {
+      map['searchTokens'] = searchTokens;
+    } else {
+      map['searchTokens'] = SearchTokenUtil.generateTokens(text: text, poll: poll);
+    }
+
+    if (poll != null) {
+      map['poll'] = poll!.toMap();
+    }
 
     if (mentions.isNotEmpty) {
       map['mentions'] = mentions.map((m) => m.toMap()).toList();
@@ -199,6 +229,8 @@ class ChatMessage {
     bool? isPending,
     bool? isFailed,
     bool? hasPendingWrites,
+    List<String>? searchTokens,
+    PollModel? poll,
   }) {
     return ChatMessage(
       messageId: messageId ?? this.messageId,
@@ -214,6 +246,8 @@ class ChatMessage {
       isPending: isPending ?? this.isPending,
       isFailed: isFailed ?? this.isFailed,
       hasPendingWrites: hasPendingWrites ?? this.hasPendingWrites,
+      searchTokens: searchTokens ?? this.searchTokens,
+      poll: poll ?? this.poll,
     );
   }
 }
