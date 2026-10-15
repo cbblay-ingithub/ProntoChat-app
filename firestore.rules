@@ -298,7 +298,20 @@ service cloud.firestore {
 
       // ── Conversations Subcollection ─────────────
       match /conversations/{conversationId} {
-        allow read: if canAccessFirmConversation(firmId, conversationId);
+        allow get: if canAccessFirmConversation(firmId, conversationId);
+
+        allow list: if isActiveMember(firmId) && (
+          isFirmAdmin(firmId) ||
+          (resource.data.type == 'project' &&
+           (('participantIds' in resource.data && request.auth.uid in resource.data.participantIds) ||
+            ('members' in resource.data && request.auth.uid in resource.data.members) ||
+            resource.data.get('ownerUid', '') == request.auth.uid)) ||
+          (resource.data.type == 'department' &&
+           'departmentId' in resource.data &&
+           exists(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)) &&
+           get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.get('departmentId', '') == resource.data.departmentId) ||
+          (resource.data.type in ['allStaff', 'general'])
+        );
 
         allow create: if isSignedIn() && (isActiveMember(firmId) || isFirmAdmin(firmId)) && (
           (request.resource.data.get('type', '') == 'general' || conversationId == 'general' || conversationId == firmId) ||

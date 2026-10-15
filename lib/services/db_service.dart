@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -1789,6 +1790,7 @@ class DBService {
       'name': name.trim(),
       'ownerUid': ownerUid,
       'participantIds': allParticipants,
+      'status': 'active',
       'createdAt': FieldValue.serverTimestamp(),
       'timestamp': FieldValue.serverTimestamp(),
       'lastMessage': '',
@@ -1829,18 +1831,99 @@ class DBService {
     String firmId,
     String uid,
   ) {
-    return _db
-        .collection(_firmsCollection)
-        .doc(firmId)
-        .collection('conversations')
-        .where('type', isEqualTo: 'project')
-        .where('participantIds', arrayContains: uid)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs
-          .map((doc) => {'conversationId': doc.id, ...doc.data()})
-          .toList();
-    });
+    late StreamController<List<Map<String, dynamic>>> controller;
+    StreamSubscription? convSub;
+    StreamSubscription? projSub;
+
+    void startFallback() {
+      if (controller.isClosed) return;
+      projSub?.cancel();
+      projSub = _db
+          .collection(_firmsCollection)
+          .doc(firmId)
+          .collection('projects')
+          .snapshots()
+          .listen(
+        (projSnap) {
+          final list = projSnap.docs
+              .where((doc) {
+                final data = doc.data();
+                final pIds = (data['participantIds'] as List<dynamic>?)
+                        ?.map((e) => e.toString())
+                        .toList() ??
+                    [];
+                final ownerUid = data['ownerUid'] as String? ?? '';
+                final status = data['status'] as String? ?? 'active';
+                return status != 'archived' &&
+                    (pIds.contains(uid) || ownerUid == uid);
+              })
+              .map((doc) {
+                final data = doc.data();
+                return {
+                  'conversationId': data['conversationId'] as String? ?? doc.id,
+                  'name': data['name'] ?? 'Project',
+                  'ownerUid': data['ownerUid'] ?? '',
+                  'participantIds': data['participantIds'] ?? [uid],
+                  'status': data['status'] ?? 'active',
+                  'lastMessage': '',
+                  'timestamp': data['createdAt'],
+                };
+              })
+              .toList();
+          if (!controller.isClosed) {
+            controller.add(list);
+          }
+        },
+        onError: (e) {
+          debugPrint('⚠️ projects metadata fallback error: $e');
+          if (!controller.isClosed) controller.addError(e);
+        },
+      );
+    }
+
+    controller = StreamController<List<Map<String, dynamic>>>(
+      onListen: () {
+        convSub = _db
+            .collection(_firmsCollection)
+            .doc(firmId)
+            .collection('conversations')
+            .where('type', isEqualTo: 'project')
+            .where('participantIds', arrayContains: uid)
+            .snapshots()
+            .listen(
+          (convSnap) {
+            final list = convSnap.docs
+                .map((doc) => {'conversationId': doc.id, ...doc.data()})
+                .where((doc) => doc['status'] != 'archived')
+                .toList();
+            list.sort((a, b) {
+              final tA = a['timestamp'];
+              final tB = b['timestamp'];
+              if (tA is Timestamp && tB is Timestamp) {
+                return tB.compareTo(tA);
+              }
+              return 0;
+            });
+            if (!controller.isClosed) {
+              controller.add(list);
+            }
+          },
+          onError: (err) {
+            debugPrint(
+                '⚠️ conversations stream query failed ($err), gracefully switching to projects metadata stream');
+            convSub?.cancel();
+            convSub = null;
+            startFallback();
+          },
+        );
+      },
+      onCancel: () {
+        convSub?.cancel();
+        projSub?.cancel();
+      },
+    );
+
+    return controller.stream;
   }
 
   /// Stream messages in a project conversation.
@@ -1998,13 +2081,21 @@ class DBService {
     required String projectId,
     required String conversationId,
   }) async {
+    final batch = _db.batch();
     final projRef = _db
         .collection(_firmsCollection)
         .doc(firmId)
         .collection('projects')
         .doc(projectId);
+    final convRef = _db
+        .collection(_firmsCollection)
+        .doc(firmId)
+        .collection('conversations')
+        .doc(conversationId);
 
-    await projRef.update({'status': 'archived'});
+    batch.update(projRef, {'status': 'archived'});
+    batch.update(convRef, {'status': 'archived'});
+    await batch.commit();
   }
 
   // ══════════════════════════════════════════════════════════════════════════

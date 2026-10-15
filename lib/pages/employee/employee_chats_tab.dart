@@ -753,6 +753,23 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
     return StreamBuilder<List<Map<String, dynamic>>>(
       stream: DBService.instance.streamProjectConversationsForUser(widget.firm.firmId, widget.uid),
       builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Center(
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.purpleAccent),
+              ),
+            ),
+          );
+        }
+
+        if (snapshot.hasError) {
+          debugPrint('⚠️ Error streaming project groups: ${snapshot.error}');
+        }
+
         var projects = snapshot.data ?? [];
         if (searchQuery.isNotEmpty) {
           projects = projects.where((proj) {
