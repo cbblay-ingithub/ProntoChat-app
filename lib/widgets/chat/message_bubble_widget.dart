@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/chat_message.dart';
 import '../../models/chat_polish_models.dart';
 import 'poll_bubble_widget.dart';
+import 'image_bubble.dart';
 
 class MessageBubbleWidget extends StatelessWidget {
   final ChatMessage message;
@@ -634,6 +635,13 @@ class MessageBubbleWidget extends StatelessWidget {
                         currentUserRole: currentUserRole,
                         primaryColor: primaryColor,
                         participants: participants,
+                      )
+                    else if (message.type == 'image' && message.media != null)
+                      ImageBubbleWidget(
+                        message: message,
+                        isMine: isMine,
+                        primaryColor: primaryColor,
+                        captionWidget: message.text.isNotEmpty ? _buildTextSpans(context) : null,
                       )
                     else
                       _buildTextSpans(context),

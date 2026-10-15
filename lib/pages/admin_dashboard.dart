@@ -17,7 +17,9 @@ import 'package:pronto_chat/services/snackbar_service.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'home_page.dart';
 import 'bulk_onboarding_view.dart';
-import 'package:pronto_chat/services/cloud_storage.dart';
+import 'package:pronto_chat/models/media_ref.dart';
+import 'package:pronto_chat/services/media_service.dart';
+import 'package:pronto_chat/widgets/common/pc_logo.dart';
 import 'dart:math';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:go_router/go_router.dart';
@@ -334,30 +336,15 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            // Circular logo or color swatch (48x48)
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: firm.logoUrl != null ? Colors.white : primaryColor,
-                shape: BoxShape.circle,
-                image: firm.logoUrl != null
-                    ? DecorationImage(
-                        image: NetworkImage(firm.logoUrl!),
-                        fit: BoxFit.contain,
-                        onError: (exception, stackTrace) {
-                          debugPrint('Notice: Firm logo could not be loaded: $exception');
-                        },
-                      )
-                    : null,
-                boxShadow: [
-                  BoxShadow(
-                    color: primaryColor.withOpacity(0.3),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
+            // Circular firm logo (48x48)
+            PcLogo(
+              logo: firm.logo,
+              legacyUrl: firm.logoUrl,
+              size: 48,
+              borderRadius: 24,
+              variant: MediaVariant.logoSm,
+              firmName: firm.name,
+              primaryColor: primaryColor,
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -3266,38 +3253,35 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   Text(
-                    firm.logoUrl != null ? 'Change your brand logo' : 'No logo uploaded yet',
+                    ((firm.logo != null && firm.logo!.key.isNotEmpty) || (firm.logoUrl != null && firm.logoUrl!.isNotEmpty))
+                        ? 'Change your brand logo'
+                        : 'No logo uploaded yet',
                     style: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
                 ],
               ),
               Row(
                 children: [
-                  if (firm.logoUrl != null) ...[
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey[800]!),
-                        borderRadius: BorderRadius.circular(8),
-                        image: DecorationImage(
-                          image: NetworkImage(firm.logoUrl!),
-                          fit: BoxFit.contain,
-                          onError: (exception, stackTrace) {
-                            debugPrint('Notice: Brand logo could not be loaded: $exception');
-                          },
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                  ],
+                  PcLogo(
+                    logo: firm.logo,
+                    legacyUrl: firm.logoUrl,
+                    size: 40,
+                    borderRadius: 8,
+                    variant: MediaVariant.logoSm,
+                    firmName: firm.name,
+                  ),
+                  const SizedBox(width: 12),
                   ElevatedButton(
                     onPressed: () => _updateBrandLogo(context, firm),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.grey[800],
                       foregroundColor: Colors.white,
                     ),
-                    child: Text(firm.logoUrl != null ? 'Change Logo' : 'Upload Logo'),
+                    child: Text(
+                      ((firm.logo != null && firm.logo!.key.isNotEmpty) || (firm.logoUrl != null && firm.logoUrl!.isNotEmpty))
+                          ? 'Change Logo'
+                          : 'Upload Logo',
+                    ),
                   ),
                 ],
               ),
@@ -3379,17 +3363,26 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
 
       SnackbarService().showSnackbar('Uploading company logo...');
       final ext = file.extension ?? 'png';
-      final downloadUrl = await CloudStorageService.instance.uploadFirmLogo(firm.firmId, file.bytes!, ext);
+      final mediaRef = await MediaService.instance.uploadBytes(
+        bytes: file.bytes!,
+        fileName: file.name,
+        purpose: MediaPurpose.logo,
+        firmId: firm.firmId,
+      );
+      final downloadUrl = MediaService.instance.urlFor(mediaRef, MediaVariant.logoLg);
 
-      // Update Firestore
+      // Update Firestore with dual-write
+      debugPrint('[AdminDashboard] Updating Firms/${firm.firmId} with logo: ${mediaRef.toMap()}');
       await FirebaseFirestore.instance.collection('Firms').doc(firm.firmId).update({
+        'logo': mediaRef.toMap(),
         'logoUrl': downloadUrl,
       });
 
       // Reload state
       await ref.read(firmNotifierProvider.notifier).loadFirm(firm.firmId);
       SnackbarService().showSnackbar('Brand logo updated successfully!');
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[AdminDashboard] Error uploading logo: $e\n$st');
       SnackbarService().showSnackbar('Error uploading logo: $e', isError: true);
     }
   }

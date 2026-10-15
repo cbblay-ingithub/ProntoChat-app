@@ -342,4 +342,104 @@ describe('ProntoChat Security Rules - Search, Mentions, Polls', () => {
       );
     });
   });
+
+  describe('Part D: Cloudinary MediaRef Security Rules', () => {
+    const validAvatarRef = {
+      provider: 'cloudinary',
+      kind: 'image',
+      key: 'avatars/user_test',
+      w: 256,
+      h: 256,
+      bytes: 102400,
+      format: 'webp',
+    };
+
+    const validChatRef = {
+      provider: 'cloudinary',
+      kind: 'image',
+      key: 'chat/photo_123',
+      w: 1920,
+      h: 1080,
+      bytes: 524288,
+      format: 'jpg',
+    };
+
+    it('allows user to set valid avatar MediaRef on their own user doc', async () => {
+      const userDb = testEnv.authenticatedContext('emp_1').firestore();
+      await assertSucceeds(
+        userDb.doc('Users/emp_1').set({
+          name: 'Employee One',
+          avatar: validAvatarRef,
+        })
+      );
+    });
+
+    it('denies user setting invalid avatar MediaRef (oversized dimensions > 2000)', async () => {
+      const userDb = testEnv.authenticatedContext('emp_1').firestore();
+      await assertFails(
+        userDb.doc('Users/emp_1').set({
+          name: 'Employee One',
+          avatar: {
+            ...validAvatarRef,
+            w: 3000, // exceeds max 2000 for avatar
+          },
+        })
+      );
+    });
+
+    it('denies user setting avatar MediaRef with invalid provider', async () => {
+      const userDb = testEnv.authenticatedContext('emp_1').firestore();
+      await assertFails(
+        userDb.doc('Users/emp_1').set({
+          name: 'Employee One',
+          avatar: {
+            ...validAvatarRef,
+            provider: 's3_bucket',
+          },
+        })
+      );
+    });
+
+    it('allows sending image chat message with valid MediaRef', async () => {
+      const leadDb = testEnv.authenticatedContext('lead_1').firestore();
+      await assertSucceeds(
+        leadDb.doc('Firms/firm_1/conversations/all_staff/messages/img_msg_1').set({
+          senderId: 'lead_1',
+          content: 'Here is the diagram',
+          type: 'image',
+          media: validChatRef,
+          timestamp: new Date(),
+        })
+      );
+    });
+
+    it('denies sending image message if media is missing', async () => {
+      const leadDb = testEnv.authenticatedContext('lead_1').firestore();
+      await assertFails(
+        leadDb.doc('Firms/firm_1/conversations/all_staff/messages/img_msg_2').set({
+          senderId: 'lead_1',
+          content: 'Missing image ref',
+          type: 'image',
+          timestamp: new Date(),
+        })
+      );
+    });
+
+    it('denies sending image message if file exceeds 10MB', async () => {
+      const leadDb = testEnv.authenticatedContext('lead_1').firestore();
+      await assertFails(
+        leadDb.doc('Firms/firm_1/conversations/all_staff/messages/img_msg_3').set({
+          senderId: 'lead_1',
+          content: 'Huge image',
+          type: 'image',
+          media: {
+            ...validChatRef,
+            bytes: 15 * 1024 * 1024, // 15MB exceeds 10MB limit
+          },
+          timestamp: new Date(),
+        })
+      );
+    });
+  });
 });
+

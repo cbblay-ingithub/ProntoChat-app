@@ -11,6 +11,7 @@ import 'package:pronto_chat/models/chat_message.dart';
 import 'package:pronto_chat/models/chat_polish_models.dart';
 import 'package:pronto_chat/models/poll_model.dart';
 import 'package:pronto_chat/models/mention_inbox_item.dart';
+import 'package:pronto_chat/models/media_ref.dart';
 import 'package:pronto_chat/utils/search_token_util.dart';
 
 class DBService {
@@ -44,14 +45,16 @@ class DBService {
     String uid,
     String name,
     String email,
-    String imageURL,
-  ) async {
+    String imageURL, {
+    MediaRef? avatar,
+  }) async {
     try {
       await _db.collection(_userCollection).doc(uid).set({
         'name': name,
         'nameLower': name.toLowerCase(),
         'email': email,
         'image': imageURL,
+        if (avatar != null) 'avatar': avatar.toMap(),
         'lastSeen':
             FieldValue.serverTimestamp(), // ← use server time, not device
         'createdAt': FieldValue.serverTimestamp(),
@@ -299,6 +302,7 @@ class DBService {
     String? thumbnail,
     int? duration,
     int? size,
+    MediaRef? media,
   }) async {
     try {
       // ── Build message payload ─────────────────────────────────────────────
@@ -312,6 +316,10 @@ class DBService {
         'seenBy': [senderId], // sender has implicitly seen their own message
         'deleted': false,
       };
+
+      if (media != null) {
+        messageData['media'] = media.toMap();
+      }
 
       if (mentions != null && mentions.isNotEmpty) {
         messageData['mentions'] = mentions.map((m) => m.toMap()).toList();
@@ -332,7 +340,7 @@ class DBService {
       // ── Human-readable preview for the conversation list ──────────────────
       final String preview = switch (type) {
         'text' => content,
-        'image' => '📷  Photo',
+        'image' => content.isNotEmpty ? '📷 $content' : '📷  Photo',
         'video' => '🎥  Video',
         'audio' => '🎤  Voice note',
         'location' => '📍  Location',
@@ -551,6 +559,15 @@ class DBService {
       print('❌ Error getting firm: $e');
       rethrow;
     }
+  }
+
+  /// Stream a firm document in real time.
+  /// Emits an updated Firm whenever brand logo, colors, or details change.
+  Stream<Firm?> streamFirm(String firmId) {
+    return _db.collection(_firmsCollection).doc(firmId).snapshots().map((doc) {
+      if (!doc.exists) return null;
+      return FirmFirestore.fromFirestore(doc);
+    });
   }
 
   /// Stream all firms for a given user (by uid).
@@ -1539,6 +1556,8 @@ class DBService {
     required String text,
     List<MessageMention>? mentions,
     MessageReplyTo? replyTo,
+    String type = 'text',
+    MediaRef? media,
   }) async {
     final msgId = 'msg_${DateTime.now().millisecondsSinceEpoch}';
     final chatMsg = ChatMessage(
@@ -1547,8 +1566,10 @@ class DBService {
       senderName: senderName,
       text: text,
       timestamp: DateTime.now(),
+      type: type,
       mentions: mentions ?? const [],
       replyTo: replyTo,
+      media: media,
     );
 
     final WriteBatch batch = _db.batch();
@@ -1566,9 +1587,13 @@ class DBService {
         .collection('conversations')
         .doc(conversationId);
 
+    final preview = type == 'image'
+        ? (text.isNotEmpty ? '📷 $text' : '📷  Photo')
+        : text;
+
     batch.set(msgRef, chatMsg.toMap());
     batch.update(convRef, {
-      'lastMessage': text,
+      'lastMessage': preview,
       'lastMessageSender': senderId,
       'lastMessageSenderId': senderId,
       'lastMessageId': msgId,
@@ -1667,6 +1692,8 @@ class DBService {
     required String text,
     List<MessageMention>? mentions,
     MessageReplyTo? replyTo,
+    String type = 'text',
+    MediaRef? media,
   }) async {
     final msgId = 'msg_${DateTime.now().millisecondsSinceEpoch}';
     final chatMsg = ChatMessage(
@@ -1675,8 +1702,10 @@ class DBService {
       senderName: senderName,
       text: text,
       timestamp: DateTime.now(),
+      type: type,
       mentions: mentions ?? const [],
       replyTo: replyTo,
+      media: media,
     );
 
     final WriteBatch batch = _db.batch();
@@ -1694,10 +1723,14 @@ class DBService {
         .collection('conversations')
         .doc(conversationId);
 
+    final preview = type == 'image'
+        ? (text.isNotEmpty ? '📷 $text' : '📷  Photo')
+        : text;
+
     batch.set(msgRef, chatMsg.toMap());
     batch.set(convRef, {
       'type': conversationId == 'all_staff' ? 'allStaff' : 'general',
-      'lastMessage': text,
+      'lastMessage': preview,
       'lastMessageSender': senderId,
       'lastMessageSenderId': senderId,
       'lastMessageId': msgId,
@@ -1840,6 +1873,8 @@ class DBService {
     required String text,
     List<MessageMention>? mentions,
     MessageReplyTo? replyTo,
+    String type = 'text',
+    MediaRef? media,
   }) async {
     final msgId = 'msg_${DateTime.now().millisecondsSinceEpoch}';
     final chatMsg = ChatMessage(
@@ -1848,8 +1883,10 @@ class DBService {
       senderName: senderName,
       text: text,
       timestamp: DateTime.now(),
+      type: type,
       mentions: mentions ?? const [],
       replyTo: replyTo,
+      media: media,
     );
 
     final WriteBatch batch = _db.batch();
@@ -1867,9 +1904,13 @@ class DBService {
         .collection('conversations')
         .doc(conversationId);
 
+    final preview = type == 'image'
+        ? (text.isNotEmpty ? '📷 $text' : '📷  Photo')
+        : text;
+
     batch.set(msgRef, chatMsg.toMap());
     batch.update(convRef, {
-      'lastMessage': text,
+      'lastMessage': preview,
       'lastMessageSender': senderId,
       'lastMessageSenderId': senderId,
       'lastMessageId': msgId,
@@ -2577,7 +2618,7 @@ class DBService {
   Stream<QuerySnapshot<Map<String, dynamic>>> streamMessagesQuery({
     String? firmId,
     required String conversationId,
-    int limit = 30,
+    int limit = 50,
   }) {
     final collection = (firmId != null && firmId.isNotEmpty)
         ? _db
@@ -3074,6 +3115,116 @@ class DBService {
     } catch (e) {
       debugPrint('Notice unregisterDeviceToken: $e');
     }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // CHAT IMAGES
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /// Send an image message in any conversation (direct or group).
+  Future<String> sendImageMessage({
+    String? firmId,
+    required String conversationId,
+    required String senderId,
+    required String senderName,
+    required MediaRef media,
+    String caption = '',
+    List<MessageMention>? mentions,
+    MessageReplyTo? replyTo,
+    String? receiverId, // for direct chat preview fan-out
+    String kind = 'direct', // 'direct', 'department', 'project', 'allStaff', 'general'
+  }) async {
+    final msgId = 'img_${DateTime.now().millisecondsSinceEpoch}';
+    final chatMsg = ChatMessage(
+      messageId: msgId,
+      senderId: senderId,
+      senderName: senderName,
+      text: caption,
+      timestamp: DateTime.now(),
+      type: 'image',
+      media: media,
+      mentions: mentions ?? const [],
+      replyTo: replyTo,
+      searchTokens: caption.isNotEmpty ? SearchTokenUtil.generateTokens(text: caption, poll: null) : const [],
+    );
+
+    final WriteBatch batch = _db.batch();
+    final preview = caption.isNotEmpty ? '📷 $caption' : '📷  Photo';
+
+    if (firmId != null && firmId.isNotEmpty && kind != 'direct') {
+      final convRef = _db
+          .collection(_firmsCollection)
+          .doc(firmId)
+          .collection('conversations')
+          .doc(conversationId);
+      final msgRef = convRef.collection('messages').doc(msgId);
+
+      batch.set(msgRef, chatMsg.toMap());
+      batch.set(convRef, {
+        'lastMessage': preview,
+        'lastMessageSender': senderId,
+        'lastMessageSenderId': senderId,
+        'lastMessageId': msgId,
+        'lastMessageAt': FieldValue.serverTimestamp(),
+        'timestamp': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (mentions != null && mentions.isNotEmpty) {
+        _fanOutMentionsToBatch(
+          batch: batch,
+          firmId: firmId,
+          conversationId: conversationId,
+          convRef: convRef,
+          msgId: msgId,
+          senderId: senderId,
+          senderName: senderName,
+          text: caption,
+          mentions: mentions,
+        );
+      }
+    } else {
+      // Direct message / general conversation collection
+      final convRef = _db.collection(_conversationCollection).doc(conversationId);
+      final msgRef = convRef.collection(_messagesSubcollection).doc(msgId);
+
+      batch.set(msgRef, chatMsg.toMap());
+      batch.update(convRef, {
+        'lastMessage': preview,
+        'lastMessageSender': senderId,
+        'lastMessageSenderId': senderId,
+        'lastMessageId': msgId,
+        'lastMessageAt': FieldValue.serverTimestamp(),
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+
+      // Sender conversation preview
+      batch.set(
+        _db.collection(_userCollection).doc(senderId).collection(_userConvSubcollection).doc(conversationId),
+        {
+          'lastMessage': preview,
+          'timestamp': FieldValue.serverTimestamp(),
+          'lastMessageAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      // Receiver conversation preview
+      if (receiverId != null && receiverId.isNotEmpty) {
+        batch.set(
+          _db.collection(_userCollection).doc(receiverId).collection(_userConvSubcollection).doc(conversationId),
+          {
+            'lastMessage': preview,
+            'timestamp': FieldValue.serverTimestamp(),
+            'lastMessageAt': FieldValue.serverTimestamp(),
+            'unseenCount': FieldValue.increment(1),
+          },
+          SetOptions(merge: true),
+        );
+      }
+    }
+
+    await batch.commit();
+    return msgId;
   }
 
   // ══════════════════════════════════════════════════════════════════════════

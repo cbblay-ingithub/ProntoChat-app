@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pronto_chat/models/firm.dart';
 import 'package:pronto_chat/providers/firm/firm_state.dart';
@@ -8,20 +9,43 @@ class FirmNotifier extends StateNotifier<FirmState> {
   FirmNotifier({required this.dbService}) : super(const FirmState());
 
   final DBService dbService;
+  StreamSubscription<Firm?>? _firmSubscription;
 
-  /// Load a firm by ID and set it as the current firm
+  /// Load a firm by ID, set it as current, and attach real-time listener
+  /// so brand logo, colors, and metadata updates propagate instantly across the app.
   Future<void> loadFirm(String firmId) async {
     state = state.copyWith(isLoading: true, error: null);
 
     try {
       final firm = await dbService.getFirm(firmId);
       state = state.copyWith(currentFirm: firm, isLoading: false);
+      _listenToFirm(firmId);
     } catch (e) {
       state = state.copyWith(
         isLoading: false,
         error: 'Failed to load firm: ${e.toString()}',
       );
     }
+  }
+
+  void _listenToFirm(String firmId) {
+    _firmSubscription?.cancel();
+    _firmSubscription = dbService.streamFirm(firmId).listen(
+      (updatedFirm) {
+        if (updatedFirm != null && mounted) {
+          state = state.copyWith(currentFirm: updatedFirm, isLoading: false);
+        }
+      },
+      onError: (e) {
+        // Silently preserve current state on transient stream error
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _firmSubscription?.cancel();
+    super.dispose();
   }
 
   /// Create a new firm (called during firm registration)

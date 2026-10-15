@@ -5,6 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/firm.dart';
 import '../../services/db_service.dart';
 import '../../providers/firm/providers.dart';
+import '../../widgets/common/pc_logo.dart';
+import '../../models/media_ref.dart';
 
 /// Screen displayed when a user belongs to more than one firm, allowing workspace selection.
 class SelectFirmScreen extends ConsumerStatefulWidget {
@@ -120,12 +122,14 @@ class _SelectFirmScreenState extends ConsumerState<SelectFirmScreen> {
                                       horizontal: 16,
                                       vertical: 10,
                                     ),
-                                    leading: CircleAvatar(
-                                      backgroundColor: const Color.fromRGBO(41, 116, 188, 1),
-                                      child: Text(
-                                        firm.name.isNotEmpty ? firm.name[0].toUpperCase() : 'F',
-                                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                                      ),
+                                    leading: PcLogo(
+                                      logo: firm.logo,
+                                      legacyUrl: firm.logoUrl,
+                                      size: 40,
+                                      borderRadius: 20,
+                                      variant: MediaVariant.logoSm,
+                                      firmName: firm.name,
+                                      primaryColor: const Color.fromRGBO(41, 116, 188, 1),
                                     ),
                                     title: Text(
                                       firm.name,

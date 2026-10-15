@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'poll_model.dart';
+import 'media_ref.dart';
 import '../utils/search_token_util.dart';
 
 class MessageMention {
@@ -86,6 +87,7 @@ class ChatMessage {
   final bool hasPendingWrites;
   final List<String> searchTokens;
   final PollModel? poll;
+  final MediaRef? media;
 
   ChatMessage({
     required this.messageId,
@@ -103,6 +105,7 @@ class ChatMessage {
     this.hasPendingWrites = false,
     this.searchTokens = const [],
     this.poll,
+    this.media,
   });
 
   /// Factory constructor to parse Firestore document into ChatMessage
@@ -152,6 +155,11 @@ class ChatMessage {
       parsedPoll = PollModel.fromMap(Map<String, dynamic>.from(map['poll'] as Map));
     }
 
+    MediaRef? parsedMedia;
+    if (map['media'] is Map) {
+      parsedMedia = MediaRef.fromMap(Map<String, dynamic>.from(map['media'] as Map));
+    }
+
     // Handles both text and content fields for full backward compatibility
     final rawText = (map['text'] ?? map['content'] ?? '') as String;
 
@@ -169,6 +177,7 @@ class ChatMessage {
       hasPendingWrites: hasPendingWrites,
       searchTokens: parsedSearchTokens,
       poll: parsedPoll,
+      media: parsedMedia,
     );
   }
 
@@ -194,6 +203,10 @@ class ChatMessage {
 
     if (poll != null) {
       map['poll'] = poll!.toMap();
+    }
+
+    if (media != null) {
+      map['media'] = media!.toMap();
     }
 
     if (mentions.isNotEmpty) {
@@ -231,6 +244,7 @@ class ChatMessage {
     bool? hasPendingWrites,
     List<String>? searchTokens,
     PollModel? poll,
+    MediaRef? media,
   }) {
     return ChatMessage(
       messageId: messageId ?? this.messageId,
@@ -248,6 +262,7 @@ class ChatMessage {
       hasPendingWrites: hasPendingWrites ?? this.hasPendingWrites,
       searchTokens: searchTokens ?? this.searchTokens,
       poll: poll ?? this.poll,
+      media: media ?? this.media,
     );
   }
 }

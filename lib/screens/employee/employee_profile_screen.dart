@@ -8,6 +8,8 @@ import '../../providers/auth_provider.dart';
 import '../../services/db_service.dart';
 import '../../services/snackbar_service.dart';
 import '../../models/firm.dart';
+import '../../widgets/common/pc_logo.dart';
+import '../../models/media_ref.dart';
 
 class EmployeeProfileScreen extends ConsumerStatefulWidget {
   final String firmId;
@@ -237,36 +239,18 @@ class _EmployeeProfileScreenState extends ConsumerState<EmployeeProfileScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (logoUrl != null && logoUrl.isNotEmpty) ...[
-                      Center(
-                        child: Container(
-                          width: 80,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.white,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.2),
-                                blurRadius: 8,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          child: Image.network(
-                            logoUrl,
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) => const Icon(
-                              Icons.business,
-                              size: 40,
-                              color: Color.fromRGBO(41, 116, 188, 1),
-                            ),
-                          ),
-                        ),
+                    Center(
+                      child: PcLogo(
+                        logo: firm?.logo,
+                        legacyUrl: firm?.logoUrl,
+                        size: 80,
+                        borderRadius: 40,
+                        variant: MediaVariant.logoLg,
+                        firmName: firmName,
+                        primaryColor: const Color.fromRGBO(41, 116, 188, 1),
                       ),
-                      const SizedBox(height: 16),
-                    ],
+                    ),
+                    const SizedBox(height: 16),
                     Text(
                       'Welcome to $firmName',
                       style: Theme.of(context).textTheme.headlineSmall?.copyWith(

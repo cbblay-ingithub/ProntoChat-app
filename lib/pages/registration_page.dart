@@ -6,7 +6,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/db_service.dart';
 import '../services/navigation_service.dart';
-import '../services/cloud_storage.dart';
+import '../models/media_ref.dart';
+import '../services/media_service.dart';
 import './animation_switch.dart';
 
 class RegistrationPage extends StatefulWidget {
@@ -41,7 +42,6 @@ class _RegPageState extends State<RegistrationPage> {
   // Firebase + app service instances
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final DBService _dbService = DBService.instance;
-  final CloudStorageService _storageService = CloudStorageService.instance;
 
   // ─── Build ────────────────────────────────────────────────────────────────
 
@@ -529,24 +529,26 @@ class _RegPageState extends State<RegistrationPage> {
       await userCredential.user!.updateDisplayName(name);
 
       // ── Step 3: Resolve avatar URL ─────────────────────────────────────────
-      //    • User picked a photo  → upload to Firebase Storage, use that URL.
-      //    • User skipped         → generate an initials avatar via DiceBear
-      //                             (no external dependency, just a URL).
       String avatarUrl;
+      MediaRef? avatarRef;
 
-      if (_selectedImageBytes != null) {
-        avatarUrl = await _storageService.uploadUserImageBytes(uid, _selectedImageBytes!);
-      } else if (_selectedImage != null) {
-        avatarUrl = await _storageService.uploadUserImage(uid, _selectedImage!);
+      if (_selectedImageBytes != null || _selectedImage != null) {
+        final Uint8List bytes = _selectedImageBytes ?? await _selectedImage!.readAsBytes();
+        avatarRef = await MediaService.instance.uploadBytes(
+          bytes: bytes,
+          fileName: '$uid.jpg',
+          purpose: MediaPurpose.avatar,
+          firmId: 'user_$uid',
+        );
+        avatarUrl = MediaService.instance.urlFor(avatarRef, MediaVariant.avatarSm);
       } else {
-        // DiceBear initials — clean, on-brand fallback. Swap the style slug
-        // (e.g. "initials" → "pixel-art") to change the look app-wide later.
+        // DiceBear initials — clean, on-brand fallback.
         avatarUrl =
             'https://api.dicebear.com/7.x/initials/png?seed=${Uri.encodeComponent(name)}&backgroundColor=2974BC&textColor=ffffff&radius=50&size=128';
       }
 
       // ── Step 4: Write user document to Firestore ──────────────────────────
-      await _dbService.createUserInDB(uid, name, email, avatarUrl);
+      await _dbService.createUserInDB(uid, name, email, avatarUrl, avatar: avatarRef);
 
       // ── Step 5: Navigate to login ─────────────────────────────────────────
       if (mounted) {

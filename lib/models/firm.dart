@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'media_ref.dart';
 
 /// Represents a firm/organization in the ProntoChat system.
 /// Firms are the top-level multi-tenant entity that groups employees and admins.
@@ -42,6 +43,9 @@ class Firm {
   /// Optional logo URL for brand styling
   final String? logoUrl;
 
+  /// Optional media reference for brand logo (Cloudinary)
+  final MediaRef? logo;
+
   /// Optional invite token
   final String? inviteToken;
 
@@ -63,6 +67,7 @@ class Firm {
     DateTime? createdAt,
     this.secondaryColor,
     this.logoUrl,
+    this.logo,
     this.inviteToken,
     this.showLastSeen = true,
     this.showReadReceipts = true,
@@ -86,6 +91,7 @@ class Firm {
     DateTime? createdAt,
     String? secondaryColor,
     String? logoUrl,
+    MediaRef? logo,
     String? inviteToken,
     bool? showLastSeen,
     bool? showReadReceipts,
@@ -103,6 +109,7 @@ class Firm {
       createdAt: createdAt ?? this.createdAt,
       secondaryColor: secondaryColor ?? this.secondaryColor,
       logoUrl: logoUrl ?? this.logoUrl,
+      logo: logo ?? this.logo,
       inviteToken: inviteToken ?? this.inviteToken,
       showLastSeen: showLastSeen ?? this.showLastSeen,
       showReadReceipts: showReadReceipts ?? this.showReadReceipts,
@@ -110,6 +117,11 @@ class Firm {
   }
 
   factory Firm.fromJson(Map<String, dynamic> json) {
+    MediaRef? parsedLogo;
+    if (json['logo'] is Map) {
+      parsedLogo = MediaRef.fromMap(Map<String, dynamic>.from(json['logo'] as Map));
+    }
+
     return Firm(
       firmId: json['firmId'] as String? ?? '',
       name: json['name'] as String? ?? '',
@@ -127,6 +139,7 @@ class Firm {
           : DateTime.now(),
       secondaryColor: json['secondaryColor'] as String?,
       logoUrl: json['logoUrl'] as String?,
+      logo: parsedLogo,
       inviteToken: json['inviteToken'] as String?,
       showLastSeen: json['showLastSeen'] as bool? ?? true,
       showReadReceipts: json['showReadReceipts'] as bool? ?? true,
@@ -148,6 +161,7 @@ class Firm {
       'createdAt': createdAt.toIso8601String(),
       if (secondaryColor != null) 'secondaryColor': secondaryColor,
       if (logoUrl != null) 'logoUrl': logoUrl,
+      if (logo != null) 'logo': logo!.toMap(),
       if (inviteToken != null) 'inviteToken': inviteToken,
       'showLastSeen': showLastSeen,
       'showReadReceipts': showReadReceipts,
@@ -168,6 +182,11 @@ class Firm {
         ? parseDate(data['termsAcceptedAt'])
         : createdAt;
 
+    MediaRef? parsedLogo;
+    if (data['logo'] is Map) {
+      parsedLogo = MediaRef.fromMap(Map<String, dynamic>.from(data['logo'] as Map));
+    }
+
     return Firm(
       firmId: doc.id,
       name: data['name'] as String? ?? '',
@@ -181,6 +200,7 @@ class Firm {
       createdAt: createdAt,
       secondaryColor: data['secondaryColor'] as String?,
       logoUrl: data['logoUrl'] as String?,
+      logo: parsedLogo,
       inviteToken: data['inviteToken'] as String?,
       showLastSeen: data['showLastSeen'] as bool? ?? true,
       showReadReceipts: data['showReadReceipts'] as bool? ?? true,
@@ -201,6 +221,7 @@ class Firm {
       'createdAt': Timestamp.fromDate(createdAt),
       if (secondaryColor != null) 'secondaryColor': secondaryColor,
       if (logoUrl != null) 'logoUrl': logoUrl,
+      if (logo != null) 'logo': logo!.toMap(),
       if (inviteToken != null) 'inviteToken': inviteToken,
       'showLastSeen': showLastSeen,
       'showReadReceipts': showReadReceipts,

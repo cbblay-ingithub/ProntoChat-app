@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'media_ref.dart';
 
 /// Enum for user roles in the system
 enum UserRole {
@@ -14,6 +15,7 @@ class AppUser {
   final String email;
   final UserRole role;
   final String? image;
+  final MediaRef? avatar;
   final DateTime createdAt;
   final DateTime? lastSeen;
   final String? nameLower;
@@ -26,6 +28,7 @@ class AppUser {
     required this.email,
     this.role = UserRole.employee,
     this.image,
+    this.avatar,
     required this.createdAt,
     this.lastSeen,
     this.nameLower,
@@ -39,6 +42,7 @@ class AppUser {
     String? email,
     UserRole? role,
     String? image,
+    MediaRef? avatar,
     DateTime? createdAt,
     DateTime? lastSeen,
     String? nameLower,
@@ -51,6 +55,7 @@ class AppUser {
       email: email ?? this.email,
       role: role ?? this.role,
       image: image ?? this.image,
+      avatar: avatar ?? this.avatar,
       createdAt: createdAt ?? this.createdAt,
       lastSeen: lastSeen ?? this.lastSeen,
       nameLower: nameLower ?? this.nameLower,
@@ -79,12 +84,18 @@ class AppUser {
     final List<dynamic>? rawFirmIds = data['firmIds'] as List<dynamic>?;
     final List<String> firmIds = rawFirmIds?.map((e) => e.toString()).toList() ?? [];
 
+    MediaRef? parsedAvatar;
+    if (data['avatar'] is Map) {
+      parsedAvatar = MediaRef.fromMap(Map<String, dynamic>.from(data['avatar'] as Map));
+    }
+
     return AppUser(
       uid: doc.id,
       name: data['name'] as String? ?? '',
       email: data['email'] as String? ?? '',
       role: role,
       image: data['image'] as String?,
+      avatar: parsedAvatar,
       createdAt: parseDate(data['createdAt']),
       lastSeen: data['lastSeen'] != null ? parseDate(data['lastSeen']) : null,
       nameLower: data['nameLower'] as String?,
@@ -100,6 +111,7 @@ class AppUser {
       'role': role.name,
       'createdAt': Timestamp.fromDate(createdAt),
       if (image != null) 'image': image,
+      if (avatar != null) 'avatar': avatar!.toMap(),
       if (lastSeen != null) 'lastSeen': Timestamp.fromDate(lastSeen!),
       'nameLower': nameLower ?? name.toLowerCase(),
       'firmIds': firmIds,

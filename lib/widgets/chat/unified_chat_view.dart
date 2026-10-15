@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../../models/chat_message.dart';
@@ -13,6 +14,9 @@ import 'chat_composer_widget.dart';
 import 'chat_date_divider.dart';
 import 'chat_search_sheet.dart';
 import '../../models/poll_model.dart';
+import '../../models/media_ref.dart';
+import '../../services/media_service.dart';
+import '../common/pc_avatar.dart';
 
 enum UnifiedChatKind { direct, department, project, allStaff, general }
 
@@ -73,11 +77,37 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
   bool _showScrollToBottom = false;
   String? _firstUnreadMessageId;
 
+  // Persistent streams to prevent unmounting and scroll disruption on rebuilds
+  late Stream<QuerySnapshot<Map<String, dynamic>>> _messagesStream;
+  late Stream<List<PinnedMessage>> _pinsStream;
+  late Stream<Map<String, ReadPointer>> _readPointersStream;
+  late Stream<List<TypingIndicatorStatus>> _typingStream;
+
   // Participants for @mention
   List<Map<String, String>> _participants = [];
   bool _isLoadingParticipants = false;
 
   StreamSubscription? _readStreamSub;
+
+  void _initStreams() {
+    _messagesStream = DBService.instance.streamMessagesQuery(
+      firmId: widget.firmId,
+      conversationId: widget.conversationId,
+      limit: 50,
+    );
+    _pinsStream = DBService.instance.streamPinnedMessages(
+      firmId: widget.firmId,
+      conversationId: widget.conversationId,
+    );
+    _readPointersStream = DBService.instance.streamReadPointers(
+      firmId: widget.firmId,
+      conversationId: widget.conversationId,
+    );
+    _typingStream = DBService.instance.streamTyping(
+      firmId: widget.firmId,
+      conversationId: widget.conversationId,
+    );
+  }
 
   @override
   void initState() {
@@ -85,6 +115,7 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
     WidgetsBinding.instance.addObserver(this);
     _scrollController.addListener(_onScroll);
 
+    _initStreams();
     _loadParticipants();
     _markReadOnOpen();
   }
@@ -97,6 +128,10 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
         oldWidget.departmentId != widget.departmentId ||
         oldWidget.kind != widget.kind) {
       _loadParticipants();
+      _olderMessages.clear();
+      _lastVisibleDoc = null;
+      _hasMore = true;
+      _initStreams();
     }
   }
 
@@ -142,7 +177,8 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
     }
 
     // Load more when reaching near the top of the chat (maxScrollExtent in reverse list)
-    if (offset >= maxScroll - 200 && !_isLoadingMore && _hasMore && _lastVisibleDoc != null) {
+    // Only trigger if scroll extent exists (>100) and user actually scrolled near the top
+    if (maxScroll > 100 && offset >= maxScroll - 150 && !_isLoadingMore && _hasMore && _lastVisibleDoc != null) {
       _loadOlderMessages();
     }
   }
@@ -183,7 +219,10 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
   }
 
   Future<void> _loadOlderMessages() async {
-    if (_lastVisibleDoc == null || _isLoadingMore) return;
+    if (_lastVisibleDoc == null || _isLoadingMore || !_hasMore) return;
+    // Don't paginate if the cursor has uncommitted pending local writes
+    if (_lastVisibleDoc!.metadata.hasPendingWrites) return;
+
     setState(() => _isLoadingMore = true);
 
     try {
@@ -205,6 +244,7 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
       }
     } catch (e) {
       debugPrint('Notice: load older messages: $e');
+      _hasMore = false; // Stop thrashing on errors
     } finally {
       if (mounted) setState(() => _isLoadingMore = false);
     }
@@ -400,16 +440,42 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
     _scrollToBottom();
   }
 
+  Future<void> _handleSendImage({
+    required Uint8List bytes,
+    required String fileName,
+    required String caption,
+    MessageReplyTo? replyTo,
+  }) async {
+    final firmId = widget.firmId ?? 'firm_global';
+    final mediaRef = await MediaService.instance.uploadBytes(
+      bytes: bytes,
+      fileName: fileName,
+      purpose: MediaPurpose.chat,
+      firmId: firmId,
+    );
+
+    await DBService.instance.sendImageMessage(
+      firmId: widget.firmId,
+      conversationId: widget.conversationId,
+      senderId: widget.currentUid,
+      senderName: widget.currentUserName,
+      media: mediaRef,
+      caption: caption,
+      replyTo: replyTo,
+      receiverId: widget.otherUserId,
+      kind: widget.kind.name,
+    );
+
+    _scrollToBottom();
+  }
+
   @override
   Widget build(BuildContext context) {
     final showLastSeen = widget.firm?.showLastSeen ?? true;
     final showReadReceipts = widget.firm?.showReadReceipts ?? true;
 
     return StreamBuilder<List<PinnedMessage>>(
-      stream: DBService.instance.streamPinnedMessages(
-        firmId: widget.firmId,
-        conversationId: widget.conversationId,
-      ),
+      stream: _pinsStream,
       builder: (context, pinSnap) {
         final pins = pinSnap.data ?? [];
         final activePins = pins.where((p) => !p.isExpired).toList();
@@ -431,10 +497,7 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
               // Messages stream + read pointers
               Expanded(
                 child: StreamBuilder<Map<String, ReadPointer>>(
-                  stream: DBService.instance.streamReadPointers(
-                    firmId: widget.firmId,
-                    conversationId: widget.conversationId,
-                  ),
+                  stream: _readPointersStream,
                   builder: (context, readSnap) {
                     final readPointers = readSnap.data ?? {};
                     final otherPointer = widget.otherUserId != null
@@ -442,19 +505,24 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
                         : null;
 
                     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: DBService.instance.streamMessagesQuery(
-                        firmId: widget.firmId,
-                        conversationId: widget.conversationId,
-                        limit: 30,
-                      ),
+                      stream: _messagesStream,
                       builder: (context, msgSnap) {
-                        if (msgSnap.connectionState == ConnectionState.waiting && _olderMessages.isEmpty) {
+                        if (msgSnap.connectionState == ConnectionState.waiting && !msgSnap.hasData && _olderMessages.isEmpty) {
                           return const Center(child: CircularProgressIndicator());
                         }
 
                         final streamDocs = msgSnap.data?.docs ?? [];
-                        if (streamDocs.isNotEmpty && _lastVisibleDoc == null) {
-                          _lastVisibleDoc = streamDocs.last;
+                        if (streamDocs.isNotEmpty) {
+                          if (_lastVisibleDoc == null || _olderMessages.isEmpty) {
+                            final committedDocs = streamDocs.where((d) => !d.metadata.hasPendingWrites).toList();
+                            if (committedDocs.isNotEmpty) {
+                              _lastVisibleDoc = committedDocs.last;
+                            }
+                          }
+                          // If fewer than limit arrived and no older messages loaded, all messages are present
+                          if (streamDocs.length < 50 && _olderMessages.isEmpty) {
+                            _hasMore = false;
+                          }
                         }
 
                         // Combined messages list (newest first for reverse ListView)
@@ -499,6 +567,7 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
                             ListView.builder(
                               controller: _scrollController,
                               reverse: true,
+                              physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                               itemCount: uniqueMessages.length + (_isLoadingMore ? 1 : 0),
                               itemBuilder: (context, index) {
@@ -605,10 +674,7 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
 
               // Typing Indicators
               StreamBuilder<List<TypingIndicatorStatus>>(
-                stream: DBService.instance.streamTyping(
-                  firmId: widget.firmId,
-                  conversationId: widget.conversationId,
-                ),
+                stream: _typingStream,
                 builder: (context, typeSnap) {
                   return TypingIndicatorWidget(
                     typingUsers: typeSnap.data ?? [],
@@ -643,6 +709,7 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
                   );
                 },
                 onSendMessage: _handleSendMessage,
+                onSendImage: _handleSendImage,
                 currentUid: widget.currentUid,
                 canCreatePoll: _canCreatePoll(),
                 onCreatePoll: _handleCreatePoll,
@@ -832,18 +899,11 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
         children: [
           Stack(
             children: [
-              CircleAvatar(
+              PcAvatar(
+                legacyUrl: widget.otherUserImage,
+                name: widget.title,
                 radius: 18,
                 backgroundColor: widget.primaryColor.withOpacity(0.25),
-                backgroundImage: (widget.otherUserImage != null && widget.otherUserImage!.isNotEmpty)
-                    ? NetworkImage(widget.otherUserImage!)
-                    : null,
-                child: (widget.otherUserImage == null || widget.otherUserImage!.isEmpty)
-                    ? Text(
-                        widget.title.isNotEmpty ? widget.title[0].toUpperCase() : '?',
-                        style: TextStyle(color: widget.primaryColor, fontWeight: FontWeight.bold),
-                      )
-                    : null,
               ),
               if (widget.kind == UnifiedChatKind.direct && widget.firmId != null && widget.otherUserId != null && showLastSeen)
                 Positioned(

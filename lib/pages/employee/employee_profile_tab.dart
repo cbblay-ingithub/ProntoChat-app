@@ -5,9 +5,11 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart' as provider;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/firm.dart';
+import '../../models/media_ref.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/chat_service.dart';
 import '../../services/db_service.dart';
+import '../../widgets/common/pc_avatar.dart';
 
 class EmployeeProfileTab extends StatelessWidget {
   final String uid;
@@ -108,17 +110,24 @@ class EmployeeProfileTab extends StatelessWidget {
                   child: Stack(
                     alignment: Alignment.bottomRight,
                     children: [
-                      CircleAvatar(
-                        radius: 46,
-                        backgroundColor: primaryColor.withValues(alpha: 0.25),
-                        child: Text(
-                          userName.isNotEmpty ? userName[0].toUpperCase() : 'U',
-                          style: TextStyle(
-                            color: primaryColor,
-                            fontSize: 36,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        stream: FirebaseFirestore.instance.collection('Users').doc(uid).snapshots(),
+                        builder: (context, userSnap) {
+                          final userData = userSnap.data?.data() ?? {};
+                          final legacyImage = userData['image'] as String?;
+                          MediaRef? avatarRef;
+                          if (userData['avatar'] is Map) {
+                            avatarRef = MediaRef.fromMap(Map<String, dynamic>.from(userData['avatar'] as Map));
+                          }
+                          return PcAvatar(
+                            avatar: avatarRef,
+                            legacyUrl: legacyImage,
+                            name: userName,
+                            radius: 46,
+                            variant: MediaVariant.avatarLg,
+                            backgroundColor: primaryColor.withValues(alpha: 0.25),
+                          );
+                        },
                       ),
                       Container(
                         padding: const EdgeInsets.all(4),

@@ -6,6 +6,7 @@ import '../../screens/employee/firm_chat_screen.dart';
 import '../../screens/employee/channel_chat_screen.dart';
 import '../convo_page.dart';
 import '../search_page.dart';
+import '../../widgets/common/pc_logo.dart';
 
 class EmployeeHomeTab extends StatelessWidget {
   final String uid;
@@ -64,35 +65,16 @@ class EmployeeHomeTab extends StatelessWidget {
         titleSpacing: 16,
         title: Row(
           children: [
-            if (firm.logoUrl != null && firm.logoUrl!.isNotEmpty) ...[
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white,
-                  image: DecorationImage(
-                    image: NetworkImage(firm.logoUrl!),
-                    fit: BoxFit.contain,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-            ] else ...[
-              CircleAvatar(
-                radius: 17,
-                backgroundColor: primaryColor.withValues(alpha: 0.18),
-                child: Text(
-                  firm.name.isNotEmpty ? firm.name[0].toUpperCase() : 'W',
-                  style: TextStyle(
-                    color: primaryColor,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-            ],
+            PcLogo(
+              logo: firm.logo,
+              legacyUrl: firm.logoUrl,
+              firmName: firm.name,
+              width: 34,
+              height: 34,
+              borderRadius: 17,
+              fallbackColor: primaryColor,
+            ),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

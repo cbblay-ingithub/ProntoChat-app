@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/firm.dart';
+import '../../models/media_ref.dart';
 import '../../services/db_service.dart';
+import '../../widgets/common/pc_avatar.dart';
 import '../convo_page.dart';
 
 class EmployeeDirectoryTab extends StatefulWidget {
@@ -213,6 +215,11 @@ class _EmployeeDirectoryTabState extends State<EmployeeDirectoryTab> {
                     final String colUid = colleague['uid'] as String? ?? '';
                     final bool isStarting = _loadingUid == colUid;
 
+                    MediaRef? colAvatar;
+                    if (colleague['avatar'] is Map) {
+                      colAvatar = MediaRef.fromMap(Map<String, dynamic>.from(colleague['avatar'] as Map));
+                    }
+
                     return Container(
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -223,20 +230,12 @@ class _EmployeeDirectoryTabState extends State<EmployeeDirectoryTab> {
                       ),
                       child: Row(
                         children: [
-                          CircleAvatar(
+                          PcAvatar(
+                            avatar: colAvatar,
+                            legacyUrl: avatarUrl,
+                            name: name,
                             radius: 22,
                             backgroundColor: primaryColor.withValues(alpha: 0.2),
-                            backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
-                            child: avatarUrl.isEmpty
-                                ? Text(
-                                    name.isNotEmpty ? name[0].toUpperCase() : '?',
-                                    style: TextStyle(
-                                      color: primaryColor,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                    ),
-                                  )
-                                : null,
                           ),
                           const SizedBox(width: 14),
                           Expanded(

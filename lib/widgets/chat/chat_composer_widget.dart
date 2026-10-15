@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../models/chat_message.dart';
 import '../../models/poll_model.dart';
 import 'chat_mention_picker.dart';
 import 'create_poll_sheet.dart';
+import 'image_preview_sheet.dart';
 
 class ChatComposerWidget extends StatefulWidget {
   final bool canPost;
@@ -25,6 +28,12 @@ class ChatComposerWidget extends StatefulWidget {
     MessageReplyTo? replyTo,
     String? editMessageId,
   }) onSendMessage;
+  final Future<void> Function({
+    required Uint8List bytes,
+    required String fileName,
+    required String caption,
+    MessageReplyTo? replyTo,
+  })? onSendImage;
 
   const ChatComposerWidget({
     super.key,
@@ -42,6 +51,7 @@ class ChatComposerWidget extends StatefulWidget {
     this.canCreatePoll = false,
     this.onCreatePoll,
     required this.onSendMessage,
+    this.onSendImage,
   });
 
   @override
@@ -58,6 +68,7 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
   int _mentionStartIndex = -1;
   bool _justSelectedMention = false;
   final List<MessageMention> _detectedMentions = [];
+  final ImagePicker _imagePicker = ImagePicker();
 
   Timer? _typingThrottleTimer;
   DateTime? _lastTypingEmit;
@@ -386,15 +397,14 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      if (widget.canCreatePoll && widget.onCreatePoll != null)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 2, right: 4),
-                          child: IconButton(
-                            icon: const Icon(Icons.add_circle_outline, color: Colors.grey, size: 24),
-                            tooltip: 'Chat actions',
-                            onPressed: () => _showActionsMenu(context),
-                          ),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 2, right: 4),
+                        child: IconButton(
+                          icon: const Icon(Icons.add_circle_outline, color: Colors.grey, size: 24),
+                          tooltip: 'Attach image or poll',
+                          onPressed: () => _showActionsMenu(context),
                         ),
+                      ),
                       Expanded(
                         child: Container(
                           decoration: BoxDecoration(
@@ -448,6 +458,64 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
     );
   }
 
+  Future<void> _pickAndPreviewImage(BuildContext context, ImageSource source) async {
+    try {
+      final XFile? file = await _imagePicker.pickImage(
+        source: source,
+        imageQuality: 90,
+      );
+      if (file == null) return;
+
+      final bytes = await file.readAsBytes();
+      if (!context.mounted) return;
+
+      if (bytes.length > 10 * 1024 * 1024) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Selected image exceeds the 10 MB limit.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+        return;
+      }
+
+      await ImagePreviewSheet.show(
+        context: context,
+        imageBytes: bytes,
+        fileName: file.name,
+        primaryColor: widget.primaryColor,
+        onSend: (imageBytes, fileName, caption) async {
+          if (widget.onSendImage != null) {
+            await widget.onSendImage!(
+              bytes: imageBytes,
+              fileName: fileName,
+              caption: caption,
+              replyTo: widget.replyingTo != null
+                  ? MessageReplyTo(
+                      messageId: widget.replyingTo!.messageId,
+                      senderId: widget.replyingTo!.senderId,
+                      senderName: widget.replyingTo!.senderName,
+                      snippet: widget.replyingTo!.text,
+                      kind: widget.replyingTo!.type,
+                    )
+                  : null,
+            );
+            if (widget.replyingTo != null) widget.onCancelReply();
+          }
+        },
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not load image: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
   void _showActionsMenu(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -463,18 +531,51 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
               leading: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.purpleAccent.withOpacity(0.2),
+                  color: Colors.blueAccent.withOpacity(0.2),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.poll_rounded, color: Colors.purpleAccent, size: 20),
+                child: const Icon(Icons.photo_library_rounded, color: Colors.blueAccent, size: 20),
               ),
-              title: const Text('Create Poll', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              subtitle: const Text('Ask a question and gather team votes', style: TextStyle(color: Colors.grey, fontSize: 12)),
+              title: const Text('Photo Library', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              subtitle: const Text('Send an image from your gallery', style: TextStyle(color: Colors.grey, fontSize: 12)),
               onTap: () {
                 Navigator.pop(ctx);
-                _openCreatePollSheet(context);
+                _pickAndPreviewImage(context, ImageSource.gallery);
               },
             ),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.tealAccent.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.camera_alt_rounded, color: Colors.tealAccent, size: 20),
+              ),
+              title: const Text('Take Photo', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              subtitle: const Text('Capture and send a photo instantly', style: TextStyle(color: Colors.grey, fontSize: 12)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickAndPreviewImage(context, ImageSource.camera);
+              },
+            ),
+            if (widget.canCreatePoll && widget.onCreatePoll != null)
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.purpleAccent.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.poll_rounded, color: Colors.purpleAccent, size: 20),
+                ),
+                title: const Text('Create Poll', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                subtitle: const Text('Ask a question and gather team votes', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _openCreatePollSheet(context);
+                },
+              ),
           ],
         ),
       ),
