@@ -97,6 +97,7 @@ enum MediaPurpose {
   avatar,
   logo,
   chat,
+  notice,
 }
 
 /// Named transformations defined in Cloudinary.
@@ -108,6 +109,8 @@ enum MediaVariant {
   logoLg,   // logo_lg: 512px fit
   chatThumb, // chat_thumb: 480px limit
   chatFull,  // chat_full: 1280px limit
+  noticeCard, // notice_card: 800px limit
+  noticeFull, // notice_full: 1280px limit
 }
 
 extension MediaVariantExtension on MediaVariant {
@@ -125,6 +128,10 @@ extension MediaVariantExtension on MediaVariant {
         return 'chat_thumb';
       case MediaVariant.chatFull:
         return 'chat_full';
+      case MediaVariant.noticeCard:
+        return 'notice_card';
+      case MediaVariant.noticeFull:
+        return 'notice_full';
     }
   }
 }

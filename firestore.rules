@@ -156,6 +156,58 @@ service cloud.firestore {
         ref.get('format', '') in ['webp', 'jpg', 'jpeg', 'png', 'heic', 'gif', 'svg', 'avif', 'ico', 'WEBP', 'JPG', 'JPEG', 'PNG', 'HEIC', 'GIF', 'SVG', 'AVIF', 'ICO'];
     }
 
+    // Helper to evaluate if caller is allowed to post a notice
+    function canPostNotice(firmId, noticeData) {
+      return isActiveMember(firmId) && (
+        isFirmAdmin(firmId) ||
+        (exists(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.get('noticePublisher', false) == true) ||
+        (exists(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.get('role', '') == 'lead' &&
+         noticeData.type != 'policy' &&
+         (
+           (noticeData.type == 'urgent' &&
+            noticeData.audienceKeys == ['dept:' + get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.get('departmentId', '')]) ||
+           (noticeData.type == 'announcement' &&
+            (
+              get(/databases/$(database)/documents/Firms/$(firmId)).data.get('notices', {}).get('leadsMayTargetBeyondOwnDepartment', true) == true ||
+              noticeData.audienceKeys == ['dept:' + get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.get('departmentId', '')]
+            ))
+         ))
+      );
+    }
+
+    // Helper to evaluate if caller is an addressed reader or author of a notice
+    function canReadNotice(firmId, noticeData) {
+      return isActiveMember(firmId) && (
+        noticeData.authorId == request.auth.uid ||
+        (noticeData.get('status', '') == 'published' &&
+         ('firm' in noticeData.audienceKeys ||
+          (exists(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)) &&
+           'departmentId' in get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data &&
+           ('dept:' + get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.departmentId) in noticeData.audienceKeys)))
+      );
+    }
+
+    // Helper to check valid media items in notice (up to 4 items)
+    function areValidNoticeMedia(mediaList) {
+      return mediaList is list &&
+        mediaList.size() <= 4 &&
+        (mediaList.size() < 1 || isValidMediaRef(mediaList[0], 'notice')) &&
+        (mediaList.size() < 2 || isValidMediaRef(mediaList[1], 'notice')) &&
+        (mediaList.size() < 3 || isValidMediaRef(mediaList[2], 'notice')) &&
+        (mediaList.size() < 4 || isValidMediaRef(mediaList[3], 'notice'));
+    }
+
+    // Helper to validate video links (up to 3 HTTPS links)
+    function areValidVideoLinks(links) {
+      return links is list &&
+        links.size() <= 3 &&
+        (links.size() < 1 || (links[0] is string && links[0].size() <= 500 && links[0].matches('^https://.+'))) &&
+        (links.size() < 2 || (links[1] is string && links[1].size() <= 500 && links[1].matches('^https://.+'))) &&
+        (links.size() < 3 || (links[2] is string && links[2].size() <= 500 && links[2].matches('^https://.+')));
+    }
+
     // ── Users ────────────────────────────────────────────────────────────
     match /Users/{userId} {
       allow read: if isSignedIn();
@@ -265,7 +317,8 @@ service cloud.firestore {
           (request.auth.uid == memberId && isFirmAdmin(firmId)) ||
           (request.auth.uid == memberId &&
            request.resource.data.role in ['employee', 'lead'] &&
-           request.resource.data.status == 'active')
+           request.resource.data.status == 'active' &&
+           (!('noticePublisher' in request.resource.data) || request.resource.data.noticePublisher == false))
         );
 
         allow update: if isFirmAdmin(firmId) &&
@@ -274,7 +327,9 @@ service cloud.firestore {
           (!('departmentId' in request.resource.data) ||
            request.auth.uid != memberId ||
            (!('departmentId' in resource.data) && request.resource.data.departmentId == null) ||
-           request.resource.data.departmentId == resource.data.departmentId);
+           request.resource.data.departmentId == resource.data.departmentId) &&
+          (!('noticePublisher' in request.resource.data.diff(resource.data).affectedKeys()) ||
+           request.auth.uid != memberId);
 
         allow delete: if false;
       }
@@ -494,6 +549,167 @@ service cloud.firestore {
         allow read: if isFirmAdmin(firmId) || isActiveMember(firmId);
         allow create: if (isFirmAdmin(firmId) || isActiveMember(firmId)) && request.resource.data.senderId == request.auth.uid;
         allow update, delete: if false;
+      }
+
+      // ── Notices Subcollection ───────────────────
+      match /notices/{noticeId} {
+        allow get: if canReadNotice(firmId, resource.data);
+
+        allow list: if isActiveMember(firmId) && (
+          resource.data.authorId == request.auth.uid ||
+          (resource.data.status == 'published' && (
+            'firm' in resource.data.audienceKeys ||
+            (exists(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)) &&
+             'departmentId' in get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data &&
+             ('dept:' + get(/databases/$(database)/documents/Firms/$(firmId)/members/$(request.auth.uid)).data.departmentId) in resource.data.audienceKeys)
+          ))
+        );
+
+        allow create: if isSignedIn() &&
+          canPostNotice(firmId, request.resource.data) &&
+          request.resource.data.authorId == request.auth.uid &&
+          request.resource.data.status == 'published' &&
+          request.resource.data.version == 1 &&
+          request.resource.data.type in ['announcement', 'urgent', 'policy'] &&
+          request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 120 &&
+          request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() <= 2000 &&
+          areValidNoticeMedia(request.resource.data.media) &&
+          areValidVideoLinks(request.resource.data.videoLinks) &&
+          request.resource.data.audienceKeys is list && request.resource.data.audienceKeys.size() > 0 && request.resource.data.audienceKeys.size() <= 50 &&
+          request.resource.data.audienceNames is list && request.resource.data.audienceNames.size() == request.resource.data.audienceKeys.size() &&
+          request.resource.data.authorName is string && request.resource.data.authorName.size() > 0 &&
+          request.resource.data.authorLabel is string && request.resource.data.authorLabel.size() > 0 &&
+          request.resource.data.pinned is bool &&
+          (
+            (request.resource.data.type in ['announcement', 'urgent'] &&
+             'expiresAt' in request.resource.data && request.resource.data.expiresAt is timestamp &&
+             request.resource.data.expiresAt > request.time &&
+             request.resource.data.expiresAt <= request.time + duration.value(90, 'd')) ||
+            (request.resource.data.type == 'policy' &&
+             (!('expiresAt' in request.resource.data) || request.resource.data.expiresAt == null ||
+              (request.resource.data.expiresAt is timestamp && request.resource.data.expiresAt > request.time)))
+          ) &&
+          request.resource.data.createdAt == request.time &&
+          existsAfter(/databases/$(database)/documents/Firms/$(firmId)/noticeIndex/$(noticeId)) &&
+          getAfter(/databases/$(database)/documents/Firms/$(firmId)/noticeIndex/$(noticeId)).data.authorId == request.auth.uid &&
+          getAfter(/databases/$(database)/documents/Firms/$(firmId)/noticeIndex/$(noticeId)).data.status == 'published';
+
+        allow update: if isSignedIn() && isActiveMember(firmId) && (
+          // Case 1: Author editing notice content
+          (resource.data.authorId == request.auth.uid &&
+           resource.data.status == 'published' &&
+           request.resource.data.status == 'published' &&
+           request.resource.data.authorId == resource.data.authorId &&
+           request.resource.data.type == resource.data.type &&
+           request.resource.data.audienceKeys == resource.data.audienceKeys &&
+           request.resource.data.audienceNames == resource.data.audienceNames &&
+           request.resource.data.createdAt == resource.data.createdAt &&
+           request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 120 &&
+           request.resource.data.body is string && request.resource.data.body.size() > 0 && request.resource.data.body.size() <= 2000 &&
+           areValidNoticeMedia(request.resource.data.media) &&
+           areValidVideoLinks(request.resource.data.videoLinks) &&
+           request.resource.data.pinned is bool &&
+           request.resource.data.editedAt == request.time &&
+           (
+             (resource.data.type == 'policy' && request.resource.data.version == resource.data.version + 1) ||
+             (resource.data.type != 'policy' && request.resource.data.version == resource.data.version)
+           ) &&
+           (
+             (request.resource.data.type in ['announcement', 'urgent'] &&
+              'expiresAt' in request.resource.data && request.resource.data.expiresAt is timestamp &&
+              request.resource.data.expiresAt > request.time &&
+              request.resource.data.expiresAt <= request.time + duration.value(90, 'd')) ||
+             (request.resource.data.type == 'policy' &&
+              (!('expiresAt' in request.resource.data) || request.resource.data.expiresAt == null ||
+               (request.resource.data.expiresAt is timestamp && request.resource.data.expiresAt > request.time)))
+           )) ||
+          // Case 2: Author or Admin retracting notice (admins can retract even if not addressed)
+          ((resource.data.authorId == request.auth.uid || isFirmAdmin(firmId)) &&
+           resource.data.status == 'published' &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'retractedAt', 'retractedBy']) &&
+           request.resource.data.status == 'retracted' &&
+           request.resource.data.retractedBy == request.auth.uid &&
+           request.resource.data.retractedAt == request.time &&
+           getAfter(/databases/$(database)/documents/Firms/$(firmId)/noticeIndex/$(noticeId)).data.status == 'retracted')
+        );
+
+        allow delete: if false;
+
+        // ── Subcollections ────────────────────────
+        match /reactions/{uid} {
+          allow read: if canReadNotice(firmId, get(/databases/$(database)/documents/Firms/$(firmId)/notices/$(noticeId)).data);
+          allow create, update: if isActiveMember(firmId) &&
+            request.auth.uid == uid &&
+            canReadNotice(firmId, get(/databases/$(database)/documents/Firms/$(firmId)/notices/$(noticeId)).data) &&
+            get(/databases/$(database)/documents/Firms/$(firmId)/notices/$(noticeId)).data.status == 'published' &&
+            request.resource.data.emoji in ['👍', '✅', '❤️', '🎉', '👀'] &&
+            request.resource.data.at == request.time;
+          allow delete: if isActiveMember(firmId) &&
+            request.auth.uid == uid &&
+            get(/databases/$(database)/documents/Firms/$(firmId)/notices/$(noticeId)).data.status == 'published';
+        }
+
+        match /acks/{uid} {
+          allow read: if isFirmAdmin(firmId) ||
+            (isActiveMember(firmId) && get(/databases/$(database)/documents/Firms/$(firmId)/notices/$(noticeId)).data.authorId == request.auth.uid);
+          allow create, update: if isActiveMember(firmId) &&
+            request.auth.uid == uid &&
+            canReadNotice(firmId, get(/databases/$(database)/documents/Firms/$(firmId)/notices/$(noticeId)).data) &&
+            get(/databases/$(database)/documents/Firms/$(firmId)/notices/$(noticeId)).data.status == 'published' &&
+            get(/databases/$(database)/documents/Firms/$(firmId)/notices/$(noticeId)).data.type == 'policy' &&
+            request.resource.data.version == get(/databases/$(database)/documents/Firms/$(firmId)/notices/$(noticeId)).data.version &&
+            request.resource.data.at == request.time;
+          allow delete: if false;
+        }
+
+        match /views/{uid} {
+          allow read: if isActiveMember(firmId) &&
+            get(/databases/$(database)/documents/Firms/$(firmId)/notices/$(noticeId)).data.authorId == request.auth.uid;
+          allow create: if isActiveMember(firmId) &&
+            request.auth.uid == uid &&
+            canReadNotice(firmId, get(/databases/$(database)/documents/Firms/$(firmId)/notices/$(noticeId)).data) &&
+            get(/databases/$(database)/documents/Firms/$(firmId)/notices/$(noticeId)).data.status == 'published' &&
+            request.resource.data.at == request.time;
+          allow update, delete: if false;
+        }
+      }
+
+      // ── NoticeIndex Subcollection ───────────────
+      match /noticeIndex/{noticeId} {
+        allow read: if isFirmAdmin(firmId) ||
+          (isActiveMember(firmId) && resource.data.authorId == request.auth.uid);
+
+        allow create: if isSignedIn() && isActiveMember(firmId) &&
+          request.resource.data.authorId == request.auth.uid &&
+          request.resource.data.status == 'published' &&
+          request.resource.data.keys().hasOnly(['authorId', 'authorName', 'type', 'audienceKeys', 'audienceNames', 'createdAt', 'expiresAt', 'status', 'version', 'retractedAt', 'retractedBy', 'retractReason']) &&
+          !request.resource.data.keys().hasAny(['title', 'body', 'media', 'videoLinks']) &&
+          existsAfter(/databases/$(database)/documents/Firms/$(firmId)/notices/$(noticeId));
+
+        allow update: if isSignedIn() && isActiveMember(firmId) && (
+          // Retract update
+          ((resource.data.authorId == request.auth.uid || isFirmAdmin(firmId)) &&
+           resource.data.status == 'published' &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'retractedAt', 'retractedBy', 'retractReason']) &&
+           request.resource.data.status == 'retracted' &&
+           request.resource.data.retractedBy == request.auth.uid &&
+           request.resource.data.retractedAt == request.time) ||
+          // Author metadata edit
+          (resource.data.authorId == request.auth.uid &&
+           resource.data.status == 'published' &&
+           request.resource.data.status == 'published' &&
+           request.resource.data.authorId == resource.data.authorId &&
+           request.resource.data.type == resource.data.type &&
+           request.resource.data.audienceKeys == resource.data.audienceKeys &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['version', 'expiresAt']))
+        );
+
+        allow delete: if false;
+      }
+
+      // ── NoticeState Subcollection ───────────────
+      match /noticeState/{stateUid} {
+        allow read, write: if isOwner(stateUid) && isActiveMember(firmId);
       }
     }
 

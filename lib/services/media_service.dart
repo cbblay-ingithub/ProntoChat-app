@@ -45,6 +45,12 @@ class MediaService {
         return MediaConfig.presetLogo;
       case MediaPurpose.chat:
         return MediaConfig.presetChat;
+      case MediaPurpose.notice:
+        assert(
+          MediaConfig.presetNotice.isNotEmpty,
+          'Cloudinary preset for notices (CLOUDINARY_PRESET_NOTICE) must not be empty.',
+        );
+        return MediaConfig.presetNotice;
     }
   }
 
@@ -53,6 +59,7 @@ class MediaService {
     switch (purpose) {
       case MediaPurpose.avatar:
       case MediaPurpose.chat:
+      case MediaPurpose.notice:
         return const ['jpg', 'jpeg', 'png', 'webp', 'heic'];
       case MediaPurpose.logo:
         // Logos must support PNG transparency and not force webp conversion

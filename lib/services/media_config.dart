@@ -6,6 +6,7 @@ class MediaConfig {
   static const String defaultPresetAvatar = 'pc_avatar';
   static const String defaultPresetLogo = 'pc_logo';
   static const String defaultPresetChat = 'pc_chat';
+  static const String defaultPresetNotice = 'pc_notice';
 
   /// Cloudinary cloud name
   static const String cloudName = String.fromEnvironment(
@@ -29,6 +30,12 @@ class MediaConfig {
   static const String presetChat = String.fromEnvironment(
     'CLOUDINARY_PRESET_CHAT',
     defaultValue: defaultPresetChat,
+  );
+
+  /// Unsigned preset for notice images
+  static const String presetNotice = String.fromEnvironment(
+    'CLOUDINARY_PRESET_NOTICE',
+    defaultValue: defaultPresetNotice,
   );
 
   /// Maximum upload file size in bytes (10 Megabytes)

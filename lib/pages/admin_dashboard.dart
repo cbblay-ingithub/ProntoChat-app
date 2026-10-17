@@ -24,6 +24,10 @@ import 'dart:math';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:go_router/go_router.dart';
 import 'package:pronto_chat/services/chat_service.dart';
+import 'package:pronto_chat/models/notice_index_model.dart';
+import 'package:pronto_chat/models/notice_model.dart';
+import 'package:pronto_chat/services/notices_service.dart';
+import 'package:pronto_chat/screens/notices/notice_composer_screen.dart';
 // ── PRONTOCHAT ADDITION ──
 import 'package:share_plus/share_plus.dart';
 // ─────────────────────────
@@ -85,6 +89,9 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
   final Map<String, bool> _actionLoading = {};
   // Selected member UIDs for bulk operations on active staff
   final Set<String> _selectedActiveMemberIds = {};
+  // Notice oversight filter states
+  String _noticeStatusFilter = 'all';
+  NoticeType? _noticeTypeFilter;
 
   @override
   void initState() {
@@ -301,6 +308,10 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
 
                 // Project Groups Metadata Oversight Card
                 _buildProjectGroupsCard(context, firm.firmId, primaryColor),
+                const SizedBox(height: 16),
+
+                // Notices Oversight & Governance Card
+                _buildNoticesOversightCard(context, firm, primaryColor),
                 const SizedBox(height: 16),
 
                 // 6. CSV Bulk Upload Card
@@ -3126,7 +3137,703 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     }
   }
 
+  /// Notices Oversight & Governance Card
+  Widget _buildNoticesOversightCard(BuildContext context, Firm firm, Color primaryColor) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Title & Actions row
+            Row(
+              children: [
+                Icon(Icons.campaign, color: primaryColor),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Notices Oversight & Governance',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => _showManagePublishersDialog(context, firm.firmId),
+                  icon: const Icon(Icons.shield_outlined, size: 16),
+                  label: const Text('Publishers'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+                    final userSnap = await DBService.instance.getUserData(uid);
+                    final userName = userSnap?['name'] as String? ?? 'Admin';
+                    if (context.mounted) {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => NoticeComposerScreen(
+                            firm: firm,
+                            currentUid: uid,
+                            currentUserName: userName,
+                            currentUserRole: 'admin',
+                            canTargetFirmWide: true,
+                          ),
+                        ),
+                      );
+                      if (mounted) setState(() {});
+                    }
+                  },
+                  icon: const Icon(Icons.add, size: 16),
+                  label: const Text('Post Notice'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Metadata-only oversight of firm announcements, reach statistics, policy compliance, and publisher permissions. Admin privacy invariant: notice bodies and media remain unread by non-recipient admins.',
+              style: TextStyle(fontSize: 12, color: Colors.grey[400]),
+            ),
+            const Divider(height: 20),
 
+            // Firm Setting Switch: leadsMayTargetBeyondOwnDepartment
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              activeColor: primaryColor,
+              title: const Text(
+                'Allow Leads to Target Firm-Wide',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+              ),
+              subtitle: const Text(
+                'When enabled, department leads can publish notices to all staff. When disabled, leads may only target their own department.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              value: firm.leadsMayTargetBeyondOwnDepartment,
+              onChanged: (bool value) async {
+                try {
+                  await NoticesService.instance.updateLeadsMayTargetSetting(
+                    firmId: firm.firmId,
+                    allowed: value,
+                  );
+                  ref.read(firmNotifierProvider.notifier).loadFirm(firm.firmId);
+                  if (context.mounted) {
+                    SnackbarService().showSnackbar(
+                      'Firm notice target setting updated.',
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    SnackbarService().showSnackbar(
+                      'Failed to update setting: $e',
+                      isError: true,
+                    );
+                  }
+                }
+              },
+            ),
+
+            const Divider(height: 20),
+
+            // Filter Bar
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const Text(
+                  'Filters:',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey),
+                ),
+                // Status Filter Dropdown
+                DropdownButton<String>(
+                  value: _noticeStatusFilter,
+                  dropdownColor: const Color.fromRGBO(34, 33, 33, 1),
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                  underline: const SizedBox(),
+                  items: const [
+                    DropdownMenuItem(value: 'all', child: Text('Status: All')),
+                    DropdownMenuItem(value: 'published', child: Text('Status: Published')),
+                    DropdownMenuItem(value: 'retracted', child: Text('Status: Retracted')),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) setState(() => _noticeStatusFilter = val);
+                  },
+                ),
+                // Type Filter Dropdown
+                DropdownButton<NoticeType?>(
+                  value: _noticeTypeFilter,
+                  dropdownColor: const Color.fromRGBO(34, 33, 33, 1),
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                  underline: const SizedBox(),
+                  items: const [
+                    DropdownMenuItem(value: null, child: Text('Type: All Types')),
+                    DropdownMenuItem(value: NoticeType.announcement, child: Text('Type: Announcement')),
+                    DropdownMenuItem(value: NoticeType.urgent, child: Text('Type: Urgent')),
+                    DropdownMenuItem(value: NoticeType.policy, child: Text('Type: Policy')),
+                  ],
+                  onChanged: (val) {
+                    setState(() => _noticeTypeFilter = val);
+                  },
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 10),
+
+            // NoticeIndex Metadata List
+            FutureBuilder<List<NoticeIndexModel>>(
+              future: NoticesService.instance.fetchNoticeIndexList(
+                firmId: firm.firmId,
+                statusFilter: _noticeStatusFilter,
+                typeFilter: _noticeTypeFilter,
+                limit: 30,
+              ),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+
+                final indexList = snapshot.data ?? [];
+
+                if (indexList.isEmpty) {
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: const Color.fromRGBO(30, 29, 29, 1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: Text(
+                        'No notice records matching the selected filters.',
+                        style: TextStyle(color: Colors.grey[400], fontSize: 13),
+                      ),
+                    ),
+                  );
+                }
+
+                return ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: indexList.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final item = indexList[index];
+                    final isPolicy = item.isPolicy;
+                    final isUrgent = item.isUrgent;
+                    final isRetracted = item.isRetracted;
+
+                    return ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                      leading: CircleAvatar(
+                        backgroundColor: isUrgent
+                            ? Colors.redAccent.withOpacity(0.18)
+                            : isPolicy
+                                ? Colors.indigoAccent.withOpacity(0.18)
+                                : primaryColor.withOpacity(0.18),
+                        child: Icon(
+                          isUrgent
+                              ? Icons.warning_amber_rounded
+                              : isPolicy
+                                  ? Icons.gavel
+                                  : Icons.campaign_outlined,
+                          color: isUrgent
+                              ? Colors.redAccent
+                              : isPolicy
+                                  ? Colors.indigoAccent
+                                  : primaryColor,
+                          size: 20,
+                        ),
+                      ),
+                      title: Row(
+                        children: [
+                          Text(
+                            item.authorName,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          // Type badge
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: isUrgent
+                                  ? Colors.redAccent.withOpacity(0.2)
+                                  : isPolicy
+                                      ? Colors.indigoAccent.withOpacity(0.2)
+                                      : Colors.white.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              item.type.name.toUpperCase(),
+                              style: TextStyle(
+                                color: isUrgent
+                                    ? Colors.redAccent
+                                    : isPolicy
+                                        ? Colors.indigoAccent
+                                        : Colors.grey[300],
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          // Status badge
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: isRetracted
+                                  ? Colors.red.withOpacity(0.15)
+                                  : Colors.green.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              item.status.toUpperCase(),
+                              style: TextStyle(
+                                color: isRetracted ? Colors.redAccent : Colors.greenAccent,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          if (isPolicy) ...[
+                            const SizedBox(width: 6),
+                            Text(
+                              'v${item.version}',
+                              style: TextStyle(color: Colors.grey[400], fontSize: 11),
+                            ),
+                          ],
+                        ],
+                      ),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Audience: ${item.audienceSummary} • Created: ${_formatDate(item.createdAt)}',
+                          style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                        ),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (isPolicy)
+                            IconButton(
+                              icon: const Icon(Icons.checklist, color: Colors.indigoAccent, size: 20),
+                              tooltip: 'Policy Acknowledgements Breakdown',
+                              onPressed: () => _showPolicyAcksDialog(context, firm.firmId, item),
+                            ),
+                          IconButton(
+                            icon: const Icon(Icons.people_outline, color: Colors.blueAccent, size: 20),
+                            tooltip: 'Calculate Audience Reach',
+                            onPressed: () async {
+                              final reach = await NoticesService.instance.computeReach(
+                                firmId: firm.firmId,
+                                audienceKeys: item.audienceKeys,
+                              );
+                              if (context.mounted) {
+                                SnackbarService().showSnackbar(
+                                  'Audience Reach for this notice: $reach active members.',
+                                );
+                              }
+                            },
+                          ),
+                          if (!isRetracted)
+                            IconButton(
+                              icon: const Icon(Icons.cancel_outlined, color: Colors.redAccent, size: 20),
+                              tooltip: 'Retract Notice',
+                              onPressed: () => _showRetractNoticeDialog(context, firm.firmId, item.id),
+                            ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Policy Acknowledgements Breakdown dialog
+  Future<void> _showPolicyAcksDialog(
+    BuildContext context,
+    String firmId,
+    NoticeIndexModel notice,
+  ) async {
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return FutureBuilder<List<dynamic>>(
+            future: Future.wait([
+              NoticesService.instance.getAcknowledgedUsers(
+                firmId: firmId,
+                noticeId: notice.id,
+                version: notice.version,
+                limit: 100,
+              ),
+              NoticesService.instance.computeReach(
+                firmId: firmId,
+                audienceKeys: notice.audienceKeys,
+              ),
+            ]),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const AlertDialog(
+                  backgroundColor: Color.fromRGBO(34, 33, 33, 1),
+                  content: SizedBox(
+                    height: 120,
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                );
+              }
+
+              final List<NoticeAck> acks = (snapshot.data?[0] as List<NoticeAck>?) ?? [];
+              final int reach = (snapshot.data?[1] as int?) ?? 1;
+              final double ratio = reach > 0 ? (acks.length / reach).clamp(0.0, 1.0) : 0.0;
+              final percent = (ratio * 100).toStringAsFixed(0);
+
+              return AlertDialog(
+                backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                title: Row(
+                  children: [
+                    const Icon(Icons.gavel, color: Colors.indigoAccent),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Policy Acknowledgements (v${notice.version})',
+                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+                content: SizedBox(
+                  width: 480,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Progress Bar & Summary
+                      Text(
+                        '${acks.length} of $reach acknowledged ($percent%)',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                      ),
+                      const SizedBox(height: 6),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: ratio,
+                          backgroundColor: Colors.white12,
+                          color: Colors.indigoAccent,
+                          minHeight: 8,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Acknowledged Members:',
+                        style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      if (acks.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 20),
+                          child: Center(
+                            child: Text(
+                              'No members have acknowledged this version yet.',
+                              style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                            ),
+                          ),
+                        )
+                      else
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 280),
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: acks.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white12),
+                            itemBuilder: (context, i) {
+                              final ack = acks[i];
+                              return ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(Icons.check_circle, color: Colors.greenAccent, size: 18),
+                                title: Text(ack.userName ?? 'Member', style: const TextStyle(color: Colors.white, fontSize: 13)),
+                                subtitle: Text('v${ack.version} • ${_formatDate(ack.at)}', style: TextStyle(color: Colors.grey[500], fontSize: 11)),
+                              );
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Close'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  /// Manage Publishers Dialog for active members
+  Future<void> _showManagePublishersDialog(
+    BuildContext context,
+    String firmId,
+  ) async {
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return StreamBuilder<List<Membership>>(
+            stream: DBService.instance.getMembershipsByStatus(firmId, 'approved'),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const AlertDialog(
+                  backgroundColor: Color.fromRGBO(34, 33, 33, 1),
+                  content: SizedBox(
+                    height: 120,
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                );
+              }
+
+              final members = snapshot.data ?? [];
+              final currentAdminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+
+              return AlertDialog(
+                backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                title: const Row(
+                  children: [
+                    Icon(Icons.campaign, color: Colors.blueAccent),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Manage Notice Publishers',
+                        style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+                content: SizedBox(
+                  width: 500,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.blueAccent.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
+                        ),
+                        child: const Text(
+                          'Admins and Leads have publishing privileges by default. For Employees, toggle the publisher permission below. Note: Admins cannot modify their own publisher attribute.',
+                          style: TextStyle(color: Colors.white70, fontSize: 11, height: 1.3),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 350),
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: members.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white12),
+                          itemBuilder: (context, index) {
+                            final m = members[index];
+                            final isLeadOrAdmin = m.isAdmin || m.isLead;
+                            final isSelf = m.uid == currentAdminUid;
+
+                            return FutureBuilder<AppUser?>(
+                              future: DBService.instance.getUserDetails(m.uid),
+                              builder: (context, userSnap) {
+                                final user = userSnap.data;
+                                final name = user?.name.isNotEmpty == true ? user!.name : m.uid;
+                                final email = user?.email ?? '';
+
+                                return ListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  title: Row(
+                                    children: [
+                                      Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: m.isAdmin
+                                              ? Colors.amber.withOpacity(0.2)
+                                              : m.isLead
+                                                  ? Colors.purple.withOpacity(0.2)
+                                                  : Colors.white10,
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          m.role.name.toUpperCase(),
+                                          style: TextStyle(
+                                            color: m.isAdmin
+                                                ? Colors.amberAccent
+                                                : m.isLead
+                                                    ? Colors.purpleAccent
+                                                    : Colors.grey[400],
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  subtitle: Text(email, style: TextStyle(color: Colors.grey[500], fontSize: 11)),
+                                  trailing: isLeadOrAdmin
+                                      ? Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: Colors.green.withOpacity(0.15),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: const Text(
+                                            'Publisher (Role)',
+                                            style: TextStyle(color: Colors.greenAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                                          ),
+                                        )
+                                      : Switch.adaptive(
+                                          value: m.noticePublisher,
+                                          activeColor: Colors.blueAccent,
+                                          onChanged: isSelf
+                                              ? null
+                                              : (val) async {
+                                                  try {
+                                                    await NoticesService.instance.setNoticePublisher(
+                                                      firmId: firmId,
+                                                      memberUid: m.uid,
+                                                      isPublisher: val,
+                                                    );
+                                                    SnackbarService().showSnackbar('Publisher permission updated for $name.');
+                                                  } catch (e) {
+                                                    SnackbarService().showSnackbar('Failed to update publisher: $e', isError: true);
+                                                  }
+                                                },
+                                        ),
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Done'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  /// Retract notice confirmation dialog with optional reason
+  Future<void> _showRetractNoticeDialog(
+    BuildContext context,
+    String firmId,
+    String noticeId,
+  ) async {
+    final reasonCtrl = TextEditingController();
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
+            SizedBox(width: 8),
+            Text('Retract Notice?', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Retracting this notice marks its status as retracted. Members will no longer see it in their active feed.',
+              style: TextStyle(color: Colors.grey, fontSize: 13),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: reasonCtrl,
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                labelText: 'Retraction Reason (Optional)',
+                labelStyle: const TextStyle(color: Colors.grey),
+                filled: true,
+                fillColor: const Color.fromRGBO(24, 23, 23, 1),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Retract Notice'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      final currentAdminUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      try {
+        await NoticesService.instance.retractNotice(
+          firmId: firmId,
+          noticeId: noticeId,
+          retractedByUid: currentAdminUid,
+          reason: reasonCtrl.text.trim().isNotEmpty ? reasonCtrl.text.trim() : null,
+        );
+        if (mounted) setState(() {});
+        SnackbarService().showSnackbar('Notice retracted successfully.');
+      } catch (e) {
+        SnackbarService().showSnackbar('Error retracting notice: $e', isError: true);
+      }
+    }
+  }
 
   /// Chat & Privacy Settings Card (showLastSeen & showReadReceipts toggles)
   Widget _buildChatPrivacySettingsCard(BuildContext context, Firm firm, Color primaryColor) {

@@ -30,6 +30,25 @@ Updated as work progresses. Each item must be confirmed before launch.
   - Where it goes: `CLOUDINARY_PRESET_CHAT` dart-define
   - Value: `pc_chat`
 
+- [x] **Upload Preset: `pc_notice`** (unsigned)
+  - Where to find: Settings → Upload → Upload presets
+  - Proposed / Confirmed: `pc_notice`
+  - Folder: `prontochat/notices`, overwrite false, use filename false, unique filename true
+  - Incoming transformation: `c_limit,w_2000,h_2000,q_auto:good,fl_force_strip`
+  - Allowed formats: `jpg, jpeg, png, webp, heic`
+  - Where it goes: `CLOUDINARY_PRESET_NOTICE` dart-define / `MediaConfig.presetNotice`
+  - Value: `pc_notice`
+
+- [x] **Named Transformation: `notice_card`** (800px)
+  - Where to find: Cloudinary Console → Transformations → Named Transformations
+  - Transformation: `c_limit,w_800,q_auto,f_auto`
+  - Used as: `t_notice_card` in URLs
+
+- [x] **Named Transformation: `notice_full`** (1280px)
+  - Where to find: Cloudinary Console → Transformations → Named Transformations
+  - Transformation: `c_limit,w_1280,q_auto,f_auto`
+  - Used as: `t_notice_full` in URLs
+
 - [x] **Max Upload File Size (plan limit)**: `10 MB` (10,485,760 bytes)
   - Where to find: Cloudinary Dashboard → Account → Plan details
   - Free tier default: 10 MB per file
@@ -67,7 +86,7 @@ Updated as work progresses. Each item must be confirmed before launch.
 
 ## Console Settings Confirmed
 
-- [x] All three presets (`pc_avatar`, `pc_logo`, `pc_chat`) set to **Unsigned**
+- [x] All four presets (`pc_avatar`, `pc_logo`, `pc_chat`, `pc_notice`) set to **Unsigned**
 - [x] ZERO API keys or secrets in client code, repo, or logs
 - [x] Strict Transformations: **ON** — codebase uses strictly `t_<name>` named transformations
 - [x] Delivery URLs: Public CDN delivery without query string transforms
@@ -79,6 +98,7 @@ Updated as work progresses. Each item must be confirmed before launch.
 - [x] `avatar_sm` (64px) & `avatar_lg` (256px) configured in `PcAvatar` and `MediaService`
 - [x] `logo_sm` (128px) & `logo_lg` (512px) configured in `PcLogo` and `MediaService`
 - [x] `chat_thumb` (480px) & `chat_full` (1280px) configured in `ImageBubbleWidget` & `FullscreenImageViewer`
+- [x] `notice_card` (800px) & `notice_full` (1280px) configured in `NoticeCard` & `NoticeDetailScreen`
 - [x] File size limit enforced client-side at 10 MB and in `firestore.rules` (10,485,760 bytes)
-- [x] Firestore security rules enforce `isValidMediaRef` on users (`avatar`), firms (`logo`), and chat messages (`media`)
+- [x] Firestore security rules enforce `isValidMediaRef` on users (`avatar`), firms (`logo`), chat messages (`media`), and notices (`media`)
 - [x] Dual-read / dual-write architecture maintains backward compatibility with legacy consumers

@@ -8,6 +8,7 @@ import 'employee/employee_home_tab.dart';
 import 'employee/employee_chats_tab.dart';
 import 'employee/employee_directory_tab.dart';
 import 'employee/employee_profile_tab.dart';
+import '../services/notices_service.dart';
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
@@ -109,45 +110,64 @@ class _HomePageState extends ConsumerState<HomePage> {
         index: _currentIndex,
         children: tabs,
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: const Color.fromRGBO(22, 22, 22, 1),
-          border: Border(
-            top: BorderSide(
-              color: Colors.white.withValues(alpha: 0.08),
-              width: 1,
+      bottomNavigationBar: StreamBuilder<DateTime?>(
+        stream: NoticesService.instance.streamLastSeenAt(firm.firmId, uid),
+        builder: (context, snapshot) {
+          final lastSeen = snapshot.data;
+          final bool hasUnreadNotice = NoticesService.instance.cachedFeed
+              .any((n) => n.isNewFor(lastSeen));
+
+          return Container(
+            decoration: BoxDecoration(
+              color: const Color.fromRGBO(22, 22, 22, 1),
+              border: Border(
+                top: BorderSide(
+                  color: Colors.white.withValues(alpha: 0.08),
+                  width: 1,
+                ),
+              ),
             ),
-          ),
-        ),
-        child: NavigationBar(
-          selectedIndex: _currentIndex,
-          onDestinationSelected: _navigateToTab,
-          backgroundColor: const Color.fromRGBO(22, 22, 22, 1),
-          indicatorColor: primaryColor.withValues(alpha: 0.22),
-          elevation: 0,
-          destinations: [
-            NavigationDestination(
-              icon: const Icon(Icons.home_outlined, color: Colors.grey),
-              selectedIcon: Icon(Icons.home, color: primaryColor),
-              label: 'Home',
+            child: NavigationBar(
+              selectedIndex: _currentIndex,
+              onDestinationSelected: _navigateToTab,
+              backgroundColor: const Color.fromRGBO(22, 22, 22, 1),
+              indicatorColor: primaryColor.withValues(alpha: 0.22),
+              elevation: 0,
+              destinations: [
+                NavigationDestination(
+                  icon: Badge(
+                    isLabelVisible: hasUnreadNotice,
+                    smallSize: 7,
+                    backgroundColor: primaryColor,
+                    child: const Icon(Icons.home_outlined, color: Colors.grey),
+                  ),
+                  selectedIcon: Badge(
+                    isLabelVisible: hasUnreadNotice,
+                    smallSize: 7,
+                    backgroundColor: primaryColor,
+                    child: Icon(Icons.home, color: primaryColor),
+                  ),
+                  label: 'Home',
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.chat_bubble_outline, color: Colors.grey),
+                  selectedIcon: Icon(Icons.chat_bubble, color: primaryColor),
+                  label: 'Chats',
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.people_outline, color: Colors.grey),
+                  selectedIcon: Icon(Icons.people, color: primaryColor),
+                  label: 'Directory',
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.person_outline, color: Colors.grey),
+                  selectedIcon: Icon(Icons.person, color: primaryColor),
+                  label: 'Profile',
+                ),
+              ],
             ),
-            NavigationDestination(
-              icon: const Icon(Icons.chat_bubble_outline, color: Colors.grey),
-              selectedIcon: Icon(Icons.chat_bubble, color: primaryColor),
-              label: 'Chats',
-            ),
-            NavigationDestination(
-              icon: const Icon(Icons.people_outline, color: Colors.grey),
-              selectedIcon: Icon(Icons.people, color: primaryColor),
-              label: 'Directory',
-            ),
-            NavigationDestination(
-              icon: const Icon(Icons.person_outline, color: Colors.grey),
-              selectedIcon: Icon(Icons.person, color: primaryColor),
-              label: 'Profile',
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

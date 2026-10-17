@@ -23,6 +23,7 @@ class Membership {
   final MembershipStatus status;
   final MembershipRole role;
   final String? departmentId;
+  final bool noticePublisher;
   final DateTime joinedAt;
   final DateTime createdAt;
   final DateTime? revokedAt;
@@ -34,6 +35,7 @@ class Membership {
     this.status = MembershipStatus.active,
     this.role = MembershipRole.employee,
     this.departmentId,
+    this.noticePublisher = false,
     DateTime? joinedAt,
     DateTime? createdAt,
     this.revokedAt,
@@ -45,6 +47,7 @@ class Membership {
   bool get isAdmin => role == MembershipRole.admin;
   bool get isLead => role == MembershipRole.lead;
   bool get isEmployee => role == MembershipRole.employee;
+  bool get canPublishNotices => isAdmin || isLead || noticePublisher;
 
   Membership copyWith({
     String? membershipId,
@@ -53,6 +56,7 @@ class Membership {
     MembershipStatus? status,
     MembershipRole? role,
     String? departmentId,
+    bool? noticePublisher,
     DateTime? joinedAt,
     DateTime? createdAt,
     DateTime? revokedAt,
@@ -64,6 +68,7 @@ class Membership {
       status: status ?? this.status,
       role: role ?? this.role,
       departmentId: departmentId ?? this.departmentId,
+      noticePublisher: noticePublisher ?? this.noticePublisher,
       joinedAt: joinedAt ?? this.joinedAt,
       createdAt: createdAt ?? this.createdAt,
       revokedAt: revokedAt ?? this.revokedAt,
@@ -106,6 +111,7 @@ class Membership {
     }
 
     final departmentId = data['departmentId'] as String?;
+    final noticePublisher = data['noticePublisher'] as bool? ?? false;
 
     return Membership(
       membershipId: doc.id,
@@ -114,6 +120,7 @@ class Membership {
       status: status,
       role: role,
       departmentId: departmentId,
+      noticePublisher: noticePublisher,
       joinedAt: joinedAt,
       createdAt: createdAt,
       revokedAt: revokedAt,
@@ -127,6 +134,7 @@ class Membership {
       'status': status == MembershipStatus.active ? 'active' : status.name,
       'role': role.name,
       if (departmentId != null) 'departmentId': departmentId,
+      'noticePublisher': noticePublisher,
       'joinedAt': Timestamp.fromDate(joinedAt),
       'createdAt': Timestamp.fromDate(createdAt),
       if (revokedAt != null) 'revokedAt': Timestamp.fromDate(revokedAt!),
@@ -149,6 +157,7 @@ class Membership {
       status: json['status'] == 'revoked' ? MembershipStatus.revoked : MembershipStatus.active,
       role: role,
       departmentId: json['departmentId'] as String?,
+      noticePublisher: json['noticePublisher'] as bool? ?? false,
       joinedAt: json['joinedAt'] != null
           ? DateTime.tryParse(json['joinedAt'].toString()) ?? DateTime.now()
           : DateTime.now(),
@@ -166,6 +175,7 @@ class Membership {
       'status': status.name,
       'role': role.name,
       if (departmentId != null) 'departmentId': departmentId,
+      'noticePublisher': noticePublisher,
       'joinedAt': joinedAt.toIso8601String(),
       'createdAt': createdAt.toIso8601String(),
     };

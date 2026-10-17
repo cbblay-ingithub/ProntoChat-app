@@ -53,6 +53,9 @@ class Firm {
   final bool showLastSeen;
   final bool showReadReceipts;
 
+  /// Notice settings
+  final bool leadsMayTargetBeyondOwnDepartment;
+
   Firm({
     required this.firmId,
     required this.name,
@@ -71,6 +74,7 @@ class Firm {
     this.inviteToken,
     this.showLastSeen = true,
     this.showReadReceipts = true,
+    this.leadsMayTargetBeyondOwnDepartment = true,
   })  : ownerUid = ownerUid ?? adminId ?? '',
         createdAt = createdAt ?? DateTime.now(),
         termsAcceptedAt = termsAcceptedAt ?? createdAt ?? DateTime.now();
@@ -95,6 +99,7 @@ class Firm {
     String? inviteToken,
     bool? showLastSeen,
     bool? showReadReceipts,
+    bool? leadsMayTargetBeyondOwnDepartment,
   }) {
     return Firm(
       firmId: firmId ?? this.firmId,
@@ -113,6 +118,7 @@ class Firm {
       inviteToken: inviteToken ?? this.inviteToken,
       showLastSeen: showLastSeen ?? this.showLastSeen,
       showReadReceipts: showReadReceipts ?? this.showReadReceipts,
+      leadsMayTargetBeyondOwnDepartment: leadsMayTargetBeyondOwnDepartment ?? this.leadsMayTargetBeyondOwnDepartment,
     );
   }
 
@@ -121,6 +127,11 @@ class Firm {
     if (json['logo'] is Map) {
       parsedLogo = MediaRef.fromMap(Map<String, dynamic>.from(json['logo'] as Map));
     }
+
+    final noticesMap = json['notices'] is Map ? (json['notices'] as Map<String, dynamic>) : null;
+    final leadsMayTarget = noticesMap != null && noticesMap.containsKey('leadsMayTargetBeyondOwnDepartment')
+        ? (noticesMap['leadsMayTargetBeyondOwnDepartment'] as bool? ?? true)
+        : true;
 
     return Firm(
       firmId: json['firmId'] as String? ?? '',
@@ -143,6 +154,7 @@ class Firm {
       inviteToken: json['inviteToken'] as String?,
       showLastSeen: json['showLastSeen'] as bool? ?? true,
       showReadReceipts: json['showReadReceipts'] as bool? ?? true,
+      leadsMayTargetBeyondOwnDepartment: leadsMayTarget,
     );
   }
 
@@ -165,6 +177,9 @@ class Firm {
       if (inviteToken != null) 'inviteToken': inviteToken,
       'showLastSeen': showLastSeen,
       'showReadReceipts': showReadReceipts,
+      'notices': {
+        'leadsMayTargetBeyondOwnDepartment': leadsMayTargetBeyondOwnDepartment,
+      },
     };
   }
 
@@ -187,6 +202,11 @@ class Firm {
       parsedLogo = MediaRef.fromMap(Map<String, dynamic>.from(data['logo'] as Map));
     }
 
+    final noticesMap = data['notices'] is Map ? (data['notices'] as Map<String, dynamic>) : null;
+    final leadsMayTarget = noticesMap != null && noticesMap.containsKey('leadsMayTargetBeyondOwnDepartment')
+        ? (noticesMap['leadsMayTargetBeyondOwnDepartment'] as bool? ?? true)
+        : true;
+
     return Firm(
       firmId: doc.id,
       name: data['name'] as String? ?? '',
@@ -204,6 +224,7 @@ class Firm {
       inviteToken: data['inviteToken'] as String?,
       showLastSeen: data['showLastSeen'] as bool? ?? true,
       showReadReceipts: data['showReadReceipts'] as bool? ?? true,
+      leadsMayTargetBeyondOwnDepartment: leadsMayTarget,
     );
   }
 
@@ -225,6 +246,9 @@ class Firm {
       if (inviteToken != null) 'inviteToken': inviteToken,
       'showLastSeen': showLastSeen,
       'showReadReceipts': showReadReceipts,
+      'notices': {
+        'leadsMayTargetBeyondOwnDepartment': leadsMayTargetBeyondOwnDepartment,
+      },
     };
   }
 }

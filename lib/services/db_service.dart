@@ -1434,6 +1434,30 @@ class DBService {
     });
   }
 
+  /// Get all departments for a firm.
+  Future<List<Department>> getDepartments(String firmId) async {
+    final snapshot = await _db
+        .collection(_firmsCollection)
+        .doc(firmId)
+        .collection('departments')
+        .get();
+    return snapshot.docs
+        .map((doc) => Department.fromFirestore(doc, firmId))
+        .toList();
+  }
+
+  /// Get a single department document.
+  Future<Department?> getDepartment(String firmId, String deptId) async {
+    final doc = await _db
+        .collection(_firmsCollection)
+        .doc(firmId)
+        .collection('departments')
+        .doc(deptId)
+        .get();
+    if (!doc.exists) return null;
+    return Department.fromFirestore(doc, firmId);
+  }
+
   /// Get active headcount for a department using Firestore count() aggregate query.
   Future<int> getDepartmentHeadcount(String firmId, String deptId) async {
     try {
