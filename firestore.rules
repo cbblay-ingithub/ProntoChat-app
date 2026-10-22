@@ -299,7 +299,8 @@ service cloud.firestore {
       allow update: if isFirmAdmin(firmId) &&
         (!('ownerUid' in resource.data) || request.resource.data.get('ownerUid', '') == resource.data.get('ownerUid', '')) &&
         (!('adminId' in resource.data) || request.resource.data.get('adminId', '') == resource.data.get('adminId', '')) &&
-        (!('logo' in request.resource.data) || request.resource.data.logo == null || isValidMediaRef(request.resource.data.logo, 'logo'));
+        (!('logo' in request.resource.data) || request.resource.data.logo == null || isValidMediaRef(request.resource.data.logo, 'logo')) &&
+        (!('welcomeText' in request.resource.data) || (request.resource.data.welcomeText is string && request.resource.data.welcomeText.size() <= 200));
 
       allow delete: if isFirmAdmin(firmId);
 
@@ -518,6 +519,17 @@ service cloud.firestore {
           isFirmAdmin(firmId) ||
           (request.resource.data.status == 'joined' && resource.data.status == 'invited')
         );
+      }
+
+      // ── Audit Log Subcollection ──────────────────
+      match /auditLog/{auditId} {
+        allow read: if isFirmAdmin(firmId);
+        allow create: if isFirmAdmin(firmId) &&
+          request.resource.data.actorId == request.auth.uid &&
+          request.resource.data.keys().hasOnly(['actorId', 'actorName', 'action', 'targetType', 'targetId', 'targetLabel', 'createdAt']) &&
+          request.resource.data.createdAt == request.time;
+
+        allow update, delete: if false;
       }
 
       // ── Mentions Inbox Subcollection ───────────

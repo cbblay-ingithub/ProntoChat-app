@@ -21,11 +21,15 @@ import '../screens/auth/select_firm_screen.dart';
 import '../screens/auth/no_access_screen.dart';
 import '../pages/register_firm_page.dart';
 import '../pages/home_page.dart';
-import '../pages/admin_dashboard.dart';
 import '../pages/search_page.dart';
 import '../screens/employee/firm_chat_screen.dart';
 import '../screens/employee/pending_approval_screen.dart';
 import '../screens/employee/mentions_screen.dart';
+import '../screens/admin/admin_shell.dart';
+import '../screens/admin/tabs/dashboard_tab.dart';
+import '../screens/admin/tabs/onboarding_tab.dart';
+import '../screens/admin/tabs/notices_groups_tab.dart';
+import '../screens/admin/tabs/customization_tab.dart';
 
 /// Reactive notifier that informs GoRouter whenever auth state or membership state changes.
 class RouterNotifier extends ChangeNotifier {
@@ -111,7 +115,51 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/admin-dashboard',
-        builder: (context, state) => const AdminDashboard(),
+        redirect: (context, state) => '/admin/dashboard',
+      ),
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) => AdminShell(navigationShell: navigationShell),
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/admin/dashboard',
+                builder: (context, state) => const DashboardTab(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/admin/onboarding',
+                builder: (context, state) {
+                  final filter = state.uri.queryParameters['filter'];
+                  return OnboardingTab(initialFilter: filter);
+                },
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/admin/notices',
+                builder: (context, state) => const NoticesGroupsTab(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/admin/brand',
+                builder: (context, state) => const CustomizationTab(),
+              ),
+            ],
+          ),
+        ],
+      ),
+      GoRoute(
+        path: '/admin-dashboard',
+        redirect: (context, state) => '/admin/dashboard',
       ),
       GoRoute(
         path: '/access-revoked',
@@ -253,14 +301,24 @@ final goRouterProvider = Provider<GoRouter>((ref) {
 
       if (isAuthScreen) {
         if (kIsWeb && (role == 'admin' || role == 'super_admin')) {
-          return '/admin-dashboard';
+          return '/admin/dashboard';
         }
         return '/home';
       }
 
-      // Guard /admin-dashboard on mobile (mobile is strictly for employees)
-      if (!kIsWeb && path == '/admin-dashboard') {
+      // Guard /admin routes on mobile (mobile is strictly for employees)
+      if (!kIsWeb && (path.startsWith('/admin') || path == '/admin-dashboard')) {
         return '/home';
+      }
+
+      // Guard /admin routes on web for non-admins
+      if (path.startsWith('/admin') && role != 'admin' && role != 'super_admin') {
+        return '/home';
+      }
+
+      // Backward compatibility redirect for legacy admin dashboard path
+      if (path == '/admin-dashboard') {
+        return '/admin/dashboard';
       }
 
       // Guard /register-firm on mobile

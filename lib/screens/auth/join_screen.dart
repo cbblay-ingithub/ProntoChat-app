@@ -4,6 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../models/firm.dart';
+import '../../models/media_ref.dart';
+import '../../widgets/common/pc_logo.dart';
 import '../../services/db_service.dart';
 import '../../providers/auth_provider.dart' as app_auth;
 
@@ -223,19 +225,14 @@ class _JoinScreenState extends State<JoinScreen> {
                   children: [
                     // Company Branding Header
                     Center(
-                      child: Container(
-                        width: 72,
-                        height: 72,
-                        decoration: BoxDecoration(
-                          color: primaryColor.withOpacity(0.18),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: primaryColor.withOpacity(0.4), width: 1.5),
-                        ),
-                        child: Icon(
-                          Icons.apartment_rounded,
-                          size: 36,
-                          color: primaryColor,
-                        ),
+                      child: PcLogo(
+                        logo: _loadedFirm?.logo,
+                        legacyUrl: _loadedFirm?.logoUrl,
+                        size: 72,
+                        borderRadius: 20,
+                        variant: MediaVariant.logoLg,
+                        firmName: _loadedFirm?.name ?? '',
+                        primaryColor: primaryColor,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -253,11 +250,18 @@ class _JoinScreenState extends State<JoinScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      _loadedFirm != null
-                          ? 'Enter your pre-authorized code to activate access'
-                          : 'Enter your company ID and one-time code',
+                      (_loadedFirm?.welcomeText != null && _loadedFirm!.welcomeText!.trim().isNotEmpty)
+                          ? _loadedFirm!.welcomeText!.trim()
+                          : (_loadedFirm != null
+                              ? 'Enter your pre-authorized code to activate access'
+                              : 'Enter your company ID and one-time code'),
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 13, color: Colors.grey[400]),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: (_loadedFirm?.welcomeText != null && _loadedFirm!.welcomeText!.trim().isNotEmpty)
+                            ? Colors.grey[300]
+                            : Colors.grey[400],
+                      ),
                     ),
                     const SizedBox(height: 24),
 

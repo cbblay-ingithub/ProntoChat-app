@@ -209,12 +209,25 @@ final brandThemeProvider = Provider<ThemeData>((ref) {
   // Default neutral dark theme
   final defaultTheme = ThemeData(
     brightness: Brightness.dark,
+    scaffoldBackgroundColor: const Color(0xFF141313),
+    canvasColor: const Color(0xFF1A1919),
+    cardColor: const Color(0xFF1E1D1D),
+    dialogBackgroundColor: const Color(0xFF222121),
     colorScheme: const ColorScheme.dark(
       primary: Color.fromRGBO(41, 116, 188, 1),
       secondary: Color.fromRGBO(41, 116, 188, 1),
-      surface: Color.fromRGBO(28, 27, 27, 1),
+      surface: Color(0xFF1E1D1D),
+      background: Color(0xFF141313),
+      onPrimary: Colors.white,
+      onSurface: Colors.white,
+      onBackground: Colors.white,
     ),
-    scaffoldBackgroundColor: const Color.fromRGBO(28, 27, 27, 1),
+    appBarTheme: const AppBarTheme(
+      backgroundColor: Color(0xFF1C1B1B),
+      foregroundColor: Colors.white,
+      elevation: 0,
+      centerTitle: false,
+    ),
   );
 
   // If not approved or no firm details are loaded, return the default neutral theme
@@ -229,15 +242,24 @@ final brandThemeProvider = Provider<ThemeData>((ref) {
       
   return ThemeData(
     brightness: Brightness.dark,
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: primaryColor,
+    scaffoldBackgroundColor: const Color(0xFF141313),
+    canvasColor: const Color(0xFF1A1919),
+    cardColor: const Color(0xFF1E1D1D),
+    dialogBackgroundColor: const Color(0xFF222121),
+    colorScheme: ColorScheme.dark(
       primary: primaryColor,
       secondary: secondaryColor,
-      brightness: Brightness.dark,
+      surface: const Color(0xFF1E1D1D),
+      background: const Color(0xFF141313),
+      onPrimary: Colors.white,
+      onSurface: Colors.white,
+      onBackground: Colors.white,
     ),
-    appBarTheme: AppBarTheme(
-      backgroundColor: primaryColor,
-      centerTitle: true,
+    appBarTheme: const AppBarTheme(
+      backgroundColor: Color(0xFF1C1B1B),
+      foregroundColor: Colors.white,
+      elevation: 0,
+      centerTitle: false,
     ),
   );
 });

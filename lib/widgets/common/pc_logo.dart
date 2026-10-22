@@ -78,36 +78,40 @@ class PcLogo extends StatelessWidget {
     Widget content;
 
     if (resolvedUrl != null && resolvedUrl.isNotEmpty) {
-      content = ClipRRect(
-        borderRadius: BorderRadius.circular(borderRadius),
-        child: Image.network(
-          resolvedUrl,
-          width: width,
-          height: height,
-          fit: fit,
-          loadingBuilder: (context, child, loadingProgress) {
-            if (loadingProgress == null) return child;
-            return Container(
-              width: width,
-              height: height,
-              color: brandColor.withOpacity(0.08),
-              child: Center(
-                child: SizedBox(
-                  width: (width ?? 48) * 0.4,
-                  height: (height ?? 48) * 0.4,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    value: loadingProgress.expectedTotalBytes != null
-                        ? loadingProgress.cumulativeBytesLoaded /
-                            loadingProgress.expectedTotalBytes!
-                        : null,
-                    color: brandColor.withOpacity(0.7),
+      content = SizedBox(
+        width: effectiveWidth,
+        height: effectiveHeight,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(borderRadius),
+          child: Image.network(
+            resolvedUrl,
+            width: effectiveWidth,
+            height: effectiveHeight,
+            fit: fit,
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) return child;
+              return Container(
+                width: effectiveWidth,
+                height: effectiveHeight,
+                color: brandColor.withOpacity(0.08),
+                child: Center(
+                  child: SizedBox(
+                    width: effectiveWidth * 0.4,
+                    height: effectiveHeight * 0.4,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      value: loadingProgress.expectedTotalBytes != null
+                          ? loadingProgress.cumulativeBytesLoaded /
+                              loadingProgress.expectedTotalBytes!
+                          : null,
+                      color: brandColor.withOpacity(0.7),
+                    ),
                   ),
                 ),
-              ),
-            );
-          },
-          errorBuilder: (context, error, stackTrace) => fallbackWidget,
+              );
+            },
+            errorBuilder: (context, error, stackTrace) => fallbackWidget,
+          ),
         ),
       );
     } else {

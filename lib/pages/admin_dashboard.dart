@@ -214,36 +214,50 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
         ? _hexToColor(firmAsync.primaryColor)
         : const Color(0xFF295CB4);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Admin Dashboard'),
-        centerTitle: true,
-        backgroundColor: primaryColor, // Theming: AppBar background = primaryColor
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.chat),
-            tooltip: 'Go to Chats',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const HomePage()),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Logout',
-            onPressed: _handleLogout,
-          ),
-        ],
+    return Theme(
+      data: Theme.of(context).copyWith(
+        scaffoldBackgroundColor: const Color(0xFF141313),
+        canvasColor: const Color(0xFF1A1919),
+        cardColor: const Color(0xFF1E1D1D),
+        dialogBackgroundColor: const Color(0xFF222121),
+        colorScheme: Theme.of(context).colorScheme.copyWith(
+          surface: const Color(0xFF1E1D1D),
+          onSurface: Colors.white,
+        ),
       ),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : error != null
-              ? _buildErrorState(context, error)
-              : firmAsync == null
-                  ? _buildNoFirmState(context)
-                  : _buildDashboardContent(context, firmAsync),
+      child: Scaffold(
+        backgroundColor: const Color(0xFF141313),
+        appBar: AppBar(
+          title: const Text('Admin Dashboard', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+          centerTitle: false,
+          backgroundColor: const Color(0xFF1C1B1B),
+          elevation: 0,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.chat_bubble_outline, color: Colors.white70),
+              tooltip: 'Go to Chats',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const HomePage()),
+                );
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.logout, color: Colors.redAccent),
+              tooltip: 'Logout',
+              onPressed: _handleLogout,
+            ),
+          ],
+        ),
+        body: isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : error != null
+                ? _buildErrorState(context, error)
+                : firmAsync == null
+                    ? _buildNoFirmState(context)
+                    : _buildDashboardContent(context, firmAsync),
+      ),
     );
   }
 
@@ -332,7 +346,7 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     );
   }
 
-  /// 1. Header Card builder
+  /// 1. Header Card builder (minimalist and rightsized)
   Widget _buildHeaderCard(
     BuildContext context,
     Firm firm,
@@ -340,53 +354,72 @@ class _AdminDashboardState extends ConsumerState<AdminDashboard> {
     String adminEmail,
     Color primaryColor,
   ) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            // Circular firm logo (48x48)
-            PcLogo(
-              logo: firm.logo,
-              legacyUrl: firm.logoUrl,
-              size: 48,
-              borderRadius: 24,
-              variant: MediaVariant.logoSm,
-              firmName: firm.name,
-              primaryColor: primaryColor,
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1D1D),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
+      child: Row(
+        children: [
+          // Rightsized minimalist firm logo (32x32)
+          PcLogo(
+            logo: firm.logo,
+            legacyUrl: firm.logoUrl,
+            size: 32,
+            borderRadius: 8,
+            variant: MediaVariant.logoSm,
+            firmName: firm.name,
+            primaryColor: primaryColor,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Row(
+              children: [
+                Flexible(
+                  child: Text(
                     firm.name,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.greenAccent.withOpacity(0.3)),
+                  ),
+                  child: Text(
+                    firm.plan.toUpperCase(),
+                    style: const TextStyle(
+                      color: Colors.greenAccent,
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.4,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text('•', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Text(
                     'Admin: $adminName ($adminEmail)',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.grey[400],
-                        ),
+                    style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Created: ${_formatDate(firm.createdAt)}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey[500],
-                        ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

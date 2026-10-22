@@ -56,6 +56,9 @@ class Firm {
   /// Notice settings
   final bool leadsMayTargetBeyondOwnDepartment;
 
+  /// Optional welcome text displayed on the join screen
+  final String? welcomeText;
+
   Firm({
     required this.firmId,
     required this.name,
@@ -75,6 +78,7 @@ class Firm {
     this.showLastSeen = true,
     this.showReadReceipts = true,
     this.leadsMayTargetBeyondOwnDepartment = true,
+    this.welcomeText,
   })  : ownerUid = ownerUid ?? adminId ?? '',
         createdAt = createdAt ?? DateTime.now(),
         termsAcceptedAt = termsAcceptedAt ?? createdAt ?? DateTime.now();
@@ -100,6 +104,7 @@ class Firm {
     bool? showLastSeen,
     bool? showReadReceipts,
     bool? leadsMayTargetBeyondOwnDepartment,
+    String? welcomeText,
   }) {
     return Firm(
       firmId: firmId ?? this.firmId,
@@ -119,6 +124,7 @@ class Firm {
       showLastSeen: showLastSeen ?? this.showLastSeen,
       showReadReceipts: showReadReceipts ?? this.showReadReceipts,
       leadsMayTargetBeyondOwnDepartment: leadsMayTargetBeyondOwnDepartment ?? this.leadsMayTargetBeyondOwnDepartment,
+      welcomeText: welcomeText ?? this.welcomeText,
     );
   }
 
@@ -155,6 +161,7 @@ class Firm {
       showLastSeen: json['showLastSeen'] as bool? ?? true,
       showReadReceipts: json['showReadReceipts'] as bool? ?? true,
       leadsMayTargetBeyondOwnDepartment: leadsMayTarget,
+      welcomeText: json['welcomeText'] as String?,
     );
   }
 
@@ -175,6 +182,7 @@ class Firm {
       if (logoUrl != null) 'logoUrl': logoUrl,
       if (logo != null) 'logo': logo!.toMap(),
       if (inviteToken != null) 'inviteToken': inviteToken,
+      if (welcomeText != null) 'welcomeText': welcomeText,
       'showLastSeen': showLastSeen,
       'showReadReceipts': showReadReceipts,
       'notices': {
@@ -225,6 +233,7 @@ class Firm {
       showLastSeen: data['showLastSeen'] as bool? ?? true,
       showReadReceipts: data['showReadReceipts'] as bool? ?? true,
       leadsMayTargetBeyondOwnDepartment: leadsMayTarget,
+      welcomeText: data['welcomeText'] as String?,
     );
   }
 
@@ -244,6 +253,7 @@ class Firm {
       if (logoUrl != null) 'logoUrl': logoUrl,
       if (logo != null) 'logo': logo!.toMap(),
       if (inviteToken != null) 'inviteToken': inviteToken,
+      if (welcomeText != null) 'welcomeText': welcomeText,
       'showLastSeen': showLastSeen,
       'showReadReceipts': showReadReceipts,
       'notices': {
