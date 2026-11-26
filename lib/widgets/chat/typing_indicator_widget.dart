@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../../models/chat_polish_models.dart';
+import '../../theme/pc_tokens.dart';
 
 class TypingIndicatorWidget extends StatelessWidget {
   final List<TypingIndicatorStatus> typingUsers;
@@ -27,46 +28,44 @@ class TypingIndicatorWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final others = typingUsers.where((u) => u.uid != currentUid && u.isActive).toList();
+    final others =
+        typingUsers.where((u) => u.uid != currentUid && u.isActive).toList();
     if (others.isEmpty) return const SizedBox.shrink();
 
+    final tokens = context.pcTokens;
     final text = _formatTypingText(others);
 
-    return Padding(
+    return Container(
+      width: double.infinity,
+      color: tokens.canvas,
       padding: const EdgeInsets.only(left: 16, bottom: 6, top: 2),
       child: Align(
         alignment: Alignment.centerLeft,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color: const Color.fromRGBO(30, 29, 36, 0.95),
+            color: tokens.surface,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0x3300E5FF), width: 0.8),
+            border: Border.all(color: tokens.border),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.3),
+                color: Colors.black.withValues(alpha: 0.04),
                 blurRadius: 6,
                 offset: const Offset(0, 2),
-              ),
-              BoxShadow(
-                color: const Color(0xFF00E5FF).withOpacity(0.08),
-                blurRadius: 10,
-                spreadRadius: 1,
               ),
             ],
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const BouncingDots(color: Color(0xFF00E5FF)),
+              BouncingDots(color: tokens.primary),
               const SizedBox(width: 8),
               Text(
                 text,
-                style: const TextStyle(
-                  color: Colors.white70,
+                style: TextStyle(
+                  color: tokens.textSecondary,
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
-                  letterSpacing: 0.2,
                 ),
               ),
             ],
@@ -82,7 +81,7 @@ class BouncingDots extends StatefulWidget {
   final double dotSize;
   const BouncingDots({
     super.key,
-    this.color = const Color(0xFF00E5FF),
+    this.color = const Color(0xFF2563EB),
     this.dotSize = 5.0,
   });
 
@@ -90,7 +89,8 @@ class BouncingDots extends StatefulWidget {
   State<BouncingDots> createState() => _BouncingDotsState();
 }
 
-class _BouncingDotsState extends State<BouncingDots> with SingleTickerProviderStateMixin {
+class _BouncingDotsState extends State<BouncingDots>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
 
   @override
@@ -128,13 +128,6 @@ class _BouncingDotsState extends State<BouncingDots> with SingleTickerProviderSt
               decoration: BoxDecoration(
                 color: widget.color,
                 shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: widget.color.withOpacity(0.6),
-                    blurRadius: 3,
-                    spreadRadius: 0.5,
-                  ),
-                ],
               ),
             ),
           ),

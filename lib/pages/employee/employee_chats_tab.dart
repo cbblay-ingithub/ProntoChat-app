@@ -1,26 +1,35 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../../models/active_chat_selection.dart';
+import '../../models/chat_polish_models.dart';
 import '../../models/firm.dart';
+import '../../screens/employee/channel_chat_screen.dart';
+import '../../screens/employee/firm_chat_screen.dart';
+import '../../screens/employee/mentions_screen.dart';
 import '../../services/db_service.dart';
 import '../../services/snackbar_service.dart';
-import '../../screens/employee/firm_chat_screen.dart';
-import '../../screens/employee/channel_chat_screen.dart';
+import '../../theme/pc_tokens.dart';
+import '../../widgets/chat/typing_indicator_widget.dart';
+import '../../widgets/chat/unified_chat_view.dart';
 import '../convo_page.dart';
 import '../search_page.dart';
-import '../../models/chat_polish_models.dart';
-import '../../widgets/chat/typing_indicator_widget.dart';
-import '../../screens/employee/mentions_screen.dart';
 
 class EmployeeChatsTab extends StatefulWidget {
   final String uid;
   final String userName;
   final Firm firm;
+  final bool isEmbeddedPane;
+  final ActiveChatSelection? selectedChat;
+  final ValueChanged<ActiveChatSelection>? onSelectChat;
 
   const EmployeeChatsTab({
     super.key,
     required this.uid,
     required this.userName,
     required this.firm,
+    this.isEmbeddedPane = false,
+    this.selectedChat,
+    this.onSelectChat,
   });
 
   @override
@@ -50,9 +59,12 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
     if (ts == null) return '';
     final dt = ts.toDate();
     final now = DateTime.now();
-    final isToday = dt.year == now.year && dt.month == now.month && dt.day == now.day;
+    final isToday =
+        dt.year == now.year && dt.month == now.month && dt.day == now.day;
     final yesterday = now.subtract(const Duration(days: 1));
-    final isYesterday = dt.year == yesterday.year && dt.month == yesterday.month && dt.day == yesterday.day;
+    final isYesterday = dt.year == yesterday.year &&
+        dt.month == yesterday.month &&
+        dt.day == yesterday.day;
     if (isToday) {
       final hour = dt.hour.toString().padLeft(2, '0');
       final minute = dt.minute.toString().padLeft(2, '0');
@@ -60,7 +72,20 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
     } else if (isYesterday) {
       return 'Yesterday';
     } else {
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
       return '${dt.day} ${months[dt.month - 1]}';
     }
   }
@@ -71,7 +96,14 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
     return parts[0] == myUid ? parts[1] : parts[0];
   }
 
+  bool _isSelected(UnifiedChatKind kind, String conversationId) {
+    final sel = widget.selectedChat;
+    if (sel == null) return false;
+    return sel.kind == kind && sel.conversationId == conversationId;
+  }
+
   Future<void> _showCreateProjectGroupDialog(BuildContext context) async {
+    final tokens = context.pcTokens;
     final nameCtrl = TextEditingController();
     final Set<String> selectedUids = {widget.uid};
 
@@ -79,38 +111,51 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
       context: context,
       builder: (dialogCtx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+          backgroundColor: tokens.surface,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text('Create Project Group', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          title: Text(
+            'Create Project Group',
+            style: TextStyle(
+              color: tokens.textPrimary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           content: SizedBox(
-            width: double.maxFinite,
+            width: 420,
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Leads can create project groups for cross-functional initiatives.',
-                    style: TextStyle(color: Colors.grey, fontSize: 13),
+                    style: TextStyle(color: tokens.textSecondary, fontSize: 13),
                   ),
                   const SizedBox(height: 16),
                   TextField(
                     controller: nameCtrl,
-                    style: const TextStyle(color: Colors.white),
+                    style: TextStyle(color: tokens.textPrimary),
                     decoration: InputDecoration(
                       labelText: 'Project Name',
                       hintText: 'e.g. Q4 Website Redesign',
-                      hintStyle: TextStyle(color: Colors.grey[600]),
-                      labelStyle: const TextStyle(color: Colors.grey),
+                      hintStyle: TextStyle(color: tokens.textMuted),
+                      labelStyle: TextStyle(color: tokens.textSecondary),
                       filled: true,
-                      fillColor: const Color.fromRGBO(24, 23, 23, 1),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      fillColor: tokens.surfaceSubtle,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide(color: tokens.border),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 16),
-                  const Text(
+                  Text(
                     'Select Team Members:',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   StreamBuilder<List<Map<String, dynamic>>>(
@@ -118,7 +163,10 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                     builder: (context, snapshot) {
                       final members = snapshot.data ?? [];
                       if (members.isEmpty) {
-                        return const Text('No colleagues found.', style: TextStyle(color: Colors.grey, fontSize: 12));
+                        return Text(
+                          'No colleagues found.',
+                          style: TextStyle(color: tokens.textMuted, fontSize: 12),
+                        );
                       }
 
                       return ListView.builder(
@@ -136,10 +184,13 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                             contentPadding: EdgeInsets.zero,
                             title: Text(
                               isSelf ? '$mName (You)' : mName,
-                              style: const TextStyle(color: Colors.white, fontSize: 14),
+                              style: TextStyle(
+                                color: tokens.textPrimary,
+                                fontSize: 14,
+                              ),
                             ),
                             value: isChecked,
-                            activeColor: Colors.purpleAccent,
+                            activeColor: tokens.projectAccent,
                             onChanged: isSelf
                                 ? null
                                 : (val) {
@@ -163,13 +214,16 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogCtx),
-              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+              child: Text('Cancel', style: TextStyle(color: tokens.textSecondary)),
             ),
             ElevatedButton(
               onPressed: () async {
                 final name = nameCtrl.text.trim();
                 if (name.isEmpty) {
-                  SnackbarService().showSnackbar('Please enter a project group name.', isError: true);
+                  SnackbarService().showSnackbar(
+                    'Please enter a project group name.',
+                    isError: true,
+                  );
                   return;
                 }
                 Navigator.pop(dialogCtx);
@@ -180,9 +234,22 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                     ownerUid: widget.uid,
                     participantIds: selectedUids.toList(),
                   );
-                  SnackbarService().showSnackbar('Project group "$name" created successfully!');
+                  SnackbarService().showSnackbar(
+                    'Project group "$name" created successfully!',
+                  );
 
-                  if (context.mounted) {
+                  if (widget.onSelectChat != null) {
+                    widget.onSelectChat!(
+                      ActiveChatSelection(
+                        kind: UnifiedChatKind.project,
+                        conversationId: convId,
+                        title: name,
+                        subtitle: 'Project Group',
+                        projectId: convId,
+                        projectOwnerUid: widget.uid,
+                      ),
+                    );
+                  } else if (context.mounted) {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -200,11 +267,14 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                     );
                   }
                 } catch (e) {
-                  SnackbarService().showSnackbar('Error creating project: $e', isError: true);
+                  SnackbarService().showSnackbar(
+                    'Error creating project: $e',
+                    isError: true,
+                  );
                 }
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.purple,
+                backgroundColor: tokens.projectAccent,
                 foregroundColor: Colors.white,
               ),
               child: const Text('Create Project Group'),
@@ -215,10 +285,86 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
     );
   }
 
+  void _openNewActionMenu(BuildContext context, bool isLeadOrAdmin, PcTokens tokens) {
+    if (isLeadOrAdmin) {
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: tokens.surface,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+        ),
+        builder: (ctx) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Wrap(
+              children: [
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: tokens.projectSoft,
+                    child: Icon(
+                      Icons.work_outline_rounded,
+                      color: tokens.projectAccent,
+                      size: 19,
+                    ),
+                  ),
+                  title: Text(
+                    'Create New Project Group',
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'Initiate a project channel for select colleagues',
+                    style: TextStyle(color: tokens.textMuted, fontSize: 12),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showCreateProjectGroupDialog(context);
+                  },
+                ),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: tokens.primarySoft,
+                    child: Icon(
+                      Icons.chat_bubble_outline_rounded,
+                      color: tokens.primary,
+                      size: 19,
+                    ),
+                  ),
+                  title: Text(
+                    'Direct Message a Colleague',
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const UserSearchPage()),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } else {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const UserSearchPage()),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final primaryColor = theme.colorScheme.primary;
+    final tokens = context.pcTokens;
+    final primaryColor = tokens.primary;
+    final paneBg = widget.isEmbeddedPane ? tokens.sidebarBg : tokens.canvas;
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: DBService.instance.streamMember(widget.firm.firmId, widget.uid),
@@ -226,127 +372,122 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
         final memberData = memberSnapshot.data?.data() ?? {};
         final userRole = memberData['role'] as String? ?? 'employee';
         final departmentId = memberData['departmentId'] as String?;
-        final isLeadOrAdmin = userRole == 'lead' || userRole == 'admin' || userRole == 'super_admin';
+        final isLeadOrAdmin = userRole == 'lead' ||
+            userRole == 'admin' ||
+            userRole == 'super_admin';
 
         return Scaffold(
-          backgroundColor: const Color.fromRGBO(28, 27, 27, 1),
+          backgroundColor: paneBg,
           appBar: AppBar(
-            backgroundColor: const Color.fromRGBO(28, 27, 27, 1),
+            backgroundColor: widget.isEmbeddedPane ? tokens.sidebarBg : tokens.surface,
             elevation: 0,
+            bottom: PreferredSize(
+              preferredSize: const Size.fromHeight(1),
+              child: Divider(height: 1, color: tokens.border),
+            ),
             title: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Conversations',
                   style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
+                    color: tokens.textPrimary,
+                    fontSize: widget.isEmbeddedPane ? 16.5 : 19,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 Text(
                   widget.firm.name,
-                  style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: tokens.textMuted, fontSize: 11.5),
                 ),
               ],
             ),
             actions: [
-              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: DBService.instance.streamUnreadMentions(
-                  firmId: widget.firm.firmId,
-                  uid: widget.uid,
-                ),
-                builder: (context, snap) {
-                  final unreadCount = snap.data?.docs.length ?? 0;
-                  return IconButton(
-                    tooltip: 'Mentions Inbox',
-                    icon: Badge(
-                      isLabelVisible: unreadCount > 0,
-                      label: Text('$unreadCount', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-                      backgroundColor: Colors.amber,
-                      textColor: Colors.black,
-                      child: const Icon(Icons.alternate_email, color: Colors.white),
-                    ),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => MentionsScreen(
-                            firmId: widget.firm.firmId,
-                            uid: widget.uid,
-                            userName: widget.userName,
+              if (!widget.isEmbeddedPane)
+                StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: DBService.instance.streamUnreadMentions(
+                    firmId: widget.firm.firmId,
+                    uid: widget.uid,
+                  ),
+                  builder: (context, snap) {
+                    final unreadCount = snap.data?.docs.length ?? 0;
+                    return IconButton(
+                      tooltip: 'Mentions Inbox',
+                      icon: Badge(
+                        isLabelVisible: unreadCount > 0,
+                        label: Text(
+                          '$unreadCount',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                      );
-                    },
-                  );
-                },
-              ),
+                        backgroundColor: tokens.warningAccent,
+                        textColor: Colors.white,
+                        child: Icon(
+                          Icons.alternate_email_rounded,
+                          color: tokens.textSecondary,
+                        ),
+                      ),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => MentionsScreen(
+                              firmId: widget.firm.firmId,
+                              uid: widget.uid,
+                              userName: widget.userName,
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
               IconButton(
-                icon: const Icon(Icons.search, color: Colors.white),
-                tooltip: 'Search messages or people',
+                icon: Icon(
+                  widget.isEmbeddedPane ? Icons.edit_square : Icons.search_rounded,
+                  color: tokens.textSecondary,
+                  size: widget.isEmbeddedPane ? 20 : 22,
+                ),
+                tooltip: widget.isEmbeddedPane
+                    ? 'New conversation or project'
+                    : 'Search messages or people',
                 onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const UserSearchPage()),
-                  );
+                  if (widget.isEmbeddedPane) {
+                    _openNewActionMenu(context, isLeadOrAdmin, tokens);
+                  } else {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const UserSearchPage()),
+                    );
+                  }
                 },
               ),
+              const SizedBox(width: 4),
             ],
           ),
-          floatingActionButton: FloatingActionButton(
-            backgroundColor: isLeadOrAdmin ? Colors.purple : primaryColor,
-            foregroundColor: Colors.white,
-            tooltip: isLeadOrAdmin ? 'New conversation or project' : 'New conversation',
-            child: Icon(isLeadOrAdmin ? Icons.add : Icons.chat),
-            onPressed: () {
-              if (isLeadOrAdmin) {
-                showModalBottomSheet(
-                  context: context,
-                  backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
-                  shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                  ),
-                  builder: (ctx) => SafeArea(
-                    child: Wrap(
-                      children: [
-                        ListTile(
-                          leading: const Icon(Icons.work_outline, color: Colors.purpleAccent),
-                          title: const Text('Create New Project Group', style: TextStyle(color: Colors.white)),
-                          subtitle: const Text('Initiate a project channel for select colleagues', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            _showCreateProjectGroupDialog(context);
-                          },
-                        ),
-                        ListTile(
-                          leading: Icon(Icons.chat_bubble_outline, color: primaryColor),
-                          title: const Text('Direct Message a Colleague', style: TextStyle(color: Colors.white)),
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (_) => const UserSearchPage()),
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              } else {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const UserSearchPage()),
-                );
-              }
-            },
-          ),
+          floatingActionButton: widget.isEmbeddedPane
+              ? null
+              : FloatingActionButton(
+                  backgroundColor: isLeadOrAdmin ? tokens.projectAccent : primaryColor,
+                  foregroundColor: Colors.white,
+                  elevation: 2,
+                  tooltip: isLeadOrAdmin
+                      ? 'New conversation or project'
+                      : 'New conversation',
+                  child: Icon(isLeadOrAdmin ? Icons.add_rounded : Icons.chat_rounded),
+                  onPressed: () => _openNewActionMenu(context, isLeadOrAdmin, tokens),
+                ),
           body: StreamBuilder<QuerySnapshot>(
             stream: DBService.instance.streamConversations(widget.uid),
             builder: (context, directSnapshot) {
               if (directSnapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
+                return Center(
+                  child: CircularProgressIndicator(color: primaryColor),
+                );
               }
 
               final directDocs = directSnapshot.data?.docs ?? [];
@@ -354,9 +495,12 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                   ? directDocs
                   : directDocs.where((doc) {
                       final data = doc.data() as Map<String, dynamic>;
-                      final String otherName = (data['name'] as String? ?? '').toLowerCase();
-                      final String lastMessage = (data['lastMessage'] as String? ?? '').toLowerCase();
-                      return otherName.contains(_searchQuery) || lastMessage.contains(_searchQuery);
+                      final String otherName =
+                          (data['name'] as String? ?? '').toLowerCase();
+                      final String lastMessage =
+                          (data['lastMessage'] as String? ?? '').toLowerCase();
+                      return otherName.contains(_searchQuery) ||
+                          lastMessage.contains(_searchQuery);
                     }).toList();
 
               final showAllStaff = _searchQuery.isEmpty ||
@@ -365,70 +509,107 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                   'official firm updates'.contains(_searchQuery);
               final showDept = _searchQuery.isEmpty ||
                   'department'.contains(_searchQuery) ||
-                  (departmentId != null && departmentId.toLowerCase().contains(_searchQuery));
+                  (departmentId != null &&
+                      departmentId.toLowerCase().contains(_searchQuery));
               final showGeneral = _searchQuery.isEmpty ||
                   'general team chat'.contains(_searchQuery) ||
                   'open discussion'.contains(_searchQuery);
 
               return ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: EdgeInsets.symmetric(
+                  horizontal: widget.isEmbeddedPane ? 10 : 16,
+                  vertical: 10,
+                ),
                 children: [
-                  // ── Client-Side In-Memory Filter Bar ────────────────────
+                  // Filter Input
                   Container(
                     margin: const EdgeInsets.only(bottom: 12),
                     decoration: BoxDecoration(
-                      color: const Color.fromRGBO(34, 33, 33, 1),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.white.withOpacity(0.06)),
+                      color: tokens.surface,
+                      borderRadius: BorderRadius.circular(11),
+                      border: Border.all(color: tokens.border),
                     ),
                     child: TextField(
                       controller: _searchController,
-                      onChanged: (val) => setState(() => _searchQuery = val.trim().toLowerCase()),
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      onChanged: (val) =>
+                          setState(() => _searchQuery = val.trim().toLowerCase()),
+                      style: TextStyle(color: tokens.textPrimary, fontSize: 13.5),
                       decoration: InputDecoration(
-                        hintText: 'Filter conversations by name...',
-                        hintStyle: TextStyle(color: Colors.grey[500], fontSize: 13),
-                        prefixIcon: const Icon(Icons.filter_list, color: Colors.grey, size: 20),
+                        hintText: 'Filter conversations...',
+                        hintStyle: TextStyle(color: tokens.textMuted, fontSize: 13),
+                        prefixIcon: Icon(
+                          Icons.search_rounded,
+                          color: tokens.textMuted,
+                          size: 18,
+                        ),
                         suffixIcon: _searchQuery.isNotEmpty
                             ? IconButton(
-                                icon: const Icon(Icons.clear, color: Colors.grey, size: 16),
+                                icon: Icon(
+                                  Icons.clear_rounded,
+                                  color: tokens.textMuted,
+                                  size: 16,
+                                ),
                                 onPressed: () {
                                   _searchController.clear();
                                   setState(() => _searchQuery = '');
                                 },
                               )
                             : null,
+                        filled: false,
                         border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                       ),
                     ),
                   ),
 
-                  // ── Role Upgrade Banner ───────────────────────────────────
-                  if (userRole == 'lead' && _searchQuery.isEmpty)
+                  // Lead Role Banner
+                  if (userRole == 'lead' &&
+                      _searchQuery.isEmpty &&
+                      !widget.isEmbeddedPane)
                     Container(
                       margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
-                        color: Colors.purple.withOpacity(0.12),
+                        color: tokens.projectSoft,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.purpleAccent.withOpacity(0.3)),
+                        border: Border.all(
+                          color: tokens.projectAccent.withValues(alpha: 0.25),
+                        ),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.star, color: Colors.purpleAccent, size: 20),
+                          Icon(
+                            Icons.star_rounded,
+                            color: tokens.projectAccent,
+                            size: 20,
+                          ),
                           const SizedBox(width: 10),
-                          const Expanded(
+                          Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   'Lead Role Active',
-                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                  style: TextStyle(
+                                    color: tokens.textPrimary,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                  ),
                                 ),
                                 Text(
-                                  'You can manage project groups and post in #all-staff. (Restart app if privileges newly granted)',
-                                  style: TextStyle(color: Colors.grey, fontSize: 11),
+                                  'You can manage project groups and post in #all-staff.',
+                                  style: TextStyle(
+                                    color: tokens.textSecondary,
+                                    fontSize: 11.5,
+                                  ),
                                 ),
                               ],
                             ),
@@ -437,56 +618,51 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                       ),
                     ),
 
-                  // ── CHANNELS SECTION ─────────────────────────────────────
+                  // CHANNELS SECTION
                   if (showAllStaff || showDept || showGeneral) ...[
-                    const Padding(
-                      padding: EdgeInsets.only(top: 4, bottom: 8, left: 4),
-                      child: Text(
-                        'Company Channels',
-                        style: TextStyle(
-                          color: Colors.grey,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
+                    _SectionHeader(
+                      label: 'COMPANY CHANNELS',
+                      tokens: tokens,
                     ),
                     if (showAllStaff) ...[
-                      _buildAllStaffChannelTile(context, primaryColor, userRole),
-                      const SizedBox(height: 8),
+                      _buildAllStaffChannelTile(context, tokens),
+                      const SizedBox(height: 6),
                     ],
                     if (showDept) ...[
-                      _buildDepartmentChannelTile(context, primaryColor, departmentId),
-                      const SizedBox(height: 8),
+                      _buildDepartmentChannelTile(context, tokens, departmentId),
+                      const SizedBox(height: 6),
                     ],
-                    if (showGeneral)
-                      _buildPinnedTile(context, primaryColor),
+                    if (showGeneral) _buildGeneralTile(context, tokens),
                   ],
 
-                  // ── PROJECT GROUPS SECTION ───────────────────────────────
+                  // PROJECT GROUPS SECTION
                   Padding(
-                    padding: const EdgeInsets.only(top: 18, bottom: 8, left: 4),
+                    padding: const EdgeInsets.only(top: 16, bottom: 6, left: 4, right: 4),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Project Groups',
+                        Text(
+                          'PROJECT GROUPS',
                           style: TextStyle(
-                            color: Colors.grey,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.5,
+                            color: tokens.textMuted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.6,
                           ),
                         ),
                         if (isLeadOrAdmin)
-                          GestureDetector(
+                          InkWell(
                             onTap: () => _showCreateProjectGroupDialog(context),
-                            child: const Text(
-                              '+ New Project',
-                              style: TextStyle(
-                                color: Colors.purpleAccent,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
+                            borderRadius: BorderRadius.circular(6),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                              child: Text(
+                                '+ New',
+                                style: TextStyle(
+                                  color: tokens.projectAccent,
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           ),
@@ -494,46 +670,47 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                     ),
                   ),
 
-                  _buildProjectGroupsList(context, primaryColor, searchQuery: _searchQuery),
+                  _buildProjectGroupsList(context, tokens, searchQuery: _searchQuery),
 
-                  // ── DIRECT MESSAGES SECTION ──────────────────────────────
-                  const Padding(
-                    padding: EdgeInsets.only(top: 18, bottom: 8, left: 4),
-                    child: Text(
-                      'Direct Messages',
-                      style: TextStyle(
-                        color: Colors.grey,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.5,
-                      ),
+                  // DIRECT MESSAGES SECTION
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16, bottom: 6),
+                    child: _SectionHeader(
+                      label: 'DIRECT MESSAGES',
+                      tokens: tokens,
                     ),
                   ),
 
                   if (filteredDirect.isEmpty)
                     _searchQuery.isNotEmpty
                         ? Container(
-                            padding: const EdgeInsets.all(16),
+                            padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
-                              color: const Color.fromRGBO(34, 33, 33, 1),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: Colors.white.withOpacity(0.04)),
+                              color: tokens.surface,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: tokens.border),
                             ),
                             child: Center(
                               child: Text(
                                 'No direct conversations matching "$_searchQuery".',
-                                style: const TextStyle(color: Colors.grey, fontSize: 12),
+                                style: TextStyle(
+                                  color: tokens.textMuted,
+                                  fontSize: 12,
+                                ),
                               ),
                             ),
                           )
-                        : _buildEmptyState(context, primaryColor)
+                        : _buildEmptyState(context, tokens)
                   else
                     ...filteredDirect.map((doc) {
                       final data = doc.data() as Map<String, dynamic>;
-                      final String otherName = data['name'] as String? ?? 'Colleague';
+                      final String otherName =
+                          data['name'] as String? ?? 'Colleague';
                       final String otherImage = data['image'] as String? ?? '';
-                      final String lastMessage = data['lastMessage'] as String? ?? '';
-                      final int unseenCount = (data['unseenCount'] as num?)?.toInt() ?? 0;
+                      final String lastMessage =
+                          data['lastMessage'] as String? ?? '';
+                      final int unseenCount =
+                          (data['unseenCount'] as num?)?.toInt() ?? 0;
                       final Timestamp? ts = data['timestamp'] as Timestamp?;
                       final String chatId = data['chatId'] as String? ?? doc.id;
                       final String otherUserId = _otherUid(chatId, widget.uid);
@@ -547,9 +724,10 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                         lastMessage: lastMessage,
                         unseenCount: unseenCount,
                         ts: ts,
-                        primaryColor: primaryColor,
+                        tokens: tokens,
                       );
                     }),
+                  const SizedBox(height: 24),
                 ],
               );
             },
@@ -559,94 +737,118 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
     );
   }
 
-  /// Pinned #all-staff Channel Tile
-  Widget _buildAllStaffChannelTile(BuildContext context, Color primaryColor, String userRole) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color.fromRGBO(34, 33, 33, 1),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.blueAccent.withOpacity(0.2)),
-      ),
+  Widget _buildAllStaffChannelTile(BuildContext context, PcTokens tokens) {
+    final selected = _isSelected(UnifiedChatKind.allStaff, 'all_staff');
+
+    return _SidebarTileContainer(
+      selected: selected,
+      tokens: tokens,
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+        dense: widget.isEmbeddedPane,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
         leading: CircleAvatar(
-          radius: 20,
-          backgroundColor: Colors.blueAccent.withOpacity(0.2),
-          child: const Icon(Icons.campaign, color: Colors.blueAccent, size: 20),
+          radius: 18,
+          backgroundColor: tokens.infoSoft,
+          child: Icon(Icons.campaign_rounded, color: tokens.infoAccent, size: 18),
         ),
         title: Row(
           children: [
-            const Text(
-              '#all-staff',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15),
+            Flexible(
+              child: Text(
+                '#all-staff',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: selected ? tokens.primary : tokens.textPrimary,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
+              ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
               decoration: BoxDecoration(
-                color: Colors.blueAccent.withOpacity(0.15),
+                color: tokens.infoSoft,
                 borderRadius: BorderRadius.circular(4),
               ),
-              child: const Text(
-                'COMPANY-WIDE',
-                style: TextStyle(color: Colors.blueAccent, fontSize: 9, fontWeight: FontWeight.bold),
+              child: Text(
+                'COMPANY',
+                style: TextStyle(
+                  color: tokens.infoAccent,
+                  fontSize: 8.5,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           ],
         ),
-        subtitle: const Text(
-          'Official firm updates & notices (Admins & Leads post)',
+        subtitle: Text(
+          'Official firm updates & notices',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(color: Colors.grey, fontSize: 12),
+          style: TextStyle(color: tokens.textMuted, fontSize: 11.5),
         ),
-        trailing: const Icon(Icons.chevron_right, color: Colors.grey),
         onTap: () async {
           await DBService.instance.ensureAllStaffChannel(widget.firm.firmId);
-          if (context.mounted) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => ChannelChatScreen(
-                  channelType: ChannelType.allStaff,
-                  firmId: widget.firm.firmId,
-                  conversationId: 'all_staff',
-                  title: '#all-staff',
-                  subtitle: 'Official announcements',
-                  uid: widget.uid,
-                  userName: widget.userName,
-                ),
-              ),
-            );
+          if (!context.mounted) return;
+          if (widget.onSelectChat != null) {
+            widget.onSelectChat!(ActiveChatSelection.allStaff());
+            return;
           }
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ChannelChatScreen(
+                channelType: ChannelType.allStaff,
+                firmId: widget.firm.firmId,
+                conversationId: 'all_staff',
+                title: '#all-staff',
+                subtitle: 'Official announcements',
+                uid: widget.uid,
+                userName: widget.userName,
+              ),
+            ),
+          );
         },
       ),
     );
   }
 
-  /// Department Channel Tile (Derived access)
-  Widget _buildDepartmentChannelTile(BuildContext context, Color primaryColor, String? departmentId) {
+  Widget _buildDepartmentChannelTile(
+    BuildContext context,
+    PcTokens tokens,
+    String? departmentId,
+  ) {
     if (departmentId == null || departmentId.isEmpty) {
-      return Container(
-        decoration: BoxDecoration(
-          color: const Color.fromRGBO(34, 33, 33, 1),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white.withOpacity(0.05)),
-        ),
+      return _SidebarTileContainer(
+        selected: false,
+        tokens: tokens,
         child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+          dense: widget.isEmbeddedPane,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
           leading: CircleAvatar(
-            radius: 20,
-            backgroundColor: Colors.grey.withOpacity(0.15),
-            child: const Icon(Icons.corporate_fare_outlined, color: Colors.grey, size: 20),
+            radius: 18,
+            backgroundColor: tokens.surfaceSubtle,
+            child: Icon(
+              Icons.corporate_fare_outlined,
+              color: tokens.textMuted,
+              size: 18,
+            ),
           ),
-          title: const Text(
+          title: Text(
             'Department Chat',
-            style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600, fontSize: 15),
+            style: TextStyle(
+              color: tokens.textSecondary,
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
           ),
-          subtitle: const Text(
-            'No department assigned yet by administrator',
-            style: TextStyle(color: Colors.grey, fontSize: 12),
+          subtitle: Text(
+            'No department assigned yet',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: tokens.textMuted, fontSize: 11.5),
           ),
         ),
       );
@@ -660,39 +862,26 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
           .doc(departmentId)
           .snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-          return Container(
-            margin: const EdgeInsets.symmetric(vertical: 2),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color.fromRGBO(34, 33, 33, 1),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Center(
-              child: SizedBox(
-                height: 20,
-                width: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-          );
-        }
         final data = snapshot.data?.data() ?? {};
         final name = data['name'] as String? ?? 'Department Chat';
         final convId = data['conversationId'] as String?;
+        final selected =
+            convId != null && _isSelected(UnifiedChatKind.department, convId);
 
-        return Container(
-          decoration: BoxDecoration(
-            color: const Color.fromRGBO(34, 33, 33, 1),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: primaryColor.withOpacity(0.2)),
-          ),
+        return _SidebarTileContainer(
+          selected: selected,
+          tokens: tokens,
           child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+            dense: widget.isEmbeddedPane,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
             leading: CircleAvatar(
-              radius: 20,
-              backgroundColor: primaryColor.withOpacity(0.2),
-              child: Icon(Icons.corporate_fare, color: primaryColor, size: 20),
+              radius: 18,
+              backgroundColor: tokens.primarySoft,
+              child: Icon(
+                Icons.corporate_fare_rounded,
+                color: tokens.primary,
+                size: 18,
+              ),
             ),
             title: Row(
               children: [
@@ -701,30 +890,51 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                     name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 15),
+                    style: TextStyle(
+                      color: selected ? tokens.primary : tokens.textPrimary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                   decoration: BoxDecoration(
-                    color: primaryColor.withOpacity(0.15),
+                    color: tokens.primarySoft,
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    'DEPARTMENT',
-                    style: TextStyle(color: primaryColor, fontSize: 9, fontWeight: FontWeight.bold),
+                    'DEPT',
+                    style: TextStyle(
+                      color: tokens.primary,
+                      fontSize: 8.5,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               ],
             ),
-            subtitle: const Text(
+            subtitle: Text(
               'Your team department channel',
-              style: TextStyle(color: Colors.grey, fontSize: 12),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: tokens.textMuted, fontSize: 11.5),
             ),
-            trailing: const Icon(Icons.chevron_right, color: Colors.grey),
             onTap: (convId != null && convId.isNotEmpty)
                 ? () {
+                    if (widget.onSelectChat != null) {
+                      widget.onSelectChat!(
+                        ActiveChatSelection(
+                          kind: UnifiedChatKind.department,
+                          conversationId: convId,
+                          title: name,
+                          subtitle: 'Department Channel',
+                          departmentId: departmentId,
+                        ),
+                      );
+                      return;
+                    }
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -748,26 +958,104 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
     );
   }
 
-  /// Project Groups List
-  Widget _buildProjectGroupsList(BuildContext context, Color primaryColor, {String searchQuery = ''}) {
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: DBService.instance.streamProjectConversationsForUser(widget.firm.firmId, widget.uid),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
-            child: Center(
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.purpleAccent),
+  Widget _buildGeneralTile(BuildContext context, PcTokens tokens) {
+    final selected = _isSelected(UnifiedChatKind.general, widget.firm.firmId);
+
+    return _SidebarTileContainer(
+      selected: selected,
+      tokens: tokens,
+      child: ListTile(
+        dense: widget.isEmbeddedPane,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+        leading: CircleAvatar(
+          radius: 18,
+          backgroundColor: tokens.primarySoft,
+          child: Icon(Icons.tag_rounded, color: tokens.primary, size: 18),
+        ),
+        title: Row(
+          children: [
+            Flexible(
+              child: Text(
+                'General Team Chat',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: selected ? tokens.primary : tokens.textPrimary,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+              decoration: BoxDecoration(
+                color: tokens.primarySoft,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                'OPEN',
+                style: TextStyle(
+                  color: tokens.primary,
+                  fontSize: 8.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        ),
+        subtitle: Text(
+          'Workspace-wide open discussion',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: tokens.textMuted, fontSize: 11.5),
+        ),
+        onTap: () {
+          if (widget.onSelectChat != null) {
+            widget.onSelectChat!(
+              ActiveChatSelection.general(widget.firm.firmId, widget.firm.name),
+            );
+            return;
+          }
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => FirmChatScreen(
+                firmId: widget.firm.firmId,
+                uid: widget.uid,
+                name: widget.userName,
               ),
             ),
           );
-        }
+        },
+      ),
+    );
+  }
 
-        if (snapshot.hasError) {
-          debugPrint('⚠️ Error streaming project groups: ${snapshot.error}');
+  Widget _buildProjectGroupsList(
+    BuildContext context,
+    PcTokens tokens, {
+    String searchQuery = '',
+  }) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: DBService.instance
+          .streamProjectConversationsForUser(widget.firm.firmId, widget.uid),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: tokens.projectAccent,
+                ),
+              ),
+            ),
+          );
         }
 
         var projects = snapshot.data ?? [];
@@ -781,18 +1069,18 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
 
         if (projects.isEmpty) {
           return Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color.fromRGBO(34, 33, 33, 1),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.white.withOpacity(0.04)),
+              color: tokens.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: tokens.border),
             ),
             child: Center(
               child: Text(
                 searchQuery.isNotEmpty
                     ? 'No project groups matching "$searchQuery".'
-                    : 'You are not a participant of any project groups yet.',
-                style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    : 'No active project groups yet.',
+                style: TextStyle(color: tokens.textMuted, fontSize: 12),
               ),
             ),
           );
@@ -804,53 +1092,56 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
             final name = proj['name'] as String? ?? 'Project';
             final lastMsg = proj['lastMessage'] as String? ?? '';
             final ownerUid = proj['ownerUid'] as String? ?? '';
+            final selected = _isSelected(UnifiedChatKind.project, convId);
 
             return Padding(
               padding: const EdgeInsets.only(bottom: 6),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: const Color.fromRGBO(34, 33, 33, 1),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.purple.withOpacity(0.18)),
-                ),
+              child: _SidebarTileContainer(
+                selected: selected,
+                tokens: tokens,
                 child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                  dense: widget.isEmbeddedPane,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
                   leading: CircleAvatar(
-                    radius: 20,
-                    backgroundColor: Colors.purple.withOpacity(0.2),
-                    child: const Icon(Icons.work_outline, color: Colors.purpleAccent, size: 20),
+                    radius: 18,
+                    backgroundColor: tokens.projectSoft,
+                    child: Icon(
+                      Icons.work_outline_rounded,
+                      color: tokens.projectAccent,
+                      size: 18,
+                    ),
                   ),
-                  title: Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          name,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.purple.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const Text(
-                          'PROJECT',
-                          style: TextStyle(color: Colors.purpleAccent, fontSize: 9, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ],
+                  title: Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: selected ? tokens.projectAccent : tokens.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
                   ),
                   subtitle: Text(
                     lastMsg.isNotEmpty ? lastMsg : 'No messages yet',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                    style: TextStyle(color: tokens.textMuted, fontSize: 11.5),
                   ),
-                  trailing: const Icon(Icons.chevron_right, color: Colors.grey),
                   onTap: () {
+                    if (widget.onSelectChat != null) {
+                      widget.onSelectChat!(
+                        ActiveChatSelection(
+                          kind: UnifiedChatKind.project,
+                          conversationId: convId,
+                          title: name,
+                          subtitle: 'Project Group',
+                          projectId: convId,
+                          projectOwnerUid: ownerUid,
+                        ),
+                      );
+                      return;
+                    }
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -877,71 +1168,6 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
     );
   }
 
-  Widget _buildPinnedTile(BuildContext context, Color primaryColor) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color.fromRGBO(36, 35, 35, 1),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: primaryColor.withOpacity(0.25), width: 1.2),
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-        leading: CircleAvatar(
-          radius: 20,
-          backgroundColor: primaryColor.withOpacity(0.2),
-          child: Icon(Icons.tag, color: primaryColor, size: 20),
-        ),
-        title: Row(
-          children: [
-            const Text(
-              'General Team Chat',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                fontSize: 15,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: primaryColor.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                'OPEN',
-                style: TextStyle(
-                  color: primaryColor,
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
-        ),
-        subtitle: const Text(
-          'Workspace-wide open discussion',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(color: Colors.grey, fontSize: 12),
-        ),
-        trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => FirmChatScreen(
-                firmId: widget.firm.firmId,
-                uid: widget.uid,
-                name: widget.userName,
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
   Widget _buildConversationTile({
     required BuildContext context,
     required String chatId,
@@ -952,31 +1178,31 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
     required int unseenCount,
     bool hasMention = false,
     required Timestamp? ts,
-    required Color primaryColor,
+    required PcTokens tokens,
   }) {
+    final selected = _isSelected(UnifiedChatKind.direct, chatId);
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color.fromRGBO(34, 33, 33, 1),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white.withOpacity(0.04)),
-        ),
+      padding: const EdgeInsets.only(bottom: 6),
+      child: _SidebarTileContainer(
+        selected: selected,
+        tokens: tokens,
         child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+          dense: widget.isEmbeddedPane,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
           leading: Stack(
             children: [
               CircleAvatar(
-                radius: 22,
-                backgroundColor: primaryColor.withOpacity(0.25),
+                radius: 20,
+                backgroundColor: tokens.primarySoft,
                 backgroundImage: image.isNotEmpty ? NetworkImage(image) : null,
                 child: image.isEmpty
                     ? Text(
                         name.isNotEmpty ? name[0].toUpperCase() : '?',
                         style: TextStyle(
-                          color: primaryColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
+                          color: tokens.primary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
                         ),
                       )
                     : null,
@@ -985,27 +1211,21 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                 right: 0,
                 bottom: 0,
                 child: StreamBuilder<UserPresence?>(
-                  stream: DBService.instance.streamPresence(widget.firm.firmId, otherUserId),
+                  stream: DBService.instance
+                      .streamPresence(widget.firm.firmId, otherUserId),
                   builder: (context, presSnap) {
                     final isOnline = presSnap.data?.isOnline == true;
                     if (!isOnline) return const SizedBox.shrink();
                     return Container(
-                      width: 12,
-                      height: 12,
+                      width: 11,
+                      height: 11,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF00E676),
+                        color: tokens.online,
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: const Color.fromRGBO(34, 33, 33, 1),
+                          color: tokens.surface,
                           width: 2.0,
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF00E676).withOpacity(0.85),
-                            blurRadius: 4,
-                            spreadRadius: 0.5,
-                          ),
-                        ],
                       ),
                     );
                   },
@@ -1015,31 +1235,32 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
           ),
           title: Text(
             name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: Colors.white,
-              fontWeight: unseenCount > 0 ? FontWeight.w700 : FontWeight.w500,
-              fontSize: 15,
+              color: selected ? tokens.primary : tokens.textPrimary,
+              fontWeight:
+                  unseenCount > 0 || selected ? FontWeight.w700 : FontWeight.w600,
+              fontSize: 14,
             ),
           ),
           subtitle: StreamBuilder<List<TypingIndicatorStatus>>(
-            stream: DBService.instance.streamTyping(
-              conversationId: chatId,
-            ),
+            stream: DBService.instance.streamTyping(conversationId: chatId),
             builder: (context, typeSnap) {
               final isTyping = (typeSnap.data ?? [])
                   .any((t) => t.uid != widget.uid && t.isActive);
               if (isTyping) {
-                return const Row(
+                return Row(
                   children: [
-                    BouncingDots(color: Color(0xFF00E5FF), dotSize: 3.5),
-                    SizedBox(width: 5),
+                    BouncingDots(color: tokens.primary, dotSize: 3.5),
+                    const SizedBox(width: 5),
                     Text(
                       'typing...',
                       style: TextStyle(
-                        color: Color(0xFF00E5FF),
+                        color: tokens.primary,
                         fontWeight: FontWeight.w600,
                         fontStyle: FontStyle.italic,
-                        fontSize: 13,
+                        fontSize: 12,
                       ),
                     ),
                   ],
@@ -1050,9 +1271,10 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: unseenCount > 0 ? Colors.white70 : Colors.grey[500],
-                  fontWeight: unseenCount > 0 ? FontWeight.w600 : FontWeight.normal,
-                  fontSize: 13,
+                  color: unseenCount > 0 ? tokens.textPrimary : tokens.textMuted,
+                  fontWeight:
+                      unseenCount > 0 ? FontWeight.w600 : FontWeight.normal,
+                  fontSize: 12,
                 ),
               );
             },
@@ -1064,8 +1286,10 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
               Text(
                 _formatTimestamp(ts),
                 style: TextStyle(
-                  color: unseenCount > 0 ? primaryColor : Colors.grey[600],
-                  fontSize: 11,
+                  color: unseenCount > 0 ? tokens.primary : tokens.textMuted,
+                  fontSize: 10.5,
+                  fontWeight:
+                      unseenCount > 0 ? FontWeight.w700 : FontWeight.normal,
                 ),
               ),
               const SizedBox(height: 4),
@@ -1075,15 +1299,16 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                   if (hasMention)
                     Container(
                       margin: const EdgeInsets.only(right: 4),
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                       decoration: BoxDecoration(
-                        color: Colors.amber,
+                        color: tokens.warningSoft,
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      child: const Text(
+                      child: Text(
                         '@',
                         style: TextStyle(
-                          color: Colors.black,
+                          color: tokens.warningAccent,
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
                         ),
@@ -1091,27 +1316,40 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
                     ),
                   if (unseenCount > 0)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 6.5, vertical: 1.5),
                       decoration: BoxDecoration(
-                        color: primaryColor,
+                        color: tokens.primary,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
                         unseenCount > 99 ? '99+' : '$unseenCount',
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: tokens.onPrimary,
                           fontSize: 10,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                     )
                   else if (!hasMention)
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 15),
                 ],
               ),
             ],
           ),
           onTap: () {
+            if (widget.onSelectChat != null) {
+              widget.onSelectChat!(
+                ActiveChatSelection(
+                  kind: UnifiedChatKind.direct,
+                  conversationId: chatId,
+                  title: name,
+                  otherUserId: otherUserId,
+                  otherUserImage: image,
+                ),
+              );
+              return;
+            }
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -1131,47 +1369,55 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
     );
   }
 
-  Widget _buildEmptyState(BuildContext context, Color primaryColor) {
+  Widget _buildEmptyState(BuildContext context, PcTokens tokens) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
-      margin: const EdgeInsets.only(top: 12),
+      padding: EdgeInsets.symmetric(
+        vertical: widget.isEmbeddedPane ? 24 : 34,
+        horizontal: 16,
+      ),
+      margin: const EdgeInsets.only(top: 6),
       decoration: BoxDecoration(
-        color: const Color.fromRGBO(34, 33, 33, 1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        color: tokens.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: tokens.border),
       ),
       child: Column(
         children: [
           CircleAvatar(
-            radius: 28,
-            backgroundColor: primaryColor.withOpacity(0.15),
-            child: Icon(Icons.people_outline, color: primaryColor, size: 28),
+            radius: 24,
+            backgroundColor: tokens.primarySoft,
+            child: Icon(Icons.people_outline_rounded, color: tokens.primary, size: 24),
           ),
-          const SizedBox(height: 16),
-          const Text(
+          const SizedBox(height: 12),
+          Text(
             'No Direct Chats Yet',
             style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
+              color: tokens.textPrimary,
+              fontSize: 14.5,
+              fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Text(
-            'Message a colleague from your firm or reach out on #all-staff or Team Chat.',
+            'Message a colleague from your firm or join #all-staff.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey[400], fontSize: 13),
+            style: TextStyle(color: tokens.textMuted, fontSize: 12),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 14),
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
-              backgroundColor: primaryColor,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              backgroundColor: tokens.primary,
+              foregroundColor: tokens.onPrimary,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
-            icon: const Icon(Icons.add_comment, size: 18),
-            label: const Text('Start New Conversation'),
+            icon: const Icon(Icons.add_comment_rounded, size: 16),
+            label: const Text(
+              'Start Conversation',
+              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+            ),
             onPressed: () {
               Navigator.push(
                 context,
@@ -1181,6 +1427,56 @@ class _EmployeeChatsTabState extends State<EmployeeChatsTab> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String label;
+  final PcTokens tokens;
+
+  const _SectionHeader({required this.label, required this.tokens});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 6, left: 4),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: tokens.textMuted,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.6,
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarTileContainer extends StatelessWidget {
+  final bool selected;
+  final PcTokens tokens;
+  final Widget child;
+
+  const _SidebarTileContainer({
+    required this.selected,
+    required this.tokens,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: selected ? tokens.primarySoft : tokens.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: selected ? tokens.primaryBorder : tokens.border,
+          width: selected ? 1.2 : 1.0,
+        ),
+      ),
+      child: child,
     );
   }
 }

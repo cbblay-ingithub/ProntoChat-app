@@ -17,6 +17,7 @@ import '../../../services/audit_service.dart';
 import '../../../services/csv_upload_service.dart';
 import '../../../services/db_service.dart';
 import '../../../services/snackbar_service.dart';
+import '../../../theme/pc_tokens.dart';
 
 /// Unified representation of a staff member across both active/revoked memberships
 /// and pre-authorized invitation codes.
@@ -30,7 +31,8 @@ class UnifiedStaffItem {
   final String email;
   final String role; // 'admin', 'lead', 'employee'
   final String? departmentId;
-  final String status; // 'active', 'code_pending', 'invited', 'pending_approval', 'revoked', 'rejected'
+  final String
+      status; // 'active', 'code_pending', 'invited', 'pending_approval', 'revoked', 'rejected'
   final String? code;
   final DateTime? codeExpiresAt;
   final DateTime? createdAt;
@@ -69,23 +71,19 @@ class OnboardingTab extends ConsumerStatefulWidget {
 }
 
 class _OnboardingTabState extends ConsumerState<OnboardingTab> {
-  // Current tab filter: 'all', 'active', 'pending', 'revoked'
+  static const Color _emerald = Color(0xFF059669);
+
   late String _activeFilter;
   String _searchQuery = '';
   String? _selectedDeptFilter;
 
-  // Multi-select for active staff bulk actions
   final Set<String> _selectedActiveUids = {};
-
-  // Action loading tracker
   final Map<String, bool> _actionLoading = {};
 
-  // Copy feedback state
   bool _copiedFirmId = false;
   bool _copiedInviteLink = false;
   final Set<String> _copiedCodes = {};
 
-  // CSV Import Modal / Stepper State
   bool _showCsvStepper = false;
   int _csvStep = 0;
   List<Map<String, dynamic>> _csvParsedStaff = [];
@@ -104,14 +102,18 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
   @override
   void didUpdateWidget(covariant OnboardingTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.initialFilter != null && widget.initialFilter != oldWidget.initialFilter) {
+    if (widget.initialFilter != null &&
+        widget.initialFilter != oldWidget.initialFilter) {
       setState(() {
         _activeFilter = widget.initialFilter!;
       });
     }
   }
 
-  Color _hexToColor(String hexString, [Color fallback = const Color(0xFF295CB4)]) {
+  Color _hexToColor(
+    String hexString, [
+    Color fallback = PcTokens.defaultBrandBlue,
+  ]) {
     try {
       String clean = hexString.toUpperCase().replaceAll('#', '');
       if (clean.length == 6) clean = 'FF$clean';
@@ -123,14 +125,52 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
     return fallback;
   }
 
+  Widget _styledDropdown<T>({
+    required PcTokens tokens,
+    required T value,
+    required List<DropdownMenuItem<T>> items,
+    required ValueChanged<T?> onChanged,
+    String? label,
+  }) {
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: label,
+        filled: true,
+        fillColor: tokens.surfaceSubtle,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: tokens.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: tokens.border),
+        ),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<T>(
+          value: value,
+          isExpanded: true,
+          dropdownColor: tokens.surface,
+          style: TextStyle(color: tokens.textPrimary, fontSize: 13.5),
+          icon: Icon(Icons.arrow_drop_down, color: tokens.textSecondary),
+          items: items,
+          onChanged: onChanged,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final tokens = context.pcTokens;
     final firm = ref.watch(currentFirmProvider);
     if (firm == null) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(child: CircularProgressIndicator(color: tokens.primary));
     }
 
-    final primaryColor = _hexToColor(firm.primaryColor);
+    final activeAccent =
+        PcTokens.readableAccentOnLight(_hexToColor(firm.primaryColor));
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -138,22 +178,41 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
 
         return SingleChildScrollView(
           padding: EdgeInsets.all(isMobile ? 14 : 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // 1. Header: Quick Join / QR Code & Manual Firm ID
-              _buildOnboardingHeaderCard(context, firm, primaryColor, isMobile),
-              const SizedBox(height: 18),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1440),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildOnboardingHeaderCard(
+                    tokens,
+                    firm,
+                    activeAccent,
+                    isMobile,
+                  ),
+                  const SizedBox(height: 18),
 
-              // 2. CSV Bulk Import Section (Collapsible Stepper)
-              if (_showCsvStepper) ...[
-                _buildCsvStepperCard(context, firm, primaryColor, isMobile),
-                const SizedBox(height: 18),
-              ],
+                  if (_showCsvStepper) ...[
+                    _buildCsvStepperCard(
+                      context,
+                      tokens,
+                      firm,
+                      activeAccent,
+                      isMobile,
+                    ),
+                    const SizedBox(height: 18),
+                  ],
 
-              // 3. Unified Staff Management Hub
-              _buildUnifiedStaffHub(context, firm, primaryColor, isMobile),
-            ],
+                  _buildUnifiedStaffHub(
+                    context,
+                    tokens,
+                    firm,
+                    activeAccent,
+                    isMobile,
+                  ),
+                ],
+              ),
+            ),
           ),
         );
       },
@@ -165,181 +224,197 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
   // ══════════════════════════════════════════════════════════════════════════
 
   Widget _buildOnboardingHeaderCard(
-    BuildContext context,
+    PcTokens tokens,
     Firm firm,
-    Color primaryColor,
+    Color activeAccent,
     bool isMobile,
   ) {
     final firmId = firm.firmId;
     final inviteUri = 'https://officespace.chottu.link/?firmId=$firmId';
 
+    final csvBtn = OutlinedButton.icon(
+      onPressed: () {
+        setState(() {
+          _showCsvStepper = true;
+          _csvStep = 0;
+          _csvErrorMessage = null;
+          _csvParsedStaff = [];
+          _csvMissingDepts = [];
+        });
+      },
+      icon: Icon(Icons.upload_file, size: 16, color: activeAccent),
+      label: const Text('Bulk Import CSV'),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: tokens.surfaceSubtle,
+        foregroundColor: tokens.textPrimary,
+        side: BorderSide(color: tokens.borderStrong),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
+
     return Material(
-      color: const Color(0xFF1E1D1D),
+      color: tokens.surface,
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: Colors.white.withOpacity(0.06)),
+        side: BorderSide(color: tokens.border),
       ),
       child: Padding(
         padding: EdgeInsets.all(isMobile ? 16 : 22),
         child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: primaryColor.withOpacity(0.14),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(Icons.qr_code_2_rounded, color: primaryColor, size: 22),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Invite & Onboard Team Members',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Staff can onboard instantly using your Firm ID, QR code, or direct invite link.',
-                      style: TextStyle(color: Colors.grey[400], fontSize: 13),
-                    ),
-                  ],
-                ),
-              ),
-              if (!_showCsvStepper && !isMobile) ...[
-                const SizedBox(width: 12),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _showCsvStepper = true;
-                      _csvStep = 0;
-                      _csvErrorMessage = null;
-                      _csvParsedStaff = [];
-                      _csvMissingDepts = [];
-                    });
-                  },
-                  icon: const Icon(Icons.upload_file, size: 16),
-                  label: const Text('Bulk Import CSV'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white.withOpacity(0.08),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          if (!_showCsvStepper && isMobile) ...[
-            const SizedBox(height: 12),
-            ElevatedButton.icon(
-              onPressed: () {
-                setState(() {
-                  _showCsvStepper = true;
-                  _csvStep = 0;
-                  _csvErrorMessage = null;
-                  _csvParsedStaff = [];
-                  _csvMissingDepts = [];
-                });
-              },
-              icon: const Icon(Icons.upload_file, size: 16),
-              label: const Text('Bulk Import CSV'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white.withOpacity(0.08),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-            ),
-          ],
-          const SizedBox(height: 18),
-          Divider(color: Colors.white.withOpacity(0.06), height: 1),
-          const SizedBox(height: 18),
-
-          // Content: QR side-by-side with Manual code & links
-          if (isMobile) ...[
-            Center(
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: SizedBox(
-                  width: 150,
-                  height: 150,
-                  child: QrImageView(
-                    data: inviteUri.isNotEmpty ? inviteUri : 'https://officespace.chottu.link',
-                    size: 150,
-                    eyeStyle: QrEyeStyle(eyeShape: QrEyeShape.square, color: primaryColor),
-                    dataModuleStyle: QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: primaryColor),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            _buildJoinCodeBanner(firmId, inviteUri, primaryColor),
-          ] else ...[
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: activeAccent.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.qr_code_2_rounded,
+                    color: activeAccent,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Invite & Onboard Team Members',
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Staff can onboard instantly using your Firm ID, QR code, or direct invite link.',
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (!_showCsvStepper && !isMobile) ...[
+                  const SizedBox(width: 12),
+                  csvBtn,
+                ],
+              ],
+            ),
+            if (!_showCsvStepper && isMobile) ...[
+              const SizedBox(height: 12),
+              csvBtn,
+            ],
+            const SizedBox(height: 18),
+            Divider(color: tokens.border, height: 1),
+            const SizedBox(height: 18),
+
+            if (isMobile) ...[
+              Center(
+                child: Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: tokens.border),
                   ),
                   child: SizedBox(
-                    width: 130,
-                    height: 130,
+                    width: 150,
+                    height: 150,
                     child: QrImageView(
-                      data: inviteUri.isNotEmpty ? inviteUri : 'https://officespace.chottu.link',
-                      size: 130,
-                      eyeStyle: QrEyeStyle(eyeShape: QrEyeShape.square, color: primaryColor),
-                      dataModuleStyle: QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: primaryColor),
+                      data: inviteUri.isNotEmpty
+                          ? inviteUri
+                          : 'https://officespace.chottu.link',
+                      size: 150,
+                      eyeStyle: QrEyeStyle(
+                        eyeShape: QrEyeShape.square,
+                        color: activeAccent,
+                      ),
+                      dataModuleStyle: QrDataModuleStyle(
+                        dataModuleShape: QrDataModuleShape.square,
+                        color: activeAccent,
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 22),
-                Expanded(
-                  child: _buildJoinCodeBanner(firmId, inviteUri, primaryColor),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 16),
+              _buildJoinCodeBanner(tokens, firmId, inviteUri, activeAccent),
+            ] else ...[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: tokens.border),
+                    ),
+                    child: SizedBox(
+                      width: 130,
+                      height: 130,
+                      child: QrImageView(
+                        data: inviteUri.isNotEmpty
+                            ? inviteUri
+                            : 'https://officespace.chottu.link',
+                        size: 130,
+                        eyeStyle: QrEyeStyle(
+                          eyeShape: QrEyeShape.square,
+                          color: activeAccent,
+                        ),
+                        dataModuleStyle: QrDataModuleStyle(
+                          dataModuleShape: QrDataModuleShape.square,
+                          color: activeAccent,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 22),
+                  Expanded(
+                    child: _buildJoinCodeBanner(
+                      tokens,
+                      firmId,
+                      inviteUri,
+                      activeAccent,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
-        ],
+        ),
       ),
-    ),
-  );
+    );
   }
 
-  Widget _buildJoinCodeBanner(String firmId, String inviteUri, Color primaryColor) {
+  Widget _buildJoinCodeBanner(
+    PcTokens tokens,
+    String firmId,
+    String inviteUri,
+    Color activeAccent,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Firm ID Box
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: const Color(0xFF161515),
+            color: tokens.surfaceSubtle,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: primaryColor.withOpacity(0.35)),
+            border: Border.all(color: activeAccent.withValues(alpha: 0.30)),
           ),
           child: Row(
             children: [
-              Icon(Icons.vpn_key_rounded, color: primaryColor, size: 20),
+              Icon(Icons.vpn_key_rounded, color: activeAccent, size: 20),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -349,18 +424,18 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
                       'FIRM ID (MANUAL JOIN CODE)',
                       style: TextStyle(
                         fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey[400],
+                        fontWeight: FontWeight.w700,
+                        color: tokens.textMuted,
                         letterSpacing: 0.8,
                       ),
                     ),
                     const SizedBox(height: 2),
                     SelectableText(
                       firmId,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        color: tokens.textPrimary,
                         letterSpacing: 0.5,
                       ),
                     ),
@@ -371,7 +446,8 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
                 onPressed: () async {
                   await Clipboard.setData(ClipboardData(text: firmId));
                   setState(() => _copiedFirmId = true);
-                  SnackbarService().showSnackbar('Firm ID copied to clipboard!');
+                  SnackbarService()
+                      .showSnackbar('Firm ID copied to clipboard!');
                   Future.delayed(const Duration(seconds: 2), () {
                     if (mounted) setState(() => _copiedFirmId = false);
                   });
@@ -379,19 +455,37 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
                 icon: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 250),
                   child: _copiedFirmId
-                      ? const Icon(Icons.check, color: Colors.greenAccent, size: 16, key: ValueKey('c_id_ok'))
-                      : Icon(Icons.copy, color: primaryColor, size: 16, key: const ValueKey('c_id_copy')),
+                      ? const Icon(
+                          Icons.check,
+                          color: _emerald,
+                          size: 16,
+                          key: ValueKey('c_id_ok'),
+                        )
+                      : Icon(
+                          Icons.copy,
+                          color: activeAccent,
+                          size: 16,
+                          key: const ValueKey('c_id_copy'),
+                        ),
                 ),
                 label: Text(
                   _copiedFirmId ? 'Copied' : 'Copy Code',
                   style: TextStyle(
-                    color: _copiedFirmId ? Colors.greenAccent : primaryColor,
+                    color: _copiedFirmId ? _emerald : activeAccent,
                     fontSize: 12,
                   ),
                 ),
                 style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: _copiedFirmId ? Colors.greenAccent : primaryColor.withOpacity(0.5)),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  backgroundColor: tokens.surface,
+                  side: BorderSide(
+                    color: _copiedFirmId
+                        ? _emerald
+                        : activeAccent.withValues(alpha: 0.45),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                 ),
               ),
             ],
@@ -399,7 +493,6 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
         ),
         const SizedBox(height: 12),
 
-        // Action Buttons Row
         Wrap(
           spacing: 10,
           runSpacing: 8,
@@ -416,16 +509,31 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
               icon: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 250),
                 child: _copiedInviteLink
-                    ? const Icon(Icons.check, color: Colors.greenAccent, size: 16, key: ValueKey('c_link_ok'))
-                    : const Icon(Icons.link, size: 16, key: ValueKey('c_link_copy')),
+                    ? const Icon(
+                        Icons.check,
+                        color: _emerald,
+                        size: 16,
+                        key: ValueKey('c_link_ok'),
+                      )
+                    : const Icon(
+                        Icons.link,
+                        size: 16,
+                        key: ValueKey('c_link_copy'),
+                      ),
               ),
-              label: Text(_copiedInviteLink ? 'Link Copied!' : 'Copy Direct Link'),
+              label: Text(
+                _copiedInviteLink ? 'Link Copied!' : 'Copy Direct Link',
+              ),
               style: OutlinedButton.styleFrom(
-                foregroundColor: _copiedInviteLink ? Colors.greenAccent : Colors.white,
+                foregroundColor:
+                    _copiedInviteLink ? _emerald : tokens.textPrimary,
                 side: BorderSide(
-                  color: _copiedInviteLink ? Colors.greenAccent : Colors.white.withOpacity(0.2),
+                  color: _copiedInviteLink ? _emerald : tokens.borderStrong,
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
               ),
             ),
             if (!kIsWeb)
@@ -440,9 +548,12 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
                 icon: const Icon(Icons.share, size: 16),
                 label: const Text('Share Invite'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: primaryColor,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  backgroundColor: activeAccent,
+                  foregroundColor: PcTokens.contrastOn(activeAccent),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
                 ),
               ),
           ],
@@ -455,95 +566,133 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
   // 2. CSV BULK IMPORT STEPPER
   // ══════════════════════════════════════════════════════════════════════════
 
-  Widget _buildCsvStepperCard(BuildContext context, Firm firm, Color primaryColor, bool isMobile) {
+  Widget _buildCsvStepperCard(
+    BuildContext context,
+    PcTokens tokens,
+    Firm firm,
+    Color activeAccent,
+    bool isMobile,
+  ) {
     return Material(
-      color: const Color(0xFF1E1D1D),
+      color: tokens.surface,
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: primaryColor.withOpacity(0.4)),
+        side: BorderSide(color: activeAccent.withValues(alpha: 0.40)),
       ),
       child: Padding(
         padding: EdgeInsets.all(isMobile ? 16 : 22),
         child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.badge_outlined, color: primaryColor, size: 20),
-                  const SizedBox(width: 10),
-                  const Text(
-                    'CSV Bulk Onboarding Stepper',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.badge_outlined, color: activeAccent, size: 20),
+                    const SizedBox(width: 10),
+                    Text(
+                      'CSV Bulk Onboarding Stepper',
+                      style: TextStyle(
+                        color: tokens.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              IconButton(
-                icon: const Icon(Icons.close, color: Colors.grey, size: 20),
-                onPressed: () => setState(() => _showCsvStepper = false),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // Stepper Header
-          Row(
-            children: [
-              _buildStepIndicator(0, '1. Upload CSV', _csvStep == 0, _csvStep > 0, primaryColor),
-              _buildStepDivider(_csvStep > 0, primaryColor),
-              _buildStepIndicator(1, '2. Validate & Preview', _csvStep == 1, _csvStep > 1, primaryColor),
-              _buildStepDivider(_csvStep > 1, primaryColor),
-              _buildStepIndicator(2, '3. Confirm & Issue', _csvStep == 2, false, primaryColor),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          if (_csvErrorMessage != null) ...[
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.error_outline, color: Colors.redAccent, size: 18),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      _csvErrorMessage!,
-                      style: const TextStyle(color: Colors.redAccent, fontSize: 13),
-                    ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+                IconButton(
+                  icon: Icon(Icons.close, color: tokens.textMuted, size: 20),
+                  onPressed: () => setState(() => _showCsvStepper = false),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+
+            Row(
+              children: [
+                _buildStepIndicator(
+                  tokens,
+                  0,
+                  '1. Upload CSV',
+                  _csvStep == 0,
+                  _csvStep > 0,
+                  activeAccent,
+                ),
+                _buildStepDivider(tokens, _csvStep > 0),
+                _buildStepIndicator(
+                  tokens,
+                  1,
+                  '2. Validate & Preview',
+                  _csvStep == 1,
+                  _csvStep > 1,
+                  activeAccent,
+                ),
+                _buildStepDivider(tokens, _csvStep > 1),
+                _buildStepIndicator(
+                  tokens,
+                  2,
+                  '3. Confirm & Issue',
+                  _csvStep == 2,
+                  false,
+                  activeAccent,
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+
+            if (_csvErrorMessage != null) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: tokens.urgentBg,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: tokens.urgentBorder),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      color: tokens.urgentText,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _csvErrorMessage!,
+                        style: TextStyle(
+                          color: tokens.urgentText,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            if (_csvStep == 0)
+              _buildCsvStepUpload(context, tokens, firm, activeAccent),
+            if (_csvStep == 1)
+              _buildCsvStepPreview(context, tokens, firm, activeAccent),
+            if (_csvStep == 2)
+              _buildCsvStepComplete(tokens, activeAccent),
           ],
-
-          // Step 1: Upload CSV
-          if (_csvStep == 0) _buildCsvStepUpload(context, firm, primaryColor),
-
-          // Step 2: Validate & Preview
-          if (_csvStep == 1) _buildCsvStepPreview(context, firm, primaryColor),
-
-          // Step 3: Complete confirmation
-          if (_csvStep == 2) _buildCsvStepComplete(context, firm, primaryColor),
-        ],
+        ),
       ),
-    ),
-  );
+    );
   }
 
-  Widget _buildStepIndicator(int step, String label, bool isActive, bool isDone, Color primaryColor) {
+  Widget _buildStepIndicator(
+    PcTokens tokens,
+    int step,
+    String label,
+    bool isActive,
+    bool isDone,
+    Color activeAccent,
+  ) {
     return Row(
       children: [
         Container(
@@ -552,15 +701,26 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: isDone
-                ? Colors.green
-                : (isActive ? primaryColor : Colors.grey[800]),
+                ? _emerald
+                : (isActive ? activeAccent : tokens.surfaceSubtle),
+            border: Border.all(
+              color: isDone
+                  ? _emerald
+                  : (isActive ? activeAccent : tokens.borderStrong),
+            ),
           ),
           child: Center(
             child: isDone
-                ? const Icon(Icons.check, size: 16, color: Colors.white)
+                ? const Icon(Icons.check, size: 15, color: Colors.white)
                 : Text(
                     '${step + 1}',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: isActive
+                          ? PcTokens.contrastOn(activeAccent)
+                          : tokens.textMuted,
+                    ),
                   ),
           ),
         ),
@@ -568,26 +728,31 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
         Text(
           label,
           style: TextStyle(
-            color: isActive ? Colors.white : Colors.grey[400],
+            color: isActive ? tokens.textPrimary : tokens.textSecondary,
             fontSize: 12,
-            fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+            fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildStepDivider(bool isDone, Color primaryColor) {
+  Widget _buildStepDivider(PcTokens tokens, bool isDone) {
     return Expanded(
       child: Container(
         height: 2,
         margin: const EdgeInsets.symmetric(horizontal: 10),
-        color: isDone ? Colors.green : Colors.grey[800],
+        color: isDone ? _emerald : tokens.border,
       ),
     );
   }
 
-  Widget _buildCsvStepUpload(BuildContext context, Firm firm, Color primaryColor) {
+  Widget _buildCsvStepUpload(
+    BuildContext context,
+    PcTokens tokens,
+    Firm firm,
+    Color activeAccent,
+  ) {
     return DropTarget(
       onDragEntered: (_) => setState(() => _isDraggingFile = true),
       onDragExited: (_) => setState(() => _isDraggingFile = false),
@@ -595,11 +760,14 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
         setState(() => _isDraggingFile = false);
         if (details.files.isNotEmpty) {
           final file = details.files.first;
-          if (file.name.toLowerCase().endsWith('.csv') || file.name.toLowerCase().endsWith('.txt')) {
+          if (file.name.toLowerCase().endsWith('.csv') ||
+              file.name.toLowerCase().endsWith('.txt')) {
             final bytes = await file.readAsBytes();
             _processCsvBytes(bytes, firm);
           } else {
-            setState(() => _csvErrorMessage = 'Please drop a valid .csv file.');
+            setState(
+              () => _csvErrorMessage = 'Please drop a valid .csv file.',
+            );
           }
         }
       },
@@ -607,10 +775,12 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
         decoration: BoxDecoration(
-          color: _isDraggingFile ? primaryColor.withOpacity(0.08) : const Color(0xFF161515),
+          color: _isDraggingFile
+              ? activeAccent.withValues(alpha: 0.08)
+              : tokens.surfaceSubtle,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: _isDraggingFile ? primaryColor : Colors.white.withOpacity(0.12),
+            color: _isDraggingFile ? activeAccent : tokens.borderStrong,
             width: 1.5,
           ),
         ),
@@ -619,39 +789,52 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
             Icon(
               Icons.cloud_upload_outlined,
               size: 44,
-              color: _isDraggingFile ? primaryColor : Colors.grey[400],
+              color: _isDraggingFile ? activeAccent : tokens.textMuted,
             ),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               'Drag and drop your CSV file here',
-              style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 6),
             Text(
               'Supported columns: Name, Email, Department (optional), Role (optional: employee/lead)',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey[400], fontSize: 12),
+              style: TextStyle(color: tokens.textSecondary, fontSize: 12),
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
               onPressed: () async {
                 try {
                   setState(() => _csvErrorMessage = null);
-                  final staffList = await CsvUploadService.instance.pickAndParseCsv();
+                  final staffList =
+                      await CsvUploadService.instance.pickAndParseCsv();
                   if (staffList.isNotEmpty) {
                     await _validateAndTransitionParsedCsv(staffList, firm);
                   }
                 } catch (e) {
-                  setState(() => _csvErrorMessage = e.toString().replaceAll('Exception:', ''));
+                  setState(
+                    () => _csvErrorMessage =
+                        e.toString().replaceAll('Exception:', ''),
+                  );
                 }
               },
               icon: const Icon(Icons.folder_open, size: 16),
               label: const Text('Choose File from Computer'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: primaryColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                backgroundColor: activeAccent,
+                foregroundColor: PcTokens.contrastOn(activeAccent),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
             ),
           ],
@@ -663,19 +846,21 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
   Future<void> _processCsvBytes(Uint8List bytes, Firm firm) async {
     try {
       setState(() => _csvErrorMessage = null);
-      // Fallback parsing via pickAndParseCsv logic or service
-      // Let pickAndParseCsv run or trigger via standard flow
       final staffList = await CsvUploadService.instance.pickAndParseCsv();
       if (staffList.isNotEmpty) {
         await _validateAndTransitionParsedCsv(staffList, firm);
       }
     } catch (e) {
-      setState(() => _csvErrorMessage = e.toString().replaceAll('Exception:', ''));
+      setState(
+        () => _csvErrorMessage = e.toString().replaceAll('Exception:', ''),
+      );
     }
   }
 
-  Future<void> _validateAndTransitionParsedCsv(List<Map<String, dynamic>> staffList, Firm firm) async {
-    // 1. Check departments
+  Future<void> _validateAndTransitionParsedCsv(
+    List<Map<String, dynamic>> staffList,
+    Firm firm,
+  ) async {
     final deptsSnapshot = await FirebaseFirestore.instance
         .collection('Firms')
         .doc(firm.firmId)
@@ -701,7 +886,12 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
     });
   }
 
-  Widget _buildCsvStepPreview(BuildContext context, Firm firm, Color primaryColor) {
+  Widget _buildCsvStepPreview(
+    BuildContext context,
+    PcTokens tokens,
+    Firm firm,
+    Color activeAccent,
+  ) {
     final seatCount = firm.seatCount;
     final seatLimit = firm.seatLimit;
     final willExceed = seatCount + _csvParsedStaff.length > seatLimit;
@@ -714,22 +904,32 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
           children: [
             Text(
               '${_csvParsedStaff.length} Employees Parsed from CSV',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+              ),
             ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
-                color: willExceed ? Colors.red.withOpacity(0.2) : Colors.green.withOpacity(0.15),
+                color: willExceed
+                    ? tokens.urgentBg
+                    : _emerald.withValues(alpha: 0.10),
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: willExceed ? Colors.redAccent : Colors.greenAccent),
+                border: Border.all(
+                  color: willExceed
+                      ? tokens.urgentBorder
+                      : _emerald.withValues(alpha: 0.35),
+                ),
               ),
               child: Text(
                 willExceed
-                    ? '⚠️ Seat limit exceeded (${seatCount + _csvParsedStaff.length}/$seatLimit)'
+                    ? 'Seat limit exceeded (${seatCount + _csvParsedStaff.length}/$seatLimit)'
                     : 'Seat check: $seatCount + ${_csvParsedStaff.length} of $seatLimit used',
                 style: TextStyle(
-                  color: willExceed ? Colors.redAccent : Colors.greenAccent,
-                  fontWeight: FontWeight.bold,
+                  color: willExceed ? tokens.urgentText : _emerald,
+                  fontWeight: FontWeight.w700,
                   fontSize: 12,
                 ),
               ),
@@ -742,44 +942,56 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.amber.withOpacity(0.1),
+              color: tokens.warningSoft,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.amber.withOpacity(0.4)),
+              border: Border.all(
+                color: tokens.warningAccent.withValues(alpha: 0.35),
+              ),
             ),
             child: Row(
               children: [
-                const Icon(Icons.info_outline, color: Colors.amber, size: 18),
+                Icon(
+                  Icons.info_outline,
+                  color: tokens.warningAccent,
+                  size: 18,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     'Found ${_csvMissingDepts.length} new departments in CSV: ${_csvMissingDepts.join(', ')}.',
-                    style: const TextStyle(color: Colors.amber, fontSize: 12),
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
                 Checkbox(
                   value: _csvAutoCreateDepts,
-                  activeColor: primaryColor,
-                  onChanged: (val) => setState(() => _csvAutoCreateDepts = val ?? true),
+                  activeColor: activeAccent,
+                  onChanged: (val) =>
+                      setState(() => _csvAutoCreateDepts = val ?? true),
                 ),
-                const Text('Auto-create', style: TextStyle(color: Colors.white, fontSize: 12)),
+                Text(
+                  'Auto-create',
+                  style: TextStyle(color: tokens.textPrimary, fontSize: 12),
+                ),
               ],
             ),
           ),
           const SizedBox(height: 12),
         ],
 
-        // Table preview
         Container(
           height: 200,
           decoration: BoxDecoration(
-            color: const Color(0xFF161515),
+            color: tokens.surfaceSubtle,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.white.withOpacity(0.06)),
+            border: Border.all(color: tokens.border),
           ),
           child: ListView.separated(
             padding: const EdgeInsets.all(8),
             itemCount: _csvParsedStaff.length,
-            separatorBuilder: (_, __) => Divider(color: Colors.white.withOpacity(0.04), height: 1),
+            separatorBuilder: (_, _) => Divider(color: tokens.border, height: 1),
             itemBuilder: (ctx, idx) {
               final item = _csvParsedStaff[idx];
               return Padding(
@@ -788,10 +1000,16 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
                   children: [
                     CircleAvatar(
                       radius: 12,
-                      backgroundColor: primaryColor.withOpacity(0.2),
+                      backgroundColor: activeAccent.withValues(alpha: 0.14),
                       child: Text(
-                        (item['name'] as String? ?? 'S').substring(0, 1).toUpperCase(),
-                        style: TextStyle(color: primaryColor, fontSize: 10, fontWeight: FontWeight.bold),
+                        (item['name'] as String? ?? 'S')
+                            .substring(0, 1)
+                            .toUpperCase(),
+                        style: TextStyle(
+                          color: activeAccent,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -799,7 +1017,11 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
                       flex: 2,
                       child: Text(
                         item['name'] ?? '',
-                        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -807,27 +1029,42 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
                       flex: 3,
                       child: Text(
                         item['email'] ?? '',
-                        style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontSize: 12,
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     Expanded(
                       flex: 2,
                       child: Text(
-                        (item['department'] as String?)?.isNotEmpty == true ? item['department'] : 'Unassigned',
-                        style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                        (item['department'] as String?)?.isNotEmpty == true
+                            ? item['department']
+                            : 'Unassigned',
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontSize: 12,
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.15),
+                        color: tokens.infoSoft,
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
                         (item['role'] as String? ?? 'employee').toUpperCase(),
-                        style: const TextStyle(color: Colors.blueAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          color: tokens.infoAccent,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ],
@@ -838,24 +1075,38 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
         ),
         const SizedBox(height: 16),
 
-        // Actions
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
             TextButton(
               onPressed: () => setState(() => _csvStep = 0),
-              child: const Text('Back', style: TextStyle(color: Colors.grey)),
+              child: Text(
+                'Back',
+                style: TextStyle(color: tokens.textSecondary),
+              ),
             ),
             const SizedBox(width: 12),
             ElevatedButton(
-              onPressed: willExceed || _csvIsUploading ? null : () => _executeCsvImport(context, firm),
+              onPressed: willExceed || _csvIsUploading
+                  ? null
+                  : () => _executeCsvImport(context, firm),
               style: ElevatedButton.styleFrom(
-                backgroundColor: primaryColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                backgroundColor: activeAccent,
+                foregroundColor: PcTokens.contrastOn(activeAccent),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 12,
+                ),
               ),
               child: _csvIsUploading
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  ? SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: PcTokens.contrastOn(activeAccent),
+                      ),
+                    )
                   : const Text('Confirm & Issue Codes'),
             ),
           ],
@@ -899,7 +1150,6 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
         departmentNameToIdMap: deptMap,
       );
 
-      // Audit log
       await AuditService.instance.logAction(
         firmId: firm.firmId,
         action: 'bulk_csv_import',
@@ -914,7 +1164,9 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
         _csvStep = 2;
         _csvIsUploading = false;
       });
-      SnackbarService().showSnackbar('Successfully imported ${_csvParsedStaff.length} staff records!');
+      SnackbarService().showSnackbar(
+        'Successfully imported ${_csvParsedStaff.length} staff records!',
+      );
     } catch (e) {
       setState(() {
         _csvIsUploading = false;
@@ -923,23 +1175,27 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
     }
   }
 
-  Widget _buildCsvStepComplete(BuildContext context, Firm firm, Color primaryColor) {
+  Widget _buildCsvStepComplete(PcTokens tokens, Color activeAccent) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 20),
         child: Column(
           children: [
-            const Icon(Icons.check_circle_outline, color: Colors.greenAccent, size: 48),
+            const Icon(Icons.check_circle_outline, color: _emerald, size: 48),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               'Import Completed Successfully!',
-              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 6),
             Text(
               '${_csvParsedStaff.length} staff codes generated. They appear below with active 5-minute countdowns.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey[400], fontSize: 13),
+              style: TextStyle(color: tokens.textSecondary, fontSize: 13),
             ),
             const SizedBox(height: 18),
             ElevatedButton(
@@ -950,7 +1206,10 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
                   _csvStep = 0;
                 });
               },
-              style: ElevatedButton.styleFrom(backgroundColor: primaryColor, foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: activeAccent,
+                foregroundColor: PcTokens.contrastOn(activeAccent),
+              ),
               child: const Text('Return to Staff Table'),
             ),
           ],
@@ -965,17 +1224,19 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
 
   Widget _buildUnifiedStaffHub(
     BuildContext context,
+    PcTokens tokens,
     Firm firm,
-    Color primaryColor,
+    Color activeAccent,
     bool isMobile,
   ) {
     return StreamBuilder<List<Department>>(
       stream: DBService.instance.streamDepartments(firm.firmId),
       builder: (context, deptSnapshot) {
         final departments = deptSnapshot.data ?? [];
-        final Map<String, String> deptMap = {for (final d in departments) d.deptId: d.name};
+        final Map<String, String> deptMap = {
+          for (final d in departments) d.deptId: d.name,
+        };
 
-        // Combine PreApprovedStaff and Members
         return StreamBuilder<List<Map<String, dynamic>>>(
           stream: DBService.instance.streamPreApprovedStaff(firm.firmId),
           builder: (context, preAuthSnap) {
@@ -990,13 +1251,16 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
               builder: (context, membersSnap) {
                 if (preAuthSnap.connectionState == ConnectionState.waiting &&
                     membersSnap.connectionState == ConnectionState.waiting) {
-                  return const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator()));
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: CircularProgressIndicator(color: activeAccent),
+                    ),
+                  );
                 }
 
                 final memberDocs = membersSnap.data?.docs ?? [];
                 final List<UnifiedStaffItem> allStaffItems = [];
-
-                // Track emails already represented in members
                 final Set<String> activeMemberEmails = {};
 
                 for (final doc in memberDocs) {
@@ -1006,85 +1270,101 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
 
                   final rawStatus = data['status'] as String? ?? 'approved';
                   String mappedStatus = 'active';
-                  if (rawStatus == 'pending') mappedStatus = 'pending_approval';
+                  if (rawStatus == 'pending') {
+                    mappedStatus = 'pending_approval';
+                  }
                   if (rawStatus == 'revoked') mappedStatus = 'revoked';
                   if (rawStatus == 'rejected') mappedStatus = 'rejected';
 
-                  allStaffItems.add(UnifiedStaffItem(
-                    type: UnifiedStaffType.member,
-                    id: doc.id,
-                    uid: data['uid'] as String? ?? doc.id,
-                    name: (data['name'] as String?)?.isNotEmpty == true ? data['name'] : (email.isNotEmpty ? email : doc.id),
-                    email: email,
-                    role: data['role'] as String? ?? 'employee',
-                    departmentId: data['departmentId'] as String?,
-                    status: mappedStatus,
-                    createdAt: (data['joinedAt'] as Timestamp?)?.toDate(),
-                    avatarUrl: data['avatarUrl'] as String?,
-                    rawMembership: Membership(
-                      membershipId: doc.id,
+                  allStaffItems.add(
+                    UnifiedStaffItem(
+                      type: UnifiedStaffType.member,
+                      id: doc.id,
                       uid: data['uid'] as String? ?? doc.id,
-                      firmId: firm.firmId,
-                      role: (data['role'] as String? ?? '') == 'admin'
-                          ? MembershipRole.admin
-                          : ((data['role'] as String? ?? '') == 'lead' ? MembershipRole.lead : MembershipRole.employee),
-                      status: rawStatus == 'revoked'
-                          ? MembershipStatus.revoked
-                          : (rawStatus == 'pending'
-                              ? MembershipStatus.pending
-                              : (rawStatus == 'rejected' ? MembershipStatus.rejected : MembershipStatus.active)),
+                      name: (data['name'] as String?)?.isNotEmpty == true
+                          ? data['name']
+                          : (email.isNotEmpty ? email : doc.id),
+                      email: email,
+                      role: data['role'] as String? ?? 'employee',
                       departmentId: data['departmentId'] as String?,
+                      status: mappedStatus,
+                      createdAt: (data['joinedAt'] as Timestamp?)?.toDate(),
+                      avatarUrl: data['avatarUrl'] as String?,
+                      rawMembership: Membership(
+                        membershipId: doc.id,
+                        uid: data['uid'] as String? ?? doc.id,
+                        firmId: firm.firmId,
+                        role: (data['role'] as String? ?? '') == 'admin'
+                            ? MembershipRole.admin
+                            : ((data['role'] as String? ?? '') == 'lead'
+                                ? MembershipRole.lead
+                                : MembershipRole.employee),
+                        status: rawStatus == 'revoked'
+                            ? MembershipStatus.revoked
+                            : (rawStatus == 'pending'
+                                ? MembershipStatus.pending
+                                : (rawStatus == 'rejected'
+                                    ? MembershipStatus.rejected
+                                    : MembershipStatus.active)),
+                        departmentId: data['departmentId'] as String?,
+                      ),
                     ),
-                  ));
+                  );
                 }
 
-                // Add Pre-Approved Staff (only if not already an active member)
                 for (final p in preAuthList) {
                   final email = (p['email'] as String? ?? '').toLowerCase();
                   final pStatus = p['status'] as String? ?? 'invited';
-                  if (pStatus == 'joined' && activeMemberEmails.contains(email)) {
-                    continue; // Already shown in members list as Active
+                  if (pStatus == 'joined' &&
+                      activeMemberEmails.contains(email)) {
+                    continue;
                   }
 
                   final exp = p['codeExpiresAt'];
                   DateTime? expDate;
                   if (exp is Timestamp) expDate = exp.toDate();
 
-                  allStaffItems.add(UnifiedStaffItem(
-                    type: UnifiedStaffType.preApproved,
-                    id: p['id'] as String? ?? '',
-                    name: p['name'] as String? ?? email,
-                    email: email,
-                    role: p['role'] as String? ?? 'employee',
-                    departmentId: p['departmentId'] as String?,
-                    status: 'code_pending',
-                    code: p['code'] as String?,
-                    codeExpiresAt: expDate,
-                    createdAt: (p['createdAt'] as Timestamp?)?.toDate(),
-                    rawPreApproved: p,
-                  ));
+                  allStaffItems.add(
+                    UnifiedStaffItem(
+                      type: UnifiedStaffType.preApproved,
+                      id: p['id'] as String? ?? '',
+                      name: p['name'] as String? ?? email,
+                      email: email,
+                      role: p['role'] as String? ?? 'employee',
+                      departmentId: p['departmentId'] as String?,
+                      status: 'code_pending',
+                      code: p['code'] as String?,
+                      codeExpiresAt: expDate,
+                      createdAt: (p['createdAt'] as Timestamp?)?.toDate(),
+                      rawPreApproved: p,
+                    ),
+                  );
                 }
 
-                // Apply Filters
                 final filteredItems = allStaffItems.where((item) {
-                  // Status filter
-                  if (_activeFilter == 'active' && item.status != 'active') return false;
-                  if (_activeFilter == 'pending' && item.status != 'code_pending' && item.status != 'pending_approval') {
+                  if (_activeFilter == 'active' && item.status != 'active') {
                     return false;
                   }
-                  if (_activeFilter == 'revoked' && item.status != 'revoked') return false;
+                  if (_activeFilter == 'pending' &&
+                      item.status != 'code_pending' &&
+                      item.status != 'pending_approval') {
+                    return false;
+                  }
+                  if (_activeFilter == 'revoked' && item.status != 'revoked') {
+                    return false;
+                  }
 
-                  // Department filter
-                  if (_selectedDeptFilter != null && _selectedDeptFilter!.isNotEmpty) {
+                  if (_selectedDeptFilter != null &&
+                      _selectedDeptFilter!.isNotEmpty) {
                     if (item.departmentId != _selectedDeptFilter) return false;
                   }
 
-                  // Search query
                   if (_searchQuery.isNotEmpty) {
                     final q = _searchQuery.toLowerCase();
                     final matchName = item.name.toLowerCase().contains(q);
                     final matchEmail = item.email.toLowerCase().contains(q);
-                    final matchCode = item.code?.toLowerCase().contains(q) ?? false;
+                    final matchCode =
+                        item.code?.toLowerCase().contains(q) ?? false;
                     if (!matchName && !matchEmail && !matchCode) return false;
                   }
 
@@ -1092,36 +1372,54 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
                 }).toList();
 
                 return Material(
-                  color: const Color(0xFF1E1D1D),
+                  color: tokens.surface,
                   clipBehavior: Clip.antiAlias,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
-                    side: BorderSide(color: Colors.white.withOpacity(0.06)),
+                    side: BorderSide(color: tokens.border),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // Header & Filter bar
                       _buildStaffFilterBar(
                         context,
+                        tokens,
                         firm,
-                        primaryColor,
+                        activeAccent,
                         departments,
                         allStaffItems,
-                        isMobile,
                       ),
 
-                      // Bulk Action Banner (when active rows are checked)
                       if (_selectedActiveUids.isNotEmpty)
-                        _buildBulkActionToolbar(firm.firmId, departments, primaryColor),
+                        _buildBulkActionToolbar(
+                          tokens,
+                          firm.firmId,
+                          departments,
+                          activeAccent,
+                        ),
 
-                      // Content: Responsive DataTable2 or Card list
                       if (filteredItems.isEmpty)
-                        _buildEmptyStaffState()
+                        _buildEmptyStaffState(tokens)
                       else if (isMobile)
-                        _buildMobileStaffList(context, firm, primaryColor, filteredItems, deptMap, departments)
+                        _buildMobileStaffList(
+                          context,
+                          tokens,
+                          firm,
+                          activeAccent,
+                          filteredItems,
+                          deptMap,
+                          departments,
+                        )
                       else
-                        _buildDesktopStaffTable(context, firm, primaryColor, filteredItems, deptMap, departments),
+                        _buildDesktopStaffTable(
+                          context,
+                          tokens,
+                          firm,
+                          activeAccent,
+                          filteredItems,
+                          deptMap,
+                          departments,
+                        ),
                     ],
                   ),
                 );
@@ -1139,14 +1437,18 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
 
   Widget _buildStaffFilterBar(
     BuildContext context,
+    PcTokens tokens,
     Firm firm,
-    Color primaryColor,
+    Color activeAccent,
     List<Department> departments,
     List<UnifiedStaffItem> allItems,
-    bool isMobile,
   ) {
     final activeCount = allItems.where((i) => i.status == 'active').length;
-    final pendingCount = allItems.where((i) => i.status == 'code_pending' || i.status == 'pending_approval').length;
+    final pendingCount = allItems
+        .where(
+          (i) => i.status == 'code_pending' || i.status == 'pending_approval',
+        )
+        .length;
     final revokedCount = allItems.where((i) => i.status == 'revoked').length;
 
     final seatCount = firm.seatCount;
@@ -1160,9 +1462,13 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
         children: [
           Row(
             children: [
-              const Text(
+              Text(
                 'Staff Directory & Access',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: tokens.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const Spacer(),
               ElevatedButton.icon(
@@ -1173,92 +1479,146 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
                           isError: true,
                         );
                       }
-                    : () => _showAddPreApprovedStaffDialog(context, firm.firmId, departments),
+                    : () => _showAddPreApprovedStaffDialog(
+                          context,
+                          firm.firmId,
+                          departments,
+                        ),
                 icon: const Icon(Icons.add, size: 16),
                 label: const Text('Add Staff Code'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: isLimitReached ? Colors.grey[700] : primaryColor,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  backgroundColor:
+                      isLimitReached ? tokens.textMuted : activeAccent,
+                  foregroundColor: isLimitReached
+                      ? Colors.white
+                      : PcTokens.contrastOn(activeAccent),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 14),
 
-          // Filters row: Status tabs + Search box + Dept dropdown
           Wrap(
             spacing: 8,
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              _buildFilterChip('all', 'All (${allItems.length})', primaryColor),
-              _buildFilterChip('active', 'Active ($activeCount)', primaryColor),
-              _buildFilterChip('pending', 'Pending ($pendingCount)', primaryColor),
-              _buildFilterChip('revoked', 'Revoked ($revokedCount)', primaryColor),
+              _buildFilterChip(
+                tokens,
+                'all',
+                'All (${allItems.length})',
+                activeAccent,
+              ),
+              _buildFilterChip(
+                tokens,
+                'active',
+                'Active ($activeCount)',
+                activeAccent,
+              ),
+              _buildFilterChip(
+                tokens,
+                'pending',
+                'Pending ($pendingCount)',
+                activeAccent,
+              ),
+              _buildFilterChip(
+                tokens,
+                'revoked',
+                'Revoked ($revokedCount)',
+                activeAccent,
+              ),
 
               const SizedBox(width: 8),
 
-              // Search field
               SizedBox(
-                width: 200,
+                width: 210,
                 height: 36,
                 child: TextField(
-                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  style: TextStyle(color: tokens.textPrimary, fontSize: 13),
                   decoration: InputDecoration(
                     hintText: 'Search name, email...',
-                    hintStyle: TextStyle(color: Colors.grey[500], fontSize: 12),
-                    prefixIcon: const Icon(Icons.search, size: 16, color: Colors.grey),
-                    contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 10),
+                    hintStyle: TextStyle(color: tokens.textMuted, fontSize: 12),
+                    prefixIcon: Icon(
+                      Icons.search,
+                      size: 16,
+                      color: tokens.textMuted,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      vertical: 0,
+                      horizontal: 10,
+                    ),
                     filled: true,
-                    fillColor: const Color(0xFF161515),
+                    fillColor: tokens.surfaceSubtle,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
+                      borderSide: BorderSide(color: tokens.border),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
+                      borderSide: BorderSide(color: tokens.border),
                     ),
                   ),
-                  onChanged: (val) => setState(() => _searchQuery = val.trim()),
+                  onChanged: (val) =>
+                      setState(() => _searchQuery = val.trim()),
                 ),
               ),
 
-              // Department dropdown filter
-              SizedBox(
-                width: 170,
+              Container(
+                width: 175,
                 height: 36,
-                child: DropdownButtonFormField<String?>(
-                  value: _selectedDeptFilter,
-                  dropdownColor: const Color(0xFF222121),
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                  decoration: InputDecoration(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
-                    filled: true,
-                    fillColor: const Color(0xFF161515),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                decoration: BoxDecoration(
+                  color: tokens.surfaceSubtle,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: tokens.border),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String?>(
+                    value: _selectedDeptFilter,
+                    isExpanded: true,
+                    dropdownColor: tokens.surface,
+                    icon: Icon(
+                      Icons.arrow_drop_down,
+                      color: tokens.textSecondary,
+                      size: 18,
                     ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: Colors.white.withOpacity(0.08)),
+                    style: TextStyle(color: tokens.textPrimary, fontSize: 12),
+                    hint: Text(
+                      'All Departments',
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 12,
+                      ),
                     ),
-                  ),
-                  hint: Text('All Departments', style: TextStyle(color: Colors.grey[400], fontSize: 12)),
-                  items: [
-                    const DropdownMenuItem<String?>(
-                      value: null,
-                      child: Text('All Departments', style: TextStyle(fontSize: 12)),
-                    ),
-                    ...departments.map((d) => DropdownMenuItem<String?>(
+                    items: [
+                      const DropdownMenuItem<String?>(
+                        value: null,
+                        child: Text(
+                          'All Departments',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                      ...departments.map(
+                        (d) => DropdownMenuItem<String?>(
                           value: d.deptId,
-                          child: Text(d.name, style: const TextStyle(fontSize: 12)),
-                        )),
-                  ],
-                  onChanged: (val) => setState(() => _selectedDeptFilter = val),
+                          child: Text(
+                            d.name,
+                            style: const TextStyle(fontSize: 12),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: (val) =>
+                        setState(() => _selectedDeptFilter = val),
+                  ),
                 ),
               ),
             ],
@@ -1268,7 +1628,12 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
     );
   }
 
-  Widget _buildFilterChip(String filterId, String label, Color primaryColor) {
+  Widget _buildFilterChip(
+    PcTokens tokens,
+    String filterId,
+    String label,
+    Color activeAccent,
+  ) {
     final isSelected = _activeFilter == filterId;
     return InkWell(
       onTap: () => setState(() => _activeFilter = filterId),
@@ -1276,51 +1641,76 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
-          color: isSelected ? primaryColor.withOpacity(0.18) : Colors.transparent,
+          color: isSelected
+              ? activeAccent.withValues(alpha: 0.12)
+              : tokens.surfaceSubtle,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: isSelected ? primaryColor : Colors.white.withOpacity(0.12),
+            color: isSelected ? activeAccent : tokens.border,
           ),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: isSelected ? Colors.white : Colors.grey[400],
+            color: isSelected ? activeAccent : tokens.textSecondary,
             fontSize: 12,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
           ),
         ),
       ),
     );
   }
 
-  Widget _buildBulkActionToolbar(String firmId, List<Department> departments, Color primaryColor) {
+  Widget _buildBulkActionToolbar(
+    PcTokens tokens,
+    String firmId,
+    List<Department> departments,
+    Color activeAccent,
+  ) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      color: primaryColor.withOpacity(0.14),
+      decoration: BoxDecoration(
+        color: activeAccent.withValues(alpha: 0.08),
+        border: Border.symmetric(
+          horizontal: BorderSide(color: activeAccent.withValues(alpha: 0.25)),
+        ),
+      ),
       child: Row(
         children: [
           Text(
             '${_selectedActiveUids.length} staff selected',
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+            style: TextStyle(
+              color: tokens.textPrimary,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
           ),
           const Spacer(),
           TextButton.icon(
-            icon: const Icon(Icons.corporate_fare, size: 16),
+            icon: Icon(Icons.corporate_fare, size: 16, color: activeAccent),
             label: const Text('Bulk Assign Dept'),
-            style: TextButton.styleFrom(foregroundColor: Colors.white),
-            onPressed: () => _showBulkAssignDeptDialog(context, firmId, _selectedActiveUids.toList(), departments),
+            style: TextButton.styleFrom(foregroundColor: tokens.textPrimary),
+            onPressed: () => _showBulkAssignDeptDialog(
+              context,
+              firmId,
+              _selectedActiveUids.toList(),
+              departments,
+            ),
           ),
           const SizedBox(width: 8),
           TextButton.icon(
-            icon: const Icon(Icons.shield_outlined, size: 16),
+            icon: Icon(Icons.shield_outlined, size: 16, color: activeAccent),
             label: const Text('Bulk Set Role'),
-            style: TextButton.styleFrom(foregroundColor: Colors.white),
-            onPressed: () => _showBulkSetRoleDialog(context, firmId, _selectedActiveUids.toList()),
+            style: TextButton.styleFrom(foregroundColor: tokens.textPrimary),
+            onPressed: () => _showBulkSetRoleDialog(
+              context,
+              firmId,
+              _selectedActiveUids.toList(),
+            ),
           ),
           const SizedBox(width: 8),
           IconButton(
-            icon: const Icon(Icons.close, size: 18, color: Colors.grey),
+            icon: Icon(Icons.close, size: 18, color: tokens.textMuted),
             tooltip: 'Clear selection',
             onPressed: () => setState(() => _selectedActiveUids.clear()),
           ),
@@ -1329,22 +1719,26 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
     );
   }
 
-  Widget _buildEmptyStaffState() {
+  Widget _buildEmptyStaffState(PcTokens tokens) {
     return Padding(
       padding: const EdgeInsets.all(40),
       child: Center(
         child: Column(
           children: [
-            Icon(Icons.people_outline, size: 48, color: Colors.grey[600]),
+            Icon(Icons.people_outline, size: 48, color: tokens.textMuted),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               'No staff members match the selected filter',
-              style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 4),
             Text(
               'Adjust the filter or add new staff codes to invite teammates.',
-              style: TextStyle(color: Colors.grey[400], fontSize: 12),
+              style: TextStyle(color: tokens.textSecondary, fontSize: 12),
             ),
           ],
         ),
@@ -1353,13 +1747,14 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // DESKTOP DATA TABLE 2
+  // DESKTOP DATA TABLE
   // ══════════════════════════════════════════════════════════════════════════
 
   Widget _buildDesktopStaffTable(
     BuildContext context,
+    PcTokens tokens,
     Firm firm,
-    Color primaryColor,
+    Color activeAccent,
     List<UnifiedStaffItem> items,
     Map<String, String> deptMap,
     List<Department> departments,
@@ -1372,18 +1767,19 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
           scrollDirection: Axis.horizontal,
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              minWidth: constraints.maxWidth < 900 ? 900 : constraints.maxWidth,
+              minWidth:
+                  constraints.maxWidth < 900 ? 900 : constraints.maxWidth,
             ),
             child: DataTable(
               columnSpacing: 20,
               horizontalMargin: 16,
               dataRowMinHeight: 52,
               dataRowMaxHeight: 64,
-              headingRowColor: MaterialStateProperty.all(const Color(0xFF161515)),
+              headingRowColor: WidgetStatePropertyAll(tokens.surfaceSubtle),
               headingTextStyle: TextStyle(
-                color: Colors.grey[400],
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
+                color: tokens.textSecondary,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
                 letterSpacing: 0.5,
               ),
               columns: const [
@@ -1395,24 +1791,27 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
               ],
               rows: items.map((item) {
                 final isSelf = currentUid != null && item.uid == currentUid;
-                final deptName = item.departmentId != null ? deptMap[item.departmentId] : null;
-                final isSelected = item.uid != null && _selectedActiveUids.contains(item.uid);
+                final deptName = item.departmentId != null
+                    ? deptMap[item.departmentId]
+                    : null;
+                final isSelected = item.uid != null &&
+                    _selectedActiveUids.contains(item.uid);
 
                 return DataRow(
                   selected: isSelected,
-                  onSelectChanged: (item.status == 'active' && !isSelf && item.uid != null)
-                      ? (checked) {
-                          setState(() {
-                            if (checked == true) {
-                              _selectedActiveUids.add(item.uid!);
-                            } else {
-                              _selectedActiveUids.remove(item.uid);
+                  onSelectChanged:
+                      (item.status == 'active' && !isSelf && item.uid != null)
+                          ? (checked) {
+                              setState(() {
+                                if (checked == true) {
+                                  _selectedActiveUids.add(item.uid!);
+                                } else {
+                                  _selectedActiveUids.remove(item.uid);
+                                }
+                              });
                             }
-                          });
-                        }
-                      : null,
+                          : null,
                   cells: [
-                    // 1. Employee Name & Email
                     DataCell(
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 6),
@@ -1421,12 +1820,21 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
                           children: [
                             CircleAvatar(
                               radius: 15,
-                              backgroundColor: primaryColor.withOpacity(0.18),
-                              backgroundImage: item.avatarUrl != null ? NetworkImage(item.avatarUrl!) : null,
+                              backgroundColor:
+                                  activeAccent.withValues(alpha: 0.14),
+                              backgroundImage: item.avatarUrl != null
+                                  ? NetworkImage(item.avatarUrl!)
+                                  : null,
                               child: item.avatarUrl == null
                                   ? Text(
-                                      item.name.isNotEmpty ? item.name[0].toUpperCase() : '?',
-                                      style: TextStyle(color: primaryColor, fontSize: 12, fontWeight: FontWeight.bold),
+                                      item.name.isNotEmpty
+                                          ? item.name[0].toUpperCase()
+                                          : '?',
+                                      style: TextStyle(
+                                        color: activeAccent,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     )
                                   : null,
                             ),
@@ -1440,24 +1848,42 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
                                   children: [
                                     Text(
                                       item.name,
-                                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                                      style: TextStyle(
+                                        color: tokens.textPrimary,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                     if (isSelf) ...[
                                       const SizedBox(width: 6),
                                       Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                        decoration: BoxDecoration(
-                                          color: Colors.blue.withOpacity(0.2),
-                                          borderRadius: BorderRadius.circular(4),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 4,
+                                          vertical: 1,
                                         ),
-                                        child: const Text('YOU', style: TextStyle(color: Colors.blueAccent, fontSize: 9, fontWeight: FontWeight.bold)),
+                                        decoration: BoxDecoration(
+                                          color: tokens.infoSoft,
+                                          borderRadius:
+                                              BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          'YOU',
+                                          style: TextStyle(
+                                            color: tokens.infoAccent,
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
                                       ),
                                     ],
                                   ],
                                 ),
                                 Text(
                                   item.email,
-                                  style: TextStyle(color: Colors.grey[400], fontSize: 11),
+                                  style: TextStyle(
+                                    color: tokens.textSecondary,
+                                    fontSize: 11,
+                                  ),
                                 ),
                               ],
                             ),
@@ -1466,45 +1892,39 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
                       ),
                     ),
 
-                    // 2. Department
                     DataCell(
                       Text(
                         deptName ?? 'Unassigned',
-                        style: TextStyle(color: deptName != null ? Colors.white : Colors.grey[500], fontSize: 12),
-                      ),
-                    ),
-
-                    // 3. Role
-                    DataCell(
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: item.role == 'admin'
-                              ? Colors.blue.withOpacity(0.18)
-                              : (item.role == 'lead' ? Colors.purple.withOpacity(0.18) : Colors.grey.withOpacity(0.15)),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          item.role.toUpperCase(),
-                          style: TextStyle(
-                            color: item.role == 'admin'
-                                ? Colors.blueAccent
-                                : (item.role == 'lead' ? Colors.purpleAccent : Colors.grey[400]),
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        style: TextStyle(
+                          color: deptName != null
+                              ? tokens.textPrimary
+                              : tokens.textMuted,
+                          fontSize: 12,
                         ),
                       ),
                     ),
 
-                    // 4. Status / Visual Countdown Ring for codes
+                    DataCell(_buildRoleBadge(tokens, item.role)),
+
                     DataCell(
-                      _buildStatusCell(context, item, firm.firmId, primaryColor),
+                      _buildStatusCell(
+                        context,
+                        tokens,
+                        item,
+                        firm.firmId,
+                        activeAccent,
+                      ),
                     ),
 
-                    // 5. Action buttons / Menu
                     DataCell(
-                      _buildRowActions(context, item, firm.firmId, primaryColor, departments),
+                      _buildRowActions(
+                        context,
+                        tokens,
+                        item,
+                        firm.firmId,
+                        activeAccent,
+                        departments,
+                      ),
                     ),
                   ],
                 );
@@ -1516,14 +1936,43 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
     );
   }
 
+  Widget _buildRoleBadge(PcTokens tokens, String role) {
+    final isAdminRole = role == 'admin';
+    final isLeadRole = role == 'lead';
+    final bg = isAdminRole
+        ? tokens.infoSoft
+        : (isLeadRole ? tokens.projectSoft : tokens.surfaceSubtle);
+    final fg = isAdminRole
+        ? tokens.infoAccent
+        : (isLeadRole ? tokens.projectAccent : tokens.textSecondary);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: fg.withValues(alpha: 0.22)),
+      ),
+      child: Text(
+        role.toUpperCase(),
+        style: TextStyle(
+          color: fg,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
   // ══════════════════════════════════════════════════════════════════════════
   // MOBILE CARD VIEW
   // ══════════════════════════════════════════════════════════════════════════
 
   Widget _buildMobileStaffList(
     BuildContext context,
+    PcTokens tokens,
     Firm firm,
-    Color primaryColor,
+    Color activeAccent,
     List<UnifiedStaffItem> items,
     Map<String, String> deptMap,
     List<Department> departments,
@@ -1535,18 +1984,23 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
         physics: const NeverScrollableScrollPhysics(),
         padding: const EdgeInsets.all(12),
         itemCount: items.length,
-        separatorBuilder: (_, __) => Divider(color: Colors.white.withOpacity(0.04), height: 1),
+        separatorBuilder: (_, _) => Divider(color: tokens.border, height: 1),
         itemBuilder: (ctx, idx) {
           final item = items[idx];
-          final deptName = item.departmentId != null ? deptMap[item.departmentId] : null;
+          final deptName = item.departmentId != null
+              ? deptMap[item.departmentId]
+              : null;
 
           return ListTile(
             contentPadding: const EdgeInsets.symmetric(vertical: 4),
             leading: CircleAvatar(
-              backgroundColor: primaryColor.withOpacity(0.18),
+              backgroundColor: activeAccent.withValues(alpha: 0.14),
               child: Text(
                 item.name.isNotEmpty ? item.name[0].toUpperCase() : '?',
-                style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: activeAccent,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
             title: Row(
@@ -1554,38 +2008,48 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
                 Flexible(
                   child: Text(
                     item.name,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: item.role == 'lead' ? Colors.purple.withOpacity(0.2) : Colors.grey.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    item.role.toUpperCase(),
-                    style: TextStyle(
-                      color: item.role == 'lead' ? Colors.purpleAccent : Colors.grey[400],
-                      fontSize: 9,
-                    ),
-                  ),
-                ),
+                _buildRoleBadge(tokens, item.role),
               ],
             ),
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(item.email, style: TextStyle(color: Colors.grey[400], fontSize: 12)),
+                Text(
+                  item.email,
+                  style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+                ),
                 const SizedBox(height: 3),
-                Text('Dept: ${deptName ?? "None"}', style: TextStyle(color: Colors.grey[500], fontSize: 11)),
+                Text(
+                  'Dept: ${deptName ?? "None"}',
+                  style: TextStyle(color: tokens.textMuted, fontSize: 11),
+                ),
                 const SizedBox(height: 6),
-                _buildStatusCell(context, item, firm.firmId, primaryColor),
+                _buildStatusCell(
+                  context,
+                  tokens,
+                  item,
+                  firm.firmId,
+                  activeAccent,
+                ),
               ],
             ),
-            trailing: _buildRowActions(context, item, firm.firmId, primaryColor, departments),
+            trailing: _buildRowActions(
+              context,
+              tokens,
+              item,
+              firm.firmId,
+              activeAccent,
+              departments,
+            ),
           );
         },
       ),
@@ -1598,23 +2062,32 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
 
   Widget _buildStatusCell(
     BuildContext context,
+    PcTokens tokens,
     UnifiedStaffItem item,
     String firmId,
-    Color primaryColor,
+    Color activeAccent,
   ) {
     if (item.status == 'active') {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
-          color: Colors.green.withOpacity(0.15),
+          color: _emerald.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: _emerald.withValues(alpha: 0.25)),
         ),
         child: const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.check_circle, size: 12, color: Colors.greenAccent),
+            Icon(Icons.check_circle, size: 12, color: _emerald),
             SizedBox(width: 4),
-            Text('Active', style: TextStyle(color: Colors.greenAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+            Text(
+              'Active',
+              style: TextStyle(
+                color: _emerald,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ],
         ),
       );
@@ -1624,10 +2097,18 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
-          color: Colors.red.withOpacity(0.15),
+          color: tokens.urgentBg,
           borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: tokens.urgentBorder),
         ),
-        child: const Text('Revoked', style: TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+        child: Text(
+          'Revoked',
+          style: TextStyle(
+            color: tokens.urgentText,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       );
     }
 
@@ -1635,14 +2116,23 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
-          color: Colors.orange.withOpacity(0.15),
+          color: tokens.warningSoft,
           borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: tokens.warningAccent.withValues(alpha: 0.30),
+          ),
         ),
-        child: const Text('Pending Approval', style: TextStyle(color: Colors.orangeAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+        child: Text(
+          'Pending Approval',
+          style: TextStyle(
+            color: tokens.warningAccent,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
       );
     }
 
-    // Code Pending: Visual 5-minute Countdown Ring
     if (item.status == 'code_pending' && item.code != null) {
       return _StaffCodeCountdownRing(
         firmId: firmId,
@@ -1650,7 +2140,7 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
         email: item.email,
         code: item.code!,
         expiresAt: item.codeExpiresAt,
-        primaryColor: primaryColor,
+        primaryColor: activeAccent,
         onCopyFeedback: () {
           setState(() => _copiedCodes.add(item.id));
           Future.delayed(const Duration(seconds: 2), () {
@@ -1661,7 +2151,10 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
       );
     }
 
-    return Text(item.status, style: TextStyle(color: Colors.grey[400], fontSize: 12));
+    return Text(
+      item.status,
+      style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+    );
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -1670,37 +2163,40 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
 
   Widget _buildRowActions(
     BuildContext context,
+    PcTokens tokens,
     UnifiedStaffItem item,
     String firmId,
-    Color primaryColor,
+    Color activeAccent,
     List<Department> departments,
   ) {
     final isActionActive = _actionLoading[item.id] == true;
     if (isActionActive) {
-      return const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2));
+      return SizedBox(
+        width: 18,
+        height: 18,
+        child: CircularProgressIndicator(strokeWidth: 2, color: activeAccent),
+      );
     }
 
-    // Pre-Approved / Code Pending: Remove option
     if (item.type == UnifiedStaffType.preApproved) {
       return IconButton(
-        icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 18),
+        icon: Icon(Icons.delete_outline, color: tokens.urgentText, size: 18),
         tooltip: 'Remove Invite',
         onPressed: () => _confirmRemovePreApproved(context, firmId, item),
       );
     }
 
-    // Pending Approval: Approve / Reject buttons
     if (item.status == 'pending_approval') {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           IconButton(
-            icon: const Icon(Icons.close, color: Colors.redAccent, size: 18),
+            icon: Icon(Icons.close, color: tokens.urgentText, size: 18),
             tooltip: 'Reject',
             onPressed: () => _rejectMembership(context, firmId, item),
           ),
           IconButton(
-            icon: const Icon(Icons.check, color: Colors.greenAccent, size: 18),
+            icon: const Icon(Icons.check, color: _emerald, size: 18),
             tooltip: 'Approve',
             onPressed: () => _approveMembership(context, firmId, item),
           ),
@@ -1708,25 +2204,23 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
       );
     }
 
-    // Revoked: Restore option
     if (item.status == 'revoked') {
       return ElevatedButton.icon(
         onPressed: () => _restoreMembership(context, firmId, item),
         icon: const Icon(Icons.restore, size: 14),
         label: const Text('Restore', style: TextStyle(fontSize: 11)),
         style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.green[700],
+          backgroundColor: _emerald,
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         ),
       );
     }
 
-    // Active Staff: Menu with Assign Dept, Change Role, Revoke (with offboarding checklist)
     if (item.status == 'active' && item.role != 'admin') {
       return PopupMenuButton<String>(
-        icon: const Icon(Icons.more_vert, color: Colors.grey, size: 18),
-        color: const Color(0xFF222121),
+        icon: Icon(Icons.more_vert, color: tokens.textSecondary, size: 18),
+        color: tokens.surface,
         onSelected: (action) {
           if (action == 'dept') {
             _showAssignMemberDeptDialog(context, firmId, item, departments);
@@ -1737,13 +2231,20 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
           }
         },
         itemBuilder: (ctx) => [
-          const PopupMenuItem(
+          PopupMenuItem(
             value: 'dept',
             child: Row(
               children: [
-                Icon(Icons.corporate_fare, size: 16, color: Colors.white),
-                SizedBox(width: 8),
-                Text('Assign Department', style: TextStyle(color: Colors.white, fontSize: 13)),
+                Icon(
+                  Icons.corporate_fare,
+                  size: 16,
+                  color: tokens.textSecondary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Assign Department',
+                  style: TextStyle(color: tokens.textPrimary, fontSize: 13),
+                ),
               ],
             ),
           ),
@@ -1751,21 +2252,32 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
             value: 'role',
             child: Row(
               children: [
-                const Icon(Icons.shield_outlined, size: 16, color: Colors.white),
+                Icon(
+                  Icons.shield_outlined,
+                  size: 16,
+                  color: tokens.textSecondary,
+                ),
                 const SizedBox(width: 8),
-                Text(item.role == 'lead' ? 'Demote to Employee' : 'Promote to Lead',
-                    style: const TextStyle(color: Colors.white, fontSize: 13)),
+                Text(
+                  item.role == 'lead'
+                      ? 'Demote to Employee'
+                      : 'Promote to Lead',
+                  style: TextStyle(color: tokens.textPrimary, fontSize: 13),
+                ),
               ],
             ),
           ),
           const PopupMenuDivider(),
-          const PopupMenuItem(
+          PopupMenuItem(
             value: 'revoke',
             child: Row(
               children: [
-                Icon(Icons.block, color: Colors.redAccent, size: 16),
-                SizedBox(width: 8),
-                Text('Revoke Access', style: TextStyle(color: Colors.redAccent, fontSize: 13)),
+                Icon(Icons.block, color: tokens.urgentText, size: 16),
+                const SizedBox(width: 8),
+                Text(
+                  'Revoke Access',
+                  style: TextStyle(color: tokens.urgentText, fontSize: 13),
+                ),
               ],
             ),
           ),
@@ -1788,7 +2300,6 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
     final uid = item.uid;
     if (uid == null) return;
 
-    // Check 1: Is member Department Head?
     final deptsSnap = await FirebaseFirestore.instance
         .collection('Firms')
         .doc(firmId)
@@ -1797,9 +2308,9 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
         .where('status', isEqualTo: 'active')
         .get();
 
-    final headedDeptNames = deptsSnap.docs.map((d) => d.data()['name'] as String? ?? 'Dept').toList();
+    final headedDeptNames =
+        deptsSnap.docs.map((d) => d.data()['name'] as String? ?? 'Dept').toList();
 
-    // Check 2: Is member Owner of any Project Group?
     final projectsSnap = await FirebaseFirestore.instance
         .collection('Firms')
         .doc(firmId)
@@ -1808,28 +2319,42 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
         .where('status', isEqualTo: 'active')
         .get();
 
-    final ownedProjectNames = projectsSnap.docs.map((p) => p.data()['name'] as String? ?? 'Project').toList();
+    final ownedProjectNames = projectsSnap.docs
+        .map((p) => p.data()['name'] as String? ?? 'Project')
+        .toList();
 
-    final hasLeadershipRoles = headedDeptNames.isNotEmpty || ownedProjectNames.isNotEmpty;
+    final hasLeadershipRoles =
+        headedDeptNames.isNotEmpty || ownedProjectNames.isNotEmpty;
 
     if (!context.mounted) return;
+    final tokens = context.pcTokens;
 
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF222121),
+        backgroundColor: tokens.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
             Icon(
               hasLeadershipRoles ? Icons.warning_amber_rounded : Icons.block,
-              color: hasLeadershipRoles ? Colors.amber : Colors.redAccent,
+              color: hasLeadershipRoles
+                  ? tokens.warningAccent
+                  : tokens.urgentText,
               size: 22,
             ),
             const SizedBox(width: 10),
-            Text(
-              hasLeadershipRoles ? 'Offboarding Leadership Warning' : 'Revoke Workspace Access?',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+            Expanded(
+              child: Text(
+                hasLeadershipRoles
+                    ? 'Offboarding Leadership Warning'
+                    : 'Revoke Workspace Access?',
+                style: TextStyle(
+                  color: tokens.textPrimary,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                ),
+              ),
             ),
           ],
         ),
@@ -1839,39 +2364,54 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
           children: [
             Text(
               'Revoking access for ${item.name} (${item.email}) will immediately prevent them from logging in.',
-              style: TextStyle(color: Colors.grey[300], fontSize: 13),
+              style: TextStyle(color: tokens.textSecondary, fontSize: 13),
             ),
             if (hasLeadershipRoles) ...[
               const SizedBox(height: 14),
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.amber.withOpacity(0.12),
+                  color: tokens.warningSoft,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.amber.withOpacity(0.4)),
+                  border: Border.all(
+                    color: tokens.warningAccent.withValues(alpha: 0.35),
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      '⚠️ Active Responsibilities Detected:',
-                      style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 12),
+                    Text(
+                      'Active Responsibilities Detected:',
+                      style: TextStyle(
+                        color: tokens.warningAccent,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
                     ),
                     const SizedBox(height: 6),
                     if (headedDeptNames.isNotEmpty)
                       Text(
                         '• Department Head of: ${headedDeptNames.join(", ")}',
-                        style: const TextStyle(color: Colors.white, fontSize: 12),
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontSize: 12,
+                        ),
                       ),
                     if (ownedProjectNames.isNotEmpty)
                       Text(
                         '• Owner of Project Group(s): ${ownedProjectNames.join(", ")}',
-                        style: const TextStyle(color: Colors.white, fontSize: 12),
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontSize: 12,
+                        ),
                       ),
                     const SizedBox(height: 8),
                     Text(
                       'Revoking now will leave these areas without a leader. Consider reassigning their roles first in the Notices & Groups tab.',
-                      style: TextStyle(color: Colors.grey[400], fontSize: 11),
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 11.5,
+                      ),
                     ),
                   ],
                 ),
@@ -1882,11 +2422,17 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: tokens.textSecondary),
+            ),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red[700]),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: tokens.urgentText,
+              foregroundColor: Colors.white,
+            ),
             child: const Text('Revoke Access'),
           ),
         ],
@@ -1898,7 +2444,6 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
       try {
         await DBService.instance.updateMembershipStatus(item.id, 'revoked');
 
-        // Audit log
         await AuditService.instance.logAction(
           firmId: firmId,
           action: 'revoke_staff',
@@ -1909,7 +2454,8 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
 
         SnackbarService().showSnackbar('${item.name} access revoked.');
       } catch (e) {
-        SnackbarService().showSnackbar('Error revoking member: $e', isError: true);
+        SnackbarService()
+            .showSnackbar('Error revoking member: $e', isError: true);
       } finally {
         if (mounted) setState(() => _actionLoading[item.id] = false);
       }
@@ -1920,7 +2466,11 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
   // ROLE, DEPT, REMOVE, APPROVE & REJECT HANDLERS
   // ══════════════════════════════════════════════════════════════════════════
 
-  Future<void> _approveMembership(BuildContext context, String firmId, UnifiedStaffItem item) async {
+  Future<void> _approveMembership(
+    BuildContext context,
+    String firmId,
+    UnifiedStaffItem item,
+  ) async {
     setState(() => _actionLoading[item.id] = true);
     try {
       await DBService.instance.updateMembershipStatus(item.id, 'approved');
@@ -1939,18 +2489,35 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
     }
   }
 
-  Future<void> _rejectMembership(BuildContext context, String firmId, UnifiedStaffItem item) async {
+  Future<void> _rejectMembership(
+    BuildContext context,
+    String firmId,
+    UnifiedStaffItem item,
+  ) async {
+    final tokens = context.pcTokens;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF222121),
-        title: const Text('Reject Access Request?'),
-        content: Text('Reject access request for ${item.name}?'),
+        backgroundColor: tokens.surface,
+        title: Text(
+          'Reject Access Request?',
+          style: TextStyle(color: tokens.textPrimary),
+        ),
+        content: Text(
+          'Reject access request for ${item.name}?',
+          style: TextStyle(color: tokens.textSecondary),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: tokens.textSecondary),
+            ),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+            style: TextButton.styleFrom(foregroundColor: tokens.urgentText),
             child: const Text('Reject'),
           ),
         ],
@@ -1977,7 +2544,11 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
     }
   }
 
-  Future<void> _restoreMembership(BuildContext context, String firmId, UnifiedStaffItem item) async {
+  Future<void> _restoreMembership(
+    BuildContext context,
+    String firmId,
+    UnifiedStaffItem item,
+  ) async {
     setState(() => _actionLoading[item.id] = true);
     try {
       await DBService.instance.updateMembershipStatus(item.id, 'approved');
@@ -1996,18 +2567,35 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
     }
   }
 
-  Future<void> _confirmRemovePreApproved(BuildContext context, String firmId, UnifiedStaffItem item) async {
+  Future<void> _confirmRemovePreApproved(
+    BuildContext context,
+    String firmId,
+    UnifiedStaffItem item,
+  ) async {
+    final tokens = context.pcTokens;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF222121),
-        title: const Text('Remove Pre-Authorized Staff?'),
-        content: Text('Remove ${item.email} from pre-approved staff? This frees 1 trial seat.'),
+        backgroundColor: tokens.surface,
+        title: Text(
+          'Remove Pre-Authorized Staff?',
+          style: TextStyle(color: tokens.textPrimary),
+        ),
+        content: Text(
+          'Remove ${item.email} from pre-approved staff? This frees 1 trial seat.',
+          style: TextStyle(color: tokens.textSecondary),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: tokens.textSecondary),
+            ),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+            style: TextButton.styleFrom(foregroundColor: tokens.urgentText),
             child: const Text('Remove'),
           ),
         ],
@@ -2028,7 +2616,8 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
           targetLabel: item.email,
         );
         ref.read(firmNotifierProvider.notifier).loadFirm(firmId);
-        SnackbarService().showSnackbar('Removed ${item.email}. 1 seat returned.');
+        SnackbarService()
+            .showSnackbar('Removed ${item.email}. 1 seat returned.');
       } catch (e) {
         SnackbarService().showSnackbar('Error removing: $e', isError: true);
       }
@@ -2041,32 +2630,41 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
     UnifiedStaffItem item,
     List<Department> departments,
   ) async {
+    final tokens = context.pcTokens;
     String? selectedDeptId = item.departmentId;
 
     await showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xFF222121),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text('Assign Department: ${item.name}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+          backgroundColor: tokens.surface,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text(
+            'Assign Department: ${item.name}',
+            style: TextStyle(
+              color: tokens.textPrimary,
+              fontWeight: FontWeight.w700,
+              fontSize: 16,
+            ),
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              DropdownButtonFormField<String?>(
+              _styledDropdown<String?>(
+                tokens: tokens,
+                label: 'Department',
                 value: selectedDeptId,
-                dropdownColor: const Color(0xFF222121),
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: 'Department',
-                  filled: true,
-                  fillColor: const Color(0xFF161515),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
                 items: [
-                  const DropdownMenuItem<String?>(value: null, child: Text('None (Unassigned)')),
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('None (Unassigned)'),
+                  ),
                   ...departments.where((d) => d.isActive).map(
-                        (d) => DropdownMenuItem<String?>(value: d.deptId, child: Text(d.name)),
+                        (d) => DropdownMenuItem<String?>(
+                          value: d.deptId,
+                          child: Text(d.name),
+                        ),
                       ),
                 ],
                 onChanged: (val) => setDialogState(() => selectedDeptId = val),
@@ -2074,12 +2672,22 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(
+                'Cancel',
+                style: TextStyle(color: tokens.textSecondary),
+              ),
+            ),
             ElevatedButton(
               onPressed: () async {
                 Navigator.pop(ctx);
                 try {
-                  await DBService.instance.assignMemberDepartment(firmId, item.uid!, selectedDeptId);
+                  await DBService.instance.assignMemberDepartment(
+                    firmId,
+                    item.uid!,
+                    selectedDeptId,
+                  );
                   await AuditService.instance.logAction(
                     firmId: firmId,
                     action: 'assign_department',
@@ -2089,7 +2697,10 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
                   );
                   SnackbarService().showSnackbar('Department updated.');
                 } catch (e) {
-                  SnackbarService().showSnackbar('Error updating department: $e', isError: true);
+                  SnackbarService().showSnackbar(
+                    'Error updating department: $e',
+                    isError: true,
+                  );
                 }
               },
               child: const Text('Save'),
@@ -2100,27 +2711,53 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
     );
   }
 
-  Future<void> _showChangeMemberRoleDialog(BuildContext context, String firmId, UnifiedStaffItem item) async {
-    final newRole = item.role == 'lead' ? MembershipRole.employee : MembershipRole.lead;
+  Future<void> _showChangeMemberRoleDialog(
+    BuildContext context,
+    String firmId,
+    UnifiedStaffItem item,
+  ) async {
+    final tokens = context.pcTokens;
+    final newRole =
+        item.role == 'lead' ? MembershipRole.employee : MembershipRole.lead;
 
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF222121),
+        backgroundColor: tokens.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(newRole == MembershipRole.lead ? 'Promote to Lead?' : 'Demote to Employee?'),
+        title: Text(
+          newRole == MembershipRole.lead
+              ? 'Promote to Lead?'
+              : 'Demote to Employee?',
+          style: TextStyle(color: tokens.textPrimary),
+        ),
         content: Text(
           newRole == MembershipRole.lead
               ? 'Promoting ${item.name} to Lead grants permissions to create/manage project groups and post in #all-staff.'
               : 'Demoting ${item.name} to Employee will remove their permissions to create project groups.',
-          style: const TextStyle(color: Colors.grey, fontSize: 13),
+          style: TextStyle(color: tokens.textSecondary, fontSize: 13),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: tokens.textSecondary),
+            ),
+          ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: newRole == MembershipRole.lead ? Colors.purple : Colors.blueGrey),
-            child: Text(newRole == MembershipRole.lead ? 'Promote to Lead' : 'Demote to Employee'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: newRole == MembershipRole.lead
+                  ? tokens.projectAccent
+                  : tokens.textSecondary,
+              foregroundColor: Colors.white,
+            ),
+            child: Text(
+              newRole == MembershipRole.lead
+                  ? 'Promote to Lead'
+                  : 'Demote to Employee',
+            ),
           ),
         ],
       ),
@@ -2136,9 +2773,11 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
           targetId: item.id,
           targetLabel: '${item.name} -> ${newRole.name}',
         );
-        SnackbarService().showSnackbar('Updated role to ${newRole.name.toUpperCase()}.');
+        SnackbarService()
+            .showSnackbar('Updated role to ${newRole.name.toUpperCase()}.');
       } catch (e) {
-        SnackbarService().showSnackbar('Error updating role: $e', isError: true);
+        SnackbarService()
+            .showSnackbar('Error updating role: $e', isError: true);
       }
     }
   }
@@ -2149,51 +2788,72 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
     List<String> memberIds,
     List<Department> departments,
   ) async {
+    final tokens = context.pcTokens;
     String? targetDeptId;
 
     await showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xFF222121),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text('Bulk Assign Department (${memberIds.length} staff)'),
-          content: DropdownButtonFormField<String?>(
+          backgroundColor: tokens.surface,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text(
+            'Bulk Assign Department (${memberIds.length} staff)',
+            style: TextStyle(color: tokens.textPrimary),
+          ),
+          content: _styledDropdown<String?>(
+            tokens: tokens,
+            label: 'Target Department',
             value: targetDeptId,
-            dropdownColor: const Color(0xFF222121),
-            style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              labelText: 'Target Department',
-              filled: true,
-              fillColor: const Color(0xFF161515),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-            ),
             items: [
-              const DropdownMenuItem<String?>(value: null, child: Text('None (Remove Department)')),
+              const DropdownMenuItem<String?>(
+                value: null,
+                child: Text('None (Remove Department)'),
+              ),
               ...departments.where((d) => d.isActive).map(
-                    (d) => DropdownMenuItem<String?>(value: d.deptId, child: Text(d.name)),
+                    (d) => DropdownMenuItem<String?>(
+                      value: d.deptId,
+                      child: Text(d.name),
+                    ),
                   ),
             ],
             onChanged: (val) => setDialogState(() => targetDeptId = val),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(
+                'Cancel',
+                style: TextStyle(color: tokens.textSecondary),
+              ),
+            ),
             ElevatedButton(
               onPressed: () async {
                 Navigator.pop(ctx);
                 try {
-                  await DBService.instance.bulkAssignDepartment(firmId, memberIds, targetDeptId);
+                  await DBService.instance.bulkAssignDepartment(
+                    firmId,
+                    memberIds,
+                    targetDeptId,
+                  );
                   await AuditService.instance.logAction(
                     firmId: firmId,
                     action: 'bulk_assign_dept',
                     targetType: 'membership_list',
                     targetId: firmId,
-                    targetLabel: '${memberIds.length} members assigned to ${targetDeptId ?? "None"}',
+                    targetLabel:
+                        '${memberIds.length} members assigned to ${targetDeptId ?? "None"}',
                   );
                   setState(() => _selectedActiveUids.clear());
-                  SnackbarService().showSnackbar('Bulk assigned ${memberIds.length} members.');
+                  SnackbarService().showSnackbar(
+                    'Bulk assigned ${memberIds.length} members.',
+                  );
                 } catch (e) {
-                  SnackbarService().showSnackbar('Error in bulk assignment: $e', isError: true);
+                  SnackbarService().showSnackbar(
+                    'Error in bulk assignment: $e',
+                    isError: true,
+                  );
                 }
               },
               child: const Text('Apply to All Selected'),
@@ -2204,52 +2864,80 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
     );
   }
 
-  Future<void> _showBulkSetRoleDialog(BuildContext context, String firmId, List<String> memberIds) async {
+  Future<void> _showBulkSetRoleDialog(
+    BuildContext context,
+    String firmId,
+    List<String> memberIds,
+  ) async {
+    final tokens = context.pcTokens;
     MembershipRole targetRole = MembershipRole.lead;
 
     await showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xFF222121),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text('Bulk Set Role (${memberIds.length} staff)'),
-          content: DropdownButtonFormField<MembershipRole>(
+          backgroundColor: tokens.surface,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text(
+            'Bulk Set Role (${memberIds.length} staff)',
+            style: TextStyle(color: tokens.textPrimary),
+          ),
+          content: _styledDropdown<MembershipRole>(
+            tokens: tokens,
+            label: 'Target Role',
             value: targetRole,
-            dropdownColor: const Color(0xFF222121),
-            style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              labelText: 'Target Role',
-              filled: true,
-              fillColor: const Color(0xFF161515),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            items: const [
-              DropdownMenuItem(value: MembershipRole.lead, child: Text('Lead (Manage Groups & #all-staff)', style: TextStyle(color: Colors.purpleAccent))),
-              DropdownMenuItem(value: MembershipRole.employee, child: Text('Employee (Standard Member)')),
+            items: [
+              DropdownMenuItem(
+                value: MembershipRole.lead,
+                child: Text(
+                  'Lead (Manage Groups & #all-staff)',
+                  style: TextStyle(color: tokens.projectAccent),
+                ),
+              ),
+              const DropdownMenuItem(
+                value: MembershipRole.employee,
+                child: Text('Employee (Standard Member)'),
+              ),
             ],
             onChanged: (val) {
               if (val != null) setDialogState(() => targetRole = val);
             },
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(
+                'Cancel',
+                style: TextStyle(color: tokens.textSecondary),
+              ),
+            ),
             ElevatedButton(
               onPressed: () async {
                 Navigator.pop(ctx);
                 try {
-                  await DBService.instance.bulkUpdateRoles(firmId, memberIds, targetRole);
+                  await DBService.instance.bulkUpdateRoles(
+                    firmId,
+                    memberIds,
+                    targetRole,
+                  );
                   await AuditService.instance.logAction(
                     firmId: firmId,
                     action: 'bulk_set_role',
                     targetType: 'membership_list',
                     targetId: firmId,
-                    targetLabel: '${memberIds.length} members set to ${targetRole.name}',
+                    targetLabel:
+                        '${memberIds.length} members set to ${targetRole.name}',
                   );
                   setState(() => _selectedActiveUids.clear());
-                  SnackbarService().showSnackbar('Bulk updated ${memberIds.length} roles to ${targetRole.name}.');
+                  SnackbarService().showSnackbar(
+                    'Bulk updated ${memberIds.length} roles to ${targetRole.name}.',
+                  );
                 } catch (e) {
-                  SnackbarService().showSnackbar('Error updating roles: $e', isError: true);
+                  SnackbarService().showSnackbar(
+                    'Error updating roles: $e',
+                    isError: true,
+                  );
                 }
               },
               child: const Text('Apply Role'),
@@ -2260,7 +2948,12 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
     );
   }
 
-  void _showAddPreApprovedStaffDialog(BuildContext context, String firmId, List<Department> departments) {
+  void _showAddPreApprovedStaffDialog(
+    BuildContext context,
+    String firmId,
+    List<Department> departments,
+  ) {
+    final tokens = context.pcTokens;
     final emailController = TextEditingController();
     final nameController = TextEditingController();
     MembershipRole selectedRole = MembershipRole.employee;
@@ -2270,75 +2963,79 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
       context: context,
       builder: (dialogCtx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xFF222121),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text('Add Pre-Authorized Staff', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          backgroundColor: tokens.surface,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text(
+            'Add Pre-Authorized Staff',
+            style: TextStyle(
+              color: tokens.textPrimary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Pre-authorizing an employee reserves 1 seat. A 5-minute staff code will be auto-generated and active as soon as you save.',
-                  style: TextStyle(color: Colors.grey, fontSize: 13),
+                  style: TextStyle(color: tokens.textSecondary, fontSize: 13),
                 ),
                 const SizedBox(height: 16),
                 TextField(
                   controller: nameController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
+                  style: TextStyle(color: tokens.textPrimary),
+                  decoration: const InputDecoration(
                     labelText: 'Employee Name',
-                    filled: true,
-                    fillColor: const Color(0xFF161515),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   ),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: emailController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
+                  style: TextStyle(color: tokens.textPrimary),
+                  decoration: const InputDecoration(
                     labelText: 'Employee Email',
                     hintText: 'name@company.com',
-                    filled: true,
-                    fillColor: const Color(0xFF161515),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   ),
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<MembershipRole>(
+                _styledDropdown<MembershipRole>(
+                  tokens: tokens,
+                  label: 'Initial Role',
                   value: selectedRole,
-                  dropdownColor: const Color(0xFF222121),
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    labelText: 'Initial Role',
-                    filled: true,
-                    fillColor: const Color(0xFF161515),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: MembershipRole.employee, child: Text('Employee (Standard)')),
-                    DropdownMenuItem(value: MembershipRole.lead, child: Text('Lead (Manage Groups)', style: TextStyle(color: Colors.purpleAccent))),
+                  items: [
+                    const DropdownMenuItem(
+                      value: MembershipRole.employee,
+                      child: Text('Employee (Standard)'),
+                    ),
+                    DropdownMenuItem(
+                      value: MembershipRole.lead,
+                      child: Text(
+                        'Lead (Manage Groups)',
+                        style: TextStyle(color: tokens.projectAccent),
+                      ),
+                    ),
                   ],
                   onChanged: (val) {
                     if (val != null) setDialogState(() => selectedRole = val);
                   },
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<String?>(
+                _styledDropdown<String?>(
+                  tokens: tokens,
+                  label: 'Department (Optional)',
                   value: selectedDeptId,
-                  dropdownColor: const Color(0xFF222121),
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    labelText: 'Department (Optional)',
-                    filled: true,
-                    fillColor: const Color(0xFF161515),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
                   items: [
-                    const DropdownMenuItem<String?>(value: null, child: Text('None (Unassigned)')),
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('None (Unassigned)'),
+                    ),
                     ...departments.where((d) => d.isActive).map(
-                          (d) => DropdownMenuItem<String?>(value: d.deptId, child: Text(d.name)),
+                          (d) => DropdownMenuItem<String?>(
+                            value: d.deptId,
+                            child: Text(d.name),
+                          ),
                         ),
                   ],
                   onChanged: (val) => setDialogState(() => selectedDeptId = val),
@@ -2347,18 +3044,28 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: Text(
+                'Cancel',
+                style: TextStyle(color: tokens.textSecondary),
+              ),
+            ),
             ElevatedButton(
               onPressed: () async {
                 final email = emailController.text.trim();
                 final name = nameController.text.trim();
                 if (email.isEmpty || !email.contains('@')) {
-                  SnackbarService().showSnackbar('Please enter a valid email address.', isError: true);
+                  SnackbarService().showSnackbar(
+                    'Please enter a valid email address.',
+                    isError: true,
+                  );
                   return;
                 }
                 Navigator.pop(dialogCtx);
                 try {
-                  final issuedCode = await DBService.instance.addPreApprovedStaff(
+                  final issuedCode =
+                      await DBService.instance.addPreApprovedStaff(
                     firmId: firmId,
                     email: email,
                     name: name.isEmpty ? email : name,
@@ -2373,9 +3080,14 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
                     targetLabel: '$name ($email) [Code: $issuedCode]',
                   );
                   ref.read(firmNotifierProvider.notifier).loadFirm(firmId);
-                  SnackbarService().showSnackbar('Added $email! Code: $issuedCode (valid for 5 mins)');
+                  SnackbarService().showSnackbar(
+                    'Added $email! Code: $issuedCode (valid for 5 mins)',
+                  );
                 } catch (e) {
-                  SnackbarService().showSnackbar('Error: ${e.toString().replaceAll('Exception:', '')}', isError: true);
+                  SnackbarService().showSnackbar(
+                    'Error: ${e.toString().replaceAll('Exception:', '')}',
+                    isError: true,
+                  );
                 }
               },
               child: const Text('Save & Issue Code'),
@@ -2388,9 +3100,6 @@ class _OnboardingTabState extends ConsumerState<OnboardingTab> {
 }
 
 /// Visual 5-Minute Staff Code Countdown Ring Widget
-/// Replaces the old spinner with an animated circular progress ring,
-/// showing minutes and seconds remaining, warning color threshold (<60s),
-/// manual reset button, and automatic 5-minute code rollover with 10-second debounce.
 class _StaffCodeCountdownRing extends StatefulWidget {
   final String firmId;
   final String staffId;
@@ -2413,7 +3122,8 @@ class _StaffCodeCountdownRing extends StatefulWidget {
   });
 
   @override
-  State<_StaffCodeCountdownRing> createState() => _StaffCodeCountdownRingState();
+  State<_StaffCodeCountdownRing> createState() =>
+      _StaffCodeCountdownRingState();
 }
 
 class _StaffCodeCountdownRingState extends State<_StaffCodeCountdownRing> {
@@ -2461,7 +3171,8 @@ class _StaffCodeCountdownRingState extends State<_StaffCodeCountdownRing> {
 
     if (remaining <= 0 && !_isResetting) {
       final now = DateTime.now();
-      if (_lastAutoResetAttempt == null || now.difference(_lastAutoResetAttempt!).inSeconds >= 10) {
+      if (_lastAutoResetAttempt == null ||
+          now.difference(_lastAutoResetAttempt!).inSeconds >= 10) {
         _lastAutoResetAttempt = now;
         _triggerReset(isManual: false);
       }
@@ -2478,11 +3189,14 @@ class _StaffCodeCountdownRingState extends State<_StaffCodeCountdownRing> {
         staffDocId: widget.staffId,
       );
       if (mounted && isManual) {
-        SnackbarService().showSnackbar('New code for ${widget.email}: $newCode (valid for 5 mins)');
+        SnackbarService().showSnackbar(
+          'New code for ${widget.email}: $newCode (valid for 5 mins)',
+        );
       }
     } catch (e) {
       if (mounted && isManual) {
-        SnackbarService().showSnackbar('Failed to reset code: $e', isError: true);
+        SnackbarService()
+            .showSnackbar('Failed to reset code: $e', isError: true);
       }
     } finally {
       if (mounted) setState(() => _isResetting = false);
@@ -2491,15 +3205,15 @@ class _StaffCodeCountdownRingState extends State<_StaffCodeCountdownRing> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.pcTokens;
     final remaining = _remainingSeconds;
-    // Total 5 minutes = 300 seconds
     final progress = (remaining / 300.0).clamp(0.0, 1.0);
 
-    Color ringColor = Colors.greenAccent;
+    Color ringColor = const Color(0xFF059669);
     if (remaining < 60) {
-      ringColor = Colors.redAccent;
+      ringColor = tokens.urgentText;
     } else if (remaining < 120) {
-      ringColor = Colors.orangeAccent;
+      ringColor = tokens.warningAccent;
     }
 
     final mm = remaining ~/ 60;
@@ -2510,45 +3224,54 @@ class _StaffCodeCountdownRingState extends State<_StaffCodeCountdownRing> {
       runSpacing: 4,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        // Code Pill
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           decoration: BoxDecoration(
-            color: const Color(0xFF161515),
+            color: tokens.surfaceSubtle,
             borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: Colors.white.withOpacity(0.08)),
+            border: Border.all(color: tokens.border),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
                 widget.code,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
+                style: TextStyle(
+                  color: tokens.textPrimary,
+                  fontWeight: FontWeight.w800,
                   fontSize: 13,
                   letterSpacing: 1.2,
                 ),
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 5),
               InkWell(
                 onTap: () async {
                   await Clipboard.setData(ClipboardData(text: widget.code));
                   widget.onCopyFeedback();
-                  SnackbarService().showSnackbar('Code ${widget.code} copied!');
+                  SnackbarService()
+                      .showSnackbar('Code ${widget.code} copied!');
                 },
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 200),
                   child: widget.hasCopied
-                      ? const Icon(Icons.check, size: 14, color: Colors.greenAccent, key: ValueKey('c_ok'))
-                      : const Icon(Icons.copy, size: 14, color: Colors.grey, key: ValueKey('c_copy')),
+                      ? const Icon(
+                          Icons.check,
+                          size: 14,
+                          color: Color(0xFF059669),
+                          key: ValueKey('c_ok'),
+                        )
+                      : Icon(
+                          Icons.copy,
+                          size: 14,
+                          color: tokens.textMuted,
+                          key: const ValueKey('c_copy'),
+                        ),
                 ),
               ),
             ],
           ),
         ),
 
-        // Visual Countdown Ring (Stack with CircularProgressIndicator)
         SizedBox(
           width: 26,
           height: 26,
@@ -2558,7 +3281,7 @@ class _StaffCodeCountdownRingState extends State<_StaffCodeCountdownRing> {
               CircularProgressIndicator(
                 value: _isResetting ? null : progress,
                 strokeWidth: 2.5,
-                backgroundColor: Colors.white.withOpacity(0.06),
+                backgroundColor: tokens.border,
                 valueColor: AlwaysStoppedAnimation<Color>(ringColor),
               ),
               if (!_isResetting)
@@ -2566,7 +3289,7 @@ class _StaffCodeCountdownRingState extends State<_StaffCodeCountdownRing> {
                   '$mm',
                   style: TextStyle(
                     fontSize: 10,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w700,
                     color: ringColor,
                   ),
                 ),
@@ -2574,7 +3297,6 @@ class _StaffCodeCountdownRingState extends State<_StaffCodeCountdownRing> {
           ),
         ),
 
-        // Time Text
         Text(
           _isResetting ? 'Resetting...' : '$mm:$ss',
           style: TextStyle(
@@ -2584,12 +3306,18 @@ class _StaffCodeCountdownRingState extends State<_StaffCodeCountdownRing> {
           ),
         ),
 
-        // Manual Refresh Button
         if (_isResetting)
-          const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: widget.primaryColor,
+            ),
+          )
         else
           IconButton(
-            icon: const Icon(Icons.refresh, size: 16, color: Colors.blueAccent),
+            icon: Icon(Icons.refresh, size: 16, color: widget.primaryColor),
             tooltip: 'Reset code manually',
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),

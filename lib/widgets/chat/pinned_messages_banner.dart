@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/chat_polish_models.dart';
+import '../../theme/pc_tokens.dart';
 
 class PinnedMessagesBanner extends StatefulWidget {
   final List<PinnedMessage> pins;
@@ -25,9 +26,9 @@ class _PinnedMessagesBannerState extends State<PinnedMessagesBanner> {
   @override
   void didUpdateWidget(covariant PinnedMessagesBanner oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // When a new message is pinned or pins list changes, newly pinned message takes immediate precedence
     if (widget.pins.isNotEmpty &&
-        (oldWidget.pins.isEmpty || widget.pins.first.messageId != oldWidget.pins.first.messageId)) {
+        (oldWidget.pins.isEmpty ||
+            widget.pins.first.messageId != oldWidget.pins.first.messageId)) {
       _currentIndex = 0;
     }
   }
@@ -35,15 +36,16 @@ class _PinnedMessagesBannerState extends State<PinnedMessagesBanner> {
   @override
   Widget build(BuildContext context) {
     if (widget.pins.isEmpty) return const SizedBox.shrink();
+    final tokens = context.pcTokens;
 
     final safeIndex = _currentIndex < widget.pins.length ? _currentIndex : 0;
     final pin = widget.pins[safeIndex];
 
     return Container(
       decoration: BoxDecoration(
-        color: const Color.fromRGBO(35, 34, 38, 0.95),
+        color: tokens.surface,
         border: Border(
-          bottom: BorderSide(color: Colors.white.withOpacity(0.08), width: 0.8),
+          bottom: BorderSide(color: tokens.border, width: 1),
         ),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -52,10 +54,14 @@ class _PinnedMessagesBannerState extends State<PinnedMessagesBanner> {
           Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
-              color: Colors.amber.withOpacity(0.15),
+              color: tokens.warningSoft,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(Icons.push_pin, color: Colors.amberAccent, size: 16),
+            child: Icon(
+              Icons.push_pin_rounded,
+              color: tokens.warningAccent,
+              size: 15,
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -71,25 +77,28 @@ class _PinnedMessagesBannerState extends State<PinnedMessagesBanner> {
                         widget.pins.length > 1
                             ? 'Pinned Message (${safeIndex + 1}/${widget.pins.length})'
                             : 'Pinned Message',
-                        style: const TextStyle(
-                          color: Colors.amberAccent,
+                        style: TextStyle(
+                          color: tokens.warningAccent,
                           fontSize: 11,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                       Container(
                         margin: const EdgeInsets.only(left: 6),
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 1,
+                        ),
                         decoration: BoxDecoration(
-                          color: Colors.amber.withOpacity(0.15),
+                          color: tokens.warningSoft,
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Text(
                           pin.formatRemaining(),
-                          style: const TextStyle(
-                            color: Colors.amberAccent,
+                          style: TextStyle(
+                            color: tokens.warningAccent,
                             fontSize: 10,
-                            fontWeight: FontWeight.w500,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
@@ -98,15 +107,16 @@ class _PinnedMessagesBannerState extends State<PinnedMessagesBanner> {
                         GestureDetector(
                           onTap: () {
                             setState(() {
-                              _currentIndex = (_currentIndex + 1) % widget.pins.length;
+                              _currentIndex =
+                                  (_currentIndex + 1) % widget.pins.length;
                             });
                           },
                           child: Text(
                             'Next ▶',
                             style: TextStyle(
-                              color: Colors.grey[400],
+                              color: tokens.textSecondary,
                               fontSize: 10,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                         ),
@@ -118,8 +128,8 @@ class _PinnedMessagesBannerState extends State<PinnedMessagesBanner> {
                     pin.snippet.isNotEmpty ? pin.snippet : 'Pinned message',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: tokens.textPrimary,
                       fontSize: 13,
                     ),
                   ),
@@ -129,7 +139,7 @@ class _PinnedMessagesBannerState extends State<PinnedMessagesBanner> {
           ),
           if (widget.canManagePins)
             IconButton(
-              icon: const Icon(Icons.close, color: Colors.grey, size: 18),
+              icon: Icon(Icons.close_rounded, color: tokens.textMuted, size: 18),
               tooltip: 'Unpin message',
               onPressed: () => widget.onUnpinMessage(pin.messageId),
               visualDensity: VisualDensity.compact,

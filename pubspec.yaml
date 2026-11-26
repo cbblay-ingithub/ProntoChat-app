@@ -65,6 +65,7 @@ dependencies:
   flutter_animate: ^4.5.2
   animations: ^3.0.0
   desktop_drop: ^0.8.4
+  material_color_utilities: ^0.13.0
   # ─────────────────────────
 dev_dependencies:
   flutter_test:

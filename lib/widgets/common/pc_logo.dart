@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
 import '../../models/media_ref.dart';
 import '../../services/media_service.dart';
+import '../../theme/pc_tokens.dart';
+import '../../theme/pronto_tokens.dart';
 export '../../models/media_ref.dart' show MediaRef, MediaVariant;
 
 /// Reusable logo widget for ProntoChat firms.
 /// Dual-read support: checks new [logo] (MediaRef) first,
 /// falls back to [legacyUrl] (full URL), and finally generates
 /// clean firm icon/initials on failure or absence.
+///
+/// Token-driven: when rendered inside Admin Web (`maybeProntoTokens != null`),
+/// uses the active theme's `ColorScheme.primary` (which adapts across Light & Dark
+/// harmony themes). On Mobile (`maybeProntoTokens == null`), falls back identically
+/// to its existing `PcTokens` appearance.
 class PcLogo extends StatelessWidget {
   final MediaRef? logo;
   final String? legacyUrl;
@@ -41,7 +48,17 @@ class PcLogo extends StatelessWidget {
   Widget build(BuildContext context) {
     final effectiveWidth = width ?? size ?? 48;
     final effectiveHeight = height ?? size ?? 48;
-    final brandColor = primaryColor ?? fallbackColor ?? const Color(0xFF295CB4);
+    final adminTokens = context.maybeProntoTokens;
+
+    final Color brandColor;
+    if (adminTokens != null) {
+      brandColor =
+          primaryColor ?? fallbackColor ?? Theme.of(context).colorScheme.primary;
+    } else {
+      final rawBrand =
+          primaryColor ?? fallbackColor ?? PcTokens.defaultBrandBlue;
+      brandColor = PcTokens.readableAccentOnLight(rawBrand);
+    }
 
     final resolvedUrl = MediaService.instance.resolveUrl(
       mediaRef: logo,
@@ -49,13 +66,16 @@ class PcLogo extends StatelessWidget {
       variant: variant,
     );
 
-    Widget fallbackWidget = Container(
+    final fallbackWidget = Container(
       width: effectiveWidth,
       height: effectiveHeight,
       decoration: BoxDecoration(
-        color: brandColor.withOpacity(0.15),
+        color: brandColor.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(borderRadius),
-        border: Border.all(color: brandColor.withOpacity(0.3), width: 1),
+        border: Border.all(
+          color: brandColor.withValues(alpha: 0.28),
+          width: 1,
+        ),
       ),
       child: Center(
         child: firmName.trim().isNotEmpty
@@ -63,7 +83,7 @@ class PcLogo extends StatelessWidget {
                 firmName.trim()[0].toUpperCase(),
                 style: TextStyle(
                   color: brandColor,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w800,
                   fontSize: effectiveHeight * 0.45,
                 ),
               )
@@ -93,7 +113,7 @@ class PcLogo extends StatelessWidget {
               return Container(
                 width: effectiveWidth,
                 height: effectiveHeight,
-                color: brandColor.withOpacity(0.08),
+                color: brandColor.withValues(alpha: 0.08),
                 child: Center(
                   child: SizedBox(
                     width: effectiveWidth * 0.4,
@@ -104,7 +124,7 @@ class PcLogo extends StatelessWidget {
                           ? loadingProgress.cumulativeBytesLoaded /
                               loadingProgress.expectedTotalBytes!
                           : null,
-                      color: brandColor.withOpacity(0.7),
+                      color: brandColor.withValues(alpha: 0.75),
                     ),
                   ),
                 ),

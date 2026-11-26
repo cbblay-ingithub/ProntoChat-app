@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+
+import '../../theme/pronto_tokens.dart';
 import 'dashboard_tokens.dart';
 
-/// Standard container card for dashboard sections, panels, and charts.
-/// Provides consistent rounded corners, borders, header layout, and padding.
+/// Standard container card for dashboard sections and panels.
 class SectionCard extends StatelessWidget {
   final String? title;
   final IconData? titleIcon;
@@ -27,19 +28,22 @@ class SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.prontoTokens;
     final hasHeader = title != null || subtitle != null || trailing != null;
 
     final content = Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: DashboardTokens.surfaceDark,
+        color: tokens.cardBg,
         borderRadius: BorderRadius.circular(DashboardTokens.radiusLg),
-        border: Border.all(color: DashboardTokens.surfaceBorder),
+        border: Border.all(color: tokens.cardBorder),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
           if (hasHeader) ...[
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -52,7 +56,7 @@ class SectionCard extends StatelessWidget {
                         Icon(
                           titleIcon,
                           size: 18,
-                          color: titleIconColor ?? DashboardTokens.textPrimary,
+                          color: titleIconColor ?? tokens.textPrimary,
                         ),
                         const SizedBox(width: DashboardTokens.space8),
                       ],
@@ -63,10 +67,10 @@ class SectionCard extends StatelessWidget {
                             if (title != null)
                               Text(
                                 title!,
-                                style: const TextStyle(
-                                  color: DashboardTokens.textPrimary,
+                                style: TextStyle(
+                                  color: tokens.textPrimary,
                                   fontSize: 15,
-                                  fontWeight: FontWeight.bold,
+                                  fontWeight: FontWeight.w700,
                                   letterSpacing: -0.2,
                                 ),
                                 overflow: TextOverflow.ellipsis,
@@ -75,8 +79,8 @@ class SectionCard extends StatelessWidget {
                               const SizedBox(height: 2),
                               Text(
                                 subtitle!,
-                                style: const TextStyle(
-                                  color: DashboardTokens.textSecondary,
+                                style: TextStyle(
+                                  color: tokens.textSecondary,
                                   fontSize: 12,
                                 ),
                                 overflow: TextOverflow.ellipsis,
@@ -97,17 +101,18 @@ class SectionCard extends StatelessWidget {
             const SizedBox(height: DashboardTokens.space16),
           ],
           child,
-        ],
+          ],
+        ),
       ),
     );
 
     if (onTap != null) {
       return Material(
-        color: Colors.transparent,
+        type: MaterialType.transparency,
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(DashboardTokens.radiusLg),
-          hoverColor: DashboardTokens.surfaceHover,
+          hoverColor: tokens.cardSubtleBg,
           child: content,
         ),
       );

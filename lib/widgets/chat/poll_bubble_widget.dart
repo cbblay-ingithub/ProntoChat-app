@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/chat_message.dart';
 import '../../models/poll_model.dart';
 import '../../services/db_service.dart';
+import '../../theme/pc_tokens.dart';
 import 'poll_voters_sheet.dart';
 
 class PollBubbleWidget extends StatefulWidget {
@@ -12,6 +13,7 @@ class PollBubbleWidget extends StatefulWidget {
   final String currentUid;
   final String currentUserRole;
   final Color primaryColor;
+  final bool isMine;
   final List<Map<String, String>> participants;
 
   const PollBubbleWidget({
@@ -22,6 +24,7 @@ class PollBubbleWidget extends StatefulWidget {
     required this.currentUid,
     required this.currentUserRole,
     required this.primaryColor,
+    this.isMine = false,
     this.participants = const [],
   });
 
@@ -46,7 +49,6 @@ class _PollBubbleWidgetState extends State<PollBubbleWidget> {
     _fetchTallies();
     _listenToUserVote();
 
-    // Modest refresh timer while visible (every 60 seconds)
     _refreshTimer = Timer.periodic(const Duration(seconds: 60), (_) {
       if (mounted && !poll.isClosed) {
         _fetchTallies();
@@ -135,7 +137,7 @@ class _PollBubbleWidgetState extends State<PollBubbleWidget> {
       }
     } else {
       if (_userSelectedOptionIds.contains(optionId)) {
-        return; // Already voted for this single option
+        return;
       }
       newSelection = [optionId];
     }
@@ -162,23 +164,33 @@ class _PollBubbleWidgetState extends State<PollBubbleWidget> {
   }
 
   Future<void> _handleClosePoll() async {
+    final tokens = context.pcTokens;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color.fromRGBO(34, 33, 35, 1),
-        title: const Text('Close Poll?', style: TextStyle(color: Colors.white)),
-        content: const Text(
+        backgroundColor: tokens.surface,
+        title: Text(
+          'Close Poll?',
+          style: TextStyle(
+            color: tokens.textPrimary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        content: Text(
           'No further votes will be accepted. This cannot be undone.',
-          style: TextStyle(color: Colors.white70),
+          style: TextStyle(color: tokens.textSecondary),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            child: Text('Cancel', style: TextStyle(color: tokens.textSecondary)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: tokens.urgentText,
+              foregroundColor: Colors.white,
+            ),
             child: const Text('Close Poll'),
           ),
         ],
@@ -222,6 +234,7 @@ class _PollBubbleWidgetState extends State<PollBubbleWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.pcTokens;
     final totalVotes = _counts.values.fold<int>(0, (sum, val) => sum + val);
     final isClosed = poll.isClosed;
     final role = widget.currentUserRole.toLowerCase();
@@ -230,116 +243,156 @@ class _PollBubbleWidgetState extends State<PollBubbleWidget> {
             role == 'admin' ||
             role == 'super_admin');
 
+    final onBubble = widget.isMine
+        ? PcTokens.contrastOn(widget.primaryColor)
+        : tokens.textPrimary;
+    final onBubbleMuted = widget.isMine
+        ? onBubble.withValues(alpha: 0.78)
+        : tokens.textMuted;
+
     return Container(
       width: double.infinity,
       constraints: const BoxConstraints(maxWidth: 320),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Question header
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.poll, color: Colors.purpleAccent, size: 20),
+              Icon(
+                Icons.poll_rounded,
+                color: widget.isMine ? onBubble : tokens.projectAccent,
+                size: 20,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   poll.question,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
+                  style: TextStyle(
+                    color: onBubble,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14.5,
                   ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 4),
-
-          // Subheader info: multiple choice or single
           Row(
             children: [
               Text(
                 poll.allowMultiple ? 'Select one or more' : 'Select one',
-                style: TextStyle(color: Colors.grey[400], fontSize: 11),
+                style: TextStyle(color: onBubbleMuted, fontSize: 11),
               ),
               const Spacer(),
               if (isClosed)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: Colors.redAccent.withOpacity(0.2),
+                    color: widget.isMine
+                        ? Colors.black.withValues(alpha: 0.2)
+                        : tokens.urgentBg,
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: const Text(
+                  child: Text(
                     'Closed',
-                    style: TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      color: widget.isMine
+                          ? const Color(0xFFFCA5A5)
+                          : tokens.urgentText,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 )
               else if (poll.closesAt != null)
                 Text(
                   _formatRemainingTime(),
-                  style: const TextStyle(color: Colors.amberAccent, fontSize: 11),
+                  style: TextStyle(
+                    color: widget.isMine
+                        ? const Color(0xFFFDE68A)
+                        : tokens.warningAccent,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
             ],
           ),
-          const SizedBox(height: 12),
-
-          // Options list
+          const SizedBox(height: 10),
           ...poll.options.map((option) {
             final optionVotes = _counts[option.id] ?? 0;
-            final percentage = totalVotes > 0 ? (optionVotes / totalVotes) : 0.0;
+            final percentage =
+                totalVotes > 0 ? (optionVotes / totalVotes) : 0.0;
             final isSelected = _userSelectedOptionIds.contains(option.id);
 
             return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.only(bottom: 7),
               child: InkWell(
                 onTap: isClosed ? null : () => _handleVote(option.id),
                 borderRadius: BorderRadius.circular(10),
                 child: Container(
                   clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.25),
+                    color: widget.isMine
+                        ? Colors.black.withValues(alpha: 0.16)
+                        : tokens.surfaceSubtle,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: isSelected ? Colors.purpleAccent : Colors.white12,
+                      color: isSelected
+                          ? (widget.isMine ? onBubble : tokens.projectAccent)
+                          : (widget.isMine
+                              ? onBubble.withValues(alpha: 0.2)
+                              : tokens.border),
                       width: isSelected ? 1.5 : 1,
                     ),
                   ),
                   child: Stack(
                     children: [
-                      // Percentage fill bar
                       FractionallySizedBox(
                         widthFactor: percentage,
                         child: Container(
-                          height: 42,
+                          height: 40,
                           decoration: BoxDecoration(
-                            color: isSelected
-                                ? Colors.purpleAccent.withOpacity(0.35)
-                                : Colors.white.withOpacity(0.12),
+                            color: widget.isMine
+                                ? Colors.white.withValues(alpha: 0.22)
+                                : (isSelected
+                                    ? tokens.projectSoft
+                                    : tokens.primarySoft),
                             borderRadius: BorderRadius.circular(9),
                           ),
                         ),
                       ),
-                      // Content inside option
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 11,
+                          vertical: 9,
+                        ),
                         child: Row(
                           children: [
                             Icon(
                               poll.allowMultiple
-                                  ? (isSelected ? Icons.check_box : Icons.check_box_outline_blank)
-                                  : (isSelected ? Icons.radio_button_checked : Icons.radio_button_off),
+                                  ? (isSelected
+                                      ? Icons.check_box_rounded
+                                      : Icons.check_box_outline_blank_rounded)
+                                  : (isSelected
+                                      ? Icons.radio_button_checked_rounded
+                                      : Icons.radio_button_off_rounded),
                               size: 16,
-                              color: isSelected ? Colors.purpleAccent : Colors.grey,
+                              color: isSelected
+                                  ? (widget.isMine
+                                      ? onBubble
+                                      : tokens.projectAccent)
+                                  : onBubbleMuted,
                             ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
                                 option.text,
                                 style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                  color: onBubble,
+                                  fontWeight: isSelected
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
                                   fontSize: 13,
                                 ),
                               ),
@@ -348,8 +401,12 @@ class _PollBubbleWidgetState extends State<PollBubbleWidget> {
                             Text(
                               '${(percentage * 100).toInt()}%',
                               style: TextStyle(
-                                color: isSelected ? Colors.purpleAccent : Colors.grey[400],
-                                fontWeight: FontWeight.bold,
+                                color: isSelected
+                                    ? (widget.isMine
+                                        ? onBubble
+                                        : tokens.projectAccent)
+                                    : onBubbleMuted,
+                                fontWeight: FontWeight.w700,
                                 fontSize: 12,
                               ),
                             ),
@@ -362,33 +419,43 @@ class _PollBubbleWidgetState extends State<PollBubbleWidget> {
               ),
             );
           }),
-          const SizedBox(height: 6),
-
-          // Footer: Total votes and buttons
+          const SizedBox(height: 4),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
                 '$totalVotes vote${totalVotes == 1 ? '' : 's'}',
-                style: TextStyle(color: Colors.grey[400], fontSize: 11),
+                style: TextStyle(color: onBubbleMuted, fontSize: 11),
               ),
               Row(
                 children: [
                   if (canClose) ...[
                     GestureDetector(
                       onTap: _handleClosePoll,
-                      child: const Text(
+                      child: Text(
                         'Close',
-                        style: TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          color: widget.isMine
+                              ? const Color(0xFFFCA5A5)
+                              : tokens.urgentText,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
                   ],
                   GestureDetector(
                     onTap: _showVotersSheet,
-                    child: const Text(
+                    child: Text(
                       'View votes',
-                      style: TextStyle(color: Colors.purpleAccent, fontSize: 11, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        color: widget.isMine ? onBubble : tokens.projectAccent,
+                        decoration:
+                            widget.isMine ? TextDecoration.underline : null,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ],

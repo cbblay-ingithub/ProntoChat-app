@@ -1,8 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
+import '../../models/active_chat_selection.dart';
 import '../../models/mention_inbox_item.dart';
 import '../../services/db_service.dart';
+import '../../theme/pc_tokens.dart';
+import '../../widgets/chat/unified_chat_view.dart';
 import 'channel_chat_screen.dart';
 import 'firm_chat_screen.dart';
 
@@ -10,12 +12,16 @@ class MentionsScreen extends StatelessWidget {
   final String firmId;
   final String uid;
   final String userName;
+  final bool isEmbeddedPane;
+  final ValueChanged<ActiveChatSelection>? onOpenChat;
 
   const MentionsScreen({
     super.key,
     required this.firmId,
     required this.uid,
     required this.userName,
+    this.isEmbeddedPane = false,
+    this.onOpenChat,
   });
 
   String _formatTime(DateTime dt) {
@@ -29,15 +35,31 @@ class MentionsScreen extends StatelessWidget {
   }
 
   void _openMentionedMessage(BuildContext context, MentionInboxItem item) {
-    // 1. Mark mention read
     DBService.instance.markMentionItemRead(
       firmId: firmId,
       uid: uid,
       messageId: item.messageId,
     );
 
-    // 2. Open channel / chat based on conversationId
     final convId = item.conversationId;
+    if (onOpenChat != null) {
+      if (convId == firmId || convId == 'general') {
+        onOpenChat!(ActiveChatSelection.general(firmId, 'Workspace'));
+      } else if (convId == 'all_staff') {
+        onOpenChat!(ActiveChatSelection.allStaff());
+      } else {
+        onOpenChat!(
+          ActiveChatSelection(
+            kind: UnifiedChatKind.department,
+            conversationId: convId,
+            title: 'Channel',
+            subtitle: 'Conversation',
+          ),
+        );
+      }
+      return;
+    }
+
     if (convId == firmId || convId == 'general') {
       Navigator.push(
         context,
@@ -65,7 +87,6 @@ class MentionsScreen extends StatelessWidget {
         ),
       );
     } else {
-      // General channel or department or project
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -85,101 +106,94 @@ class MentionsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final primaryColor = theme.colorScheme.primary;
+    final tokens = context.pcTokens;
 
-    return Scaffold(
-      backgroundColor: const Color.fromRGBO(18, 17, 18, 1),
-      appBar: AppBar(
-        backgroundColor: const Color.fromRGBO(24, 23, 24, 1),
-        title: const Row(
-          children: [
-            Icon(Icons.alternate_email, color: Colors.lightBlueAccent, size: 20),
-            SizedBox(width: 8),
-            Text('Mentions Inbox', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        elevation: 0,
-      ),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: DBService.instance.streamMentionsInbox(firmId: firmId, uid: uid),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+    Widget body = StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: DBService.instance.streamMentionsInbox(firmId: firmId, uid: uid),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Center(
+            child: CircularProgressIndicator(color: tokens.primary),
+          );
+        }
 
-          final docs = snapshot.data?.docs ?? [];
-          if (docs.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      color: Colors.lightBlueAccent.withOpacity(0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.alternate_email, size: 36, color: Colors.lightBlueAccent),
+        final docs = snapshot.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 68,
+                  height: 68,
+                  decoration: BoxDecoration(
+                    color: tokens.primarySoft,
+                    shape: BoxShape.circle,
                   ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'No mentions yet',
-                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  child: Icon(
+                    Icons.alternate_email_rounded,
+                    size: 32,
+                    color: tokens.primary,
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'When teammates mention you with @$userName,\nyou\'ll see them here.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey[400], fontSize: 13),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'No mentions yet',
+                  style: TextStyle(
+                    color: tokens.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
                   ),
-                ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'When teammates mention you with @$userName,\nyou\'ll see them here.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: tokens.textMuted, fontSize: 13),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final items = docs
+            .map((d) => MentionInboxItem.fromMap(d.id, d.data()))
+            .toList();
+
+        return ListView.separated(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+          itemCount: items.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 8),
+          itemBuilder: (ctx, index) {
+            final item = items[index];
+            final isUnread = !item.read;
+
+            return Container(
+              decoration: BoxDecoration(
+                color: isUnread ? tokens.primarySoft : tokens.surface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: isUnread ? tokens.primaryBorder : tokens.border,
+                ),
               ),
-            );
-          }
-
-          final items = docs.map((d) => MentionInboxItem.fromMap(d.id, d.data())).toList();
-
-          return ListView.separated(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: items.length,
-            separatorBuilder: (_, __) => const Divider(color: Colors.white10, height: 1),
-            itemBuilder: (ctx, index) {
-              final item = items[index];
-              final isUnread = !item.read;
-
-              return ListTile(
-                tileColor: isUnread ? Colors.lightBlueAccent.withOpacity(0.06) : Colors.transparent,
-                leading: Stack(
-                  children: [
-                    CircleAvatar(
-                      backgroundColor: isUnread ? Colors.lightBlueAccent.withOpacity(0.2) : Colors.white12,
-                      child: Text(
-                        item.senderName.isNotEmpty ? item.senderName[0].toUpperCase() : '?',
-                        style: TextStyle(
-                          color: isUnread ? Colors.lightBlueAccent : Colors.white70,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 4,
+                ),
+                leading: CircleAvatar(
+                  backgroundColor: isUnread
+                      ? tokens.primary.withValues(alpha: 0.16)
+                      : tokens.surfaceSubtle,
+                  child: Text(
+                    item.senderName.isNotEmpty
+                        ? item.senderName[0].toUpperCase()
+                        : '?',
+                    style: TextStyle(
+                      color: isUnread ? tokens.primary : tokens.textSecondary,
+                      fontWeight: FontWeight.w700,
                     ),
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
-                      child: Container(
-                        padding: const EdgeInsets.all(2),
-                        decoration: const BoxDecoration(
-                          color: Colors.black,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.alternate_email,
-                          size: 11,
-                          color: isUnread ? Colors.lightBlueAccent : Colors.grey,
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
                 title: Row(
                   children: [
@@ -187,8 +201,9 @@ class MentionsScreen extends StatelessWidget {
                       child: Text(
                         item.senderName,
                         style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: isUnread ? FontWeight.bold : FontWeight.w500,
+                          color: tokens.textPrimary,
+                          fontWeight:
+                              isUnread ? FontWeight.w700 : FontWeight.w600,
                           fontSize: 14,
                         ),
                       ),
@@ -196,9 +211,10 @@ class MentionsScreen extends StatelessWidget {
                     Text(
                       _formatTime(item.createdAt),
                       style: TextStyle(
-                        color: isUnread ? Colors.lightBlueAccent : Colors.grey[500],
+                        color: isUnread ? tokens.primary : tokens.textMuted,
                         fontSize: 11,
-                        fontWeight: isUnread ? FontWeight.bold : FontWeight.normal,
+                        fontWeight:
+                            isUnread ? FontWeight.w700 : FontWeight.normal,
                       ),
                     ),
                   ],
@@ -210,7 +226,9 @@ class MentionsScreen extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: isUnread ? Colors.white : Colors.grey[400],
+                      color: isUnread
+                          ? tokens.textPrimary
+                          : tokens.textSecondary,
                       fontSize: 13,
                     ),
                   ),
@@ -219,18 +237,56 @@ class MentionsScreen extends StatelessWidget {
                     ? Container(
                         width: 8,
                         height: 8,
-                        decoration: const BoxDecoration(
-                          color: Colors.lightBlueAccent,
+                        decoration: BoxDecoration(
+                          color: tokens.primary,
                           shape: BoxShape.circle,
                         ),
                       )
                     : null,
                 onTap: () => _openMentionedMessage(context, item),
-              );
-            },
-          );
-        },
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (isEmbeddedPane) {
+      body = Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 840),
+          child: body,
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: tokens.canvas,
+      appBar: AppBar(
+        automaticallyImplyLeading: !isEmbeddedPane,
+        backgroundColor: tokens.surface,
+        elevation: 0,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Divider(height: 1, color: tokens.border),
+        ),
+        title: Row(
+          children: [
+            Icon(Icons.alternate_email_rounded, color: tokens.primary, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              'Mentions Inbox',
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
       ),
+      body: body,
     );
   }
 }

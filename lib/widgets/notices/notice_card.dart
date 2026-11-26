@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../models/notice_model.dart';
-import '../../models/media_ref.dart';
 import '../../services/media_service.dart';
+import '../../theme/pc_tokens.dart';
 import '../common/pc_avatar.dart';
 
-/// Feed card for displaying a notice preview on the Home tab.
+/// Clean light-mode feed card for displaying a notice preview on the Home tab.
 class NoticeCard extends StatelessWidget {
   final NoticeModel notice;
   final DateTime? lastSeenAt;
@@ -31,43 +31,43 @@ class NoticeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.pcTokens;
     final isNew = notice.isNewFor(lastSeenAt);
     final isUrgent = notice.isUrgent;
     final isPolicy = notice.isPolicy;
 
     final borderColor = isUrgent
-        ? Colors.redAccent.withOpacity(0.5)
+        ? tokens.urgentBorder
         : isPolicy
-            ? Colors.indigoAccent.withOpacity(0.4)
-            : Colors.white.withOpacity(0.07);
+            ? const Color(0xFFC7D2FE)
+            : tokens.border;
 
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
-          color: const Color.fromRGBO(34, 33, 33, 1),
+          color: tokens.surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: borderColor, width: isUrgent ? 1.4 : 1.0),
-          boxShadow: isUrgent
-              ? [
-                  BoxShadow(
-                    color: Colors.redAccent.withOpacity(0.08),
-                    blurRadius: 10,
-                    offset: const Offset(0, 3),
-                  ),
-                ]
-              : null,
+          boxShadow: [
+            BoxShadow(
+              color: isUrgent
+                  ? tokens.urgentText.withValues(alpha: 0.06)
+                  : Colors.black.withValues(alpha: 0.025),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Hero Image (if media present)
             if (notice.media.isNotEmpty)
               ClipRRect(
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
                 child: SizedBox(
-                  height: 160,
+                  height: 168,
                   width: double.infinity,
                   child: Stack(
                     fit: StackFit.expand,
@@ -81,17 +81,24 @@ class NoticeCard extends StatelessWidget {
                         loadingBuilder: (context, child, progress) {
                           if (progress == null) return child;
                           return Container(
-                            color: const Color.fromRGBO(24, 24, 24, 1),
-                            child: const Center(
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white54),
+                            color: tokens.surfaceSubtle,
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: primaryColor,
+                              ),
                             ),
                           );
                         },
                         errorBuilder: (context, error, stackTrace) {
                           return Container(
-                            color: const Color.fromRGBO(24, 24, 24, 1),
-                            child: const Center(
-                              child: Icon(Icons.broken_image_outlined, color: Colors.grey, size: 32),
+                            color: tokens.surfaceSubtle,
+                            child: Center(
+                              child: Icon(
+                                Icons.broken_image_outlined,
+                                color: tokens.textMuted,
+                                size: 32,
+                              ),
                             ),
                           );
                         },
@@ -101,15 +108,22 @@ class NoticeCard extends StatelessWidget {
                           top: 10,
                           right: 10,
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
                             decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.65),
+                              color: Colors.black.withValues(alpha: 0.65),
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.photo_library_outlined, color: Colors.white, size: 12),
+                                const Icon(
+                                  Icons.photo_library_outlined,
+                                  color: Colors.white,
+                                  size: 12,
+                                ),
                                 const SizedBox(width: 4),
                                 Text(
                                   '+${notice.media.length - 1}',
@@ -127,33 +141,38 @@ class NoticeCard extends StatelessWidget {
                   ),
                 ),
               ),
-
             Padding(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(15),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Badges Row: Type Badge, Pinned, Audience Chip, New Marker
                   Row(
                     children: [
                       if (isUrgent)
                         Container(
                           margin: const EdgeInsets.only(right: 6),
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.redAccent.withOpacity(0.18),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: Colors.redAccent.withOpacity(0.5)),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 2,
                           ),
-                          child: const Row(
+                          decoration: BoxDecoration(
+                            color: tokens.urgentBg,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: tokens.urgentBorder),
+                          ),
+                          child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 12),
-                              SizedBox(width: 4),
+                              Icon(
+                                Icons.warning_amber_rounded,
+                                color: tokens.urgentText,
+                                size: 12,
+                              ),
+                              const SizedBox(width: 4),
                               Text(
                                 'URGENT',
                                 style: TextStyle(
-                                  color: Colors.redAccent,
+                                  color: tokens.urgentText,
                                   fontSize: 10,
                                   fontWeight: FontWeight.w800,
                                 ),
@@ -164,21 +183,28 @@ class NoticeCard extends StatelessWidget {
                       else if (isPolicy)
                         Container(
                           margin: const EdgeInsets.only(right: 6),
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
-                            color: Colors.indigoAccent.withOpacity(0.2),
+                            color: const Color(0xFFEEF2FF),
                             borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: Colors.indigoAccent.withOpacity(0.4)),
+                            border: Border.all(color: const Color(0xFFC7D2FE)),
                           ),
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.gavel, color: Colors.indigoAccent, size: 12),
+                              Icon(
+                                Icons.gavel_rounded,
+                                color: Color(0xFF4F46E5),
+                                size: 12,
+                              ),
                               SizedBox(width: 4),
                               Text(
                                 'POLICY',
                                 style: TextStyle(
-                                  color: Colors.indigoAccent,
+                                  color: Color(0xFF4F46E5),
                                   fontSize: 10,
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -186,24 +212,30 @@ class NoticeCard extends StatelessWidget {
                             ],
                           ),
                         ),
-
                       if (notice.pinned)
                         Container(
                           margin: const EdgeInsets.only(right: 6),
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
-                            color: Colors.amber.withOpacity(0.18),
+                            color: tokens.warningSoft,
                             borderRadius: BorderRadius.circular(6),
                           ),
-                          child: const Row(
+                          child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.push_pin, color: Colors.amberAccent, size: 11),
-                              SizedBox(width: 3),
+                              Icon(
+                                Icons.push_pin_rounded,
+                                color: tokens.warningAccent,
+                                size: 11,
+                              ),
+                              const SizedBox(width: 3),
                               Text(
                                 'PINNED',
                                 style: TextStyle(
-                                  color: Colors.amberAccent,
+                                  color: tokens.warningAccent,
                                   fontSize: 10,
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -211,33 +243,29 @@ class NoticeCard extends StatelessWidget {
                             ],
                           ),
                         ),
-
-                      // Audience chip
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.08),
+                          color: tokens.surfaceSubtle,
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
                           notice.audienceSummary,
                           style: TextStyle(
-                            color: Colors.grey[300],
+                            color: tokens.textSecondary,
                             fontSize: 10,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
-
                       const Spacer(),
-
-                      // Relative Time
                       Text(
                         _formatRelativeTime(notice.createdAt),
-                        style: TextStyle(color: Colors.grey[500], fontSize: 11),
+                        style: TextStyle(color: tokens.textMuted, fontSize: 11),
                       ),
-
-                      // New indicator dot
                       if (isNew) ...[
                         const SizedBox(width: 6),
                         Container(
@@ -251,45 +279,36 @@ class NoticeCard extends StatelessWidget {
                       ],
                     ],
                   ),
-
                   const SizedBox(height: 10),
-
-                  // Notice Title
                   Text(
                     notice.title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: tokens.textPrimary,
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
                       height: 1.25,
                     ),
                   ),
-
                   const SizedBox(height: 5),
-
-                  // Body snippet
                   Text(
                     notice.body,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: Colors.grey[400],
+                      color: tokens.textSecondary,
                       fontSize: 13,
-                      height: 1.35,
+                      height: 1.4,
                     ),
                   ),
-
                   const SizedBox(height: 12),
-
-                  // Author Row & Details
                   Row(
                     children: [
                       PcAvatar(
                         name: notice.authorName,
                         radius: 12,
-                        backgroundColor: primaryColor.withOpacity(0.2),
+                        backgroundColor: primaryColor.withValues(alpha: 0.12),
                         foregroundColor: primaryColor,
                       ),
                       const SizedBox(width: 8),
@@ -301,7 +320,7 @@ class NoticeCard extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: Colors.grey[300],
+                            color: tokens.textSecondary,
                             fontSize: 12,
                             fontWeight: FontWeight.w500,
                           ),
@@ -310,14 +329,20 @@ class NoticeCard extends StatelessWidget {
                       if (notice.isEdited)
                         Container(
                           margin: const EdgeInsets.only(left: 6),
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 1,
+                          ),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.06),
+                            color: tokens.surfaceSubtle,
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
                             'Edited',
-                            style: TextStyle(color: Colors.grey[500], fontSize: 9),
+                            style: TextStyle(
+                              color: tokens.textMuted,
+                              fontSize: 9.5,
+                            ),
                           ),
                         ),
                     ],

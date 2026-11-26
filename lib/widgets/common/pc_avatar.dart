@@ -47,8 +47,9 @@ class PcAvatar extends StatelessWidget {
       variant: variant,
     );
 
-    final bg = backgroundColor ?? const Color(0xFF295CB4).withOpacity(0.25);
-    final fg = foregroundColor ?? const Color(0xFF64B5F6);
+    final themePrimary = Theme.of(context).colorScheme.primary;
+    final bg = backgroundColor ?? themePrimary.withValues(alpha: 0.12);
+    final fg = foregroundColor ?? themePrimary;
 
     Widget avatarWidget;
 
@@ -78,7 +79,7 @@ class PcAvatar extends StatelessWidget {
                           ? loadingProgress.cumulativeBytesLoaded /
                               loadingProgress.expectedTotalBytes!
                           : null,
-                      color: fg.withOpacity(0.7),
+                      color: fg.withValues(alpha: 0.7),
                     ),
                   ),
                 ),

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 import '../../providers/firm/providers.dart';
+import '../../theme/pc_tokens.dart';
 
 /// Loading splash screen while session and membership state are resolving.
 /// Includes proactive timeout handling so users are never trapped on a permanent spinner.
@@ -48,89 +49,108 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Watch membership stream reactively
-    final membershipAsync = ref.watch(myMembershipStreamProvider);
+    // Watch membership stream reactively so router guards receive updates
+    ref.watch(myMembershipStreamProvider);
+    final tokens = context.pcTokens;
 
     return Scaffold(
-      backgroundColor: const Color.fromRGBO(24, 23, 23, 1),
+      backgroundColor: tokens.canvas,
       body: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  color: const Color.fromRGBO(41, 116, 188, 0.15),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: const Color.fromRGBO(41, 116, 188, 0.35),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: tokens.primarySoft,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: tokens.primaryBorder),
+                  ),
+                  child: Icon(
+                    Icons.chat_bubble_outline_rounded,
+                    size: 36,
+                    color: tokens.primary,
                   ),
                 ),
-                child: const Icon(
-                  Icons.chat_bubble_outline_rounded,
-                  size: 36,
-                  color: Color.fromRGBO(41, 116, 188, 1),
+                const SizedBox(height: 28),
+                SizedBox(
+                  width: 30,
+                  height: 30,
+                  child: CircularProgressIndicator(
+                    color: tokens.primary,
+                    strokeWidth: 2.8,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 32),
-              const SizedBox(
-                width: 32,
-                height: 32,
-                child: CircularProgressIndicator(
-                  color: Color.fromRGBO(41, 116, 188, 1),
-                  strokeWidth: 3,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                'Connecting to workspace...',
-                style: TextStyle(
-                  color: Colors.grey[400],
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              if (_showTroubleshootOption) ...[
-                const SizedBox(height: 32),
+                const SizedBox(height: 20),
                 Text(
-                  'Connection is taking longer than expected.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey[500], fontSize: 13),
+                  'Connecting to workspace...',
+                  style: TextStyle(
+                    color: tokens.textSecondary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    TextButton.icon(
-                      onPressed: () {
-                        // Refresh router
-                        GoRouter.of(context).refresh();
-                      },
-                      icon: const Icon(Icons.refresh, size: 16),
-                      label: const Text('Retry'),
-                      style: TextButton.styleFrom(
-                        foregroundColor: const Color.fromRGBO(41, 116, 188, 1),
-                      ),
+                if (_showTroubleshootOption) ...[
+                  const SizedBox(height: 28),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: tokens.surface,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: tokens.border),
                     ),
-                    const SizedBox(width: 12),
-                    TextButton.icon(
-                      onPressed: () async {
-                        await FirebaseAuth.instance.signOut();
-                        if (context.mounted) {
-                          context.go(kIsWeb ? '/sign-in' : '/welcome');
-                        }
-                      },
-                      icon: const Icon(Icons.logout, size: 16),
-                      label: const Text('Back to Login'),
-                      style: TextButton.styleFrom(foregroundColor: Colors.red[300]),
+                    child: Column(
+                      children: [
+                        Text(
+                          'Connection is taking longer than expected.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: tokens.textMuted,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 8,
+                          alignment: WrapAlignment.center,
+                          children: [
+                            TextButton.icon(
+                              onPressed: () {
+                                GoRouter.of(context).refresh();
+                              },
+                              icon: const Icon(Icons.refresh, size: 16),
+                              label: const Text('Retry'),
+                              style: TextButton.styleFrom(
+                                foregroundColor: tokens.primary,
+                              ),
+                            ),
+                            TextButton.icon(
+                              onPressed: () async {
+                                await FirebaseAuth.instance.signOut();
+                                if (context.mounted) {
+                                  context.go(kIsWeb ? '/sign-in' : '/welcome');
+                                }
+                              },
+                              icon: const Icon(Icons.logout, size: 16),
+                              label: const Text('Back to Login'),
+                              style: TextButton.styleFrom(
+                                foregroundColor: tokens.urgentText,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),

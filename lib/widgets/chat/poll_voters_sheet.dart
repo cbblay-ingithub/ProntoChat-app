@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/poll_model.dart';
 import '../../services/db_service.dart';
+import '../../theme/pc_tokens.dart';
 
 class PollVotersSheet extends StatefulWidget {
   final String? firmId;
@@ -60,43 +61,43 @@ class _PollVotersSheetState extends State<PollVotersSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.pcTokens;
+
     return Container(
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.7,
+        maxHeight: MediaQuery.sizeOf(context).height * 0.72,
       ),
-      decoration: const BoxDecoration(
-        color: Color.fromRGBO(28, 27, 28, 1),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      decoration: BoxDecoration(
+        color: tokens.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: SafeArea(
         child: Column(
           children: [
-            // Handle
             Container(
               margin: const EdgeInsets.only(top: 10, bottom: 6),
               width: 36,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey[700],
+                color: tokens.borderStrong,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            // Header
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'Poll Votes',
                     style: TextStyle(
-                      color: Colors.white,
+                      color: tokens.textPrimary,
                       fontSize: 18,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close, color: Colors.grey),
+                    icon: Icon(Icons.close_rounded, color: tokens.textMuted),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
@@ -108,55 +109,81 @@ class _PollVotersSheetState extends State<PollVotersSheet> {
                 alignment: Alignment.centerLeft,
                 child: Text(
                   widget.poll.question,
-                  style: const TextStyle(color: Colors.white70, fontSize: 13, fontStyle: FontStyle.italic),
+                  style: TextStyle(
+                    color: tokens.textSecondary,
+                    fontSize: 13,
+                    fontStyle: FontStyle.italic,
+                  ),
                 ),
               ),
             ),
-            const Divider(color: Colors.white12, height: 20),
-
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Divider(color: tokens.border, height: 1),
+            ),
             Expanded(
               child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
+                  ? Center(
+                      child: CircularProgressIndicator(
+                        color: tokens.projectAccent,
+                      ),
+                    )
                   : _votes.isEmpty
-                      ? const Center(
-                          child: Text('No votes yet.', style: TextStyle(color: Colors.grey)),
+                      ? Center(
+                          child: Text(
+                            'No votes yet.',
+                            style: TextStyle(color: tokens.textMuted),
+                          ),
                         )
                       : ListView.separated(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
                           itemCount: widget.poll.options.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 14),
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: 12),
                           itemBuilder: (ctx, index) {
                             final option = widget.poll.options[index];
                             final votersForOption = _votes.where((v) {
-                              final ids = (v['optionIds'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
+                              final ids = (v['optionIds'] as List<dynamic>?)
+                                      ?.map((e) => e.toString())
+                                      .toList() ??
+                                  [];
                               return ids.contains(option.id);
                             }).toList();
 
                             return Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: const Color.fromRGBO(38, 37, 40, 1),
+                                color: tokens.surfaceSubtle,
                                 borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: tokens.border),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
                                     children: [
                                       Expanded(
                                         child: Text(
                                           option.text,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold,
+                                          style: TextStyle(
+                                            color: tokens.textPrimary,
+                                            fontWeight: FontWeight.w700,
                                             fontSize: 14,
                                           ),
                                         ),
                                       ),
                                       Text(
                                         '${votersForOption.length} votes',
-                                        style: const TextStyle(color: Colors.purpleAccent, fontSize: 12),
+                                        style: TextStyle(
+                                          color: tokens.projectAccent,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -169,16 +196,32 @@ class _PollVotersSheetState extends State<PollVotersSheet> {
                                         final uid = v['uid'] as String? ?? '';
                                         final name = _getUserName(uid);
                                         return Chip(
-                                          backgroundColor: Colors.white10,
-                                          labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+                                          backgroundColor: tokens.surface,
+                                          side: BorderSide(color: tokens.border),
+                                          labelPadding:
+                                              const EdgeInsets.symmetric(
+                                            horizontal: 4,
+                                          ),
                                           avatar: CircleAvatar(
-                                            backgroundColor: Colors.purpleAccent.withOpacity(0.4),
+                                            backgroundColor: tokens.projectSoft,
                                             child: Text(
-                                              name.isNotEmpty ? name[0].toUpperCase() : '?',
-                                              style: const TextStyle(fontSize: 10, color: Colors.white),
+                                              name.isNotEmpty
+                                                  ? name[0].toUpperCase()
+                                                  : '?',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                color: tokens.projectAccent,
+                                                fontWeight: FontWeight.w700,
+                                              ),
                                             ),
                                           ),
-                                          label: Text(name, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                                          label: Text(
+                                            name,
+                                            style: TextStyle(
+                                              color: tokens.textPrimary,
+                                              fontSize: 11,
+                                            ),
+                                          ),
                                         );
                                       }).toList(),
                                     ),

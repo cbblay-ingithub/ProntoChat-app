@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/pc_tokens.dart';
 
 class ChatDateDivider extends StatelessWidget {
   final DateTime date;
@@ -8,38 +9,54 @@ class ChatDateDivider extends StatelessWidget {
   String _formatDate(DateTime dt) {
     final now = DateTime.now();
     final local = dt.toLocal();
-    final isToday = local.year == now.year && local.month == now.month && local.day == now.day;
-    final isYesterday = local.year == now.year && local.month == now.month && local.day == (now.day - 1);
+    final isToday =
+        local.year == now.year && local.month == now.month && local.day == now.day;
+    final yesterday = now.subtract(const Duration(days: 1));
+    final isYesterday = local.year == yesterday.year &&
+        local.month == yesterday.month &&
+        local.day == yesterday.day;
 
     if (isToday) return 'Today';
     if (isYesterday) return 'Yesterday';
 
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${months[local.month - 1]} ${local.day}, ${local.year}';
   }
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.pcTokens;
+
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 12),
       alignment: Alignment.center,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         decoration: BoxDecoration(
-          color: const Color.fromRGBO(42, 42, 42, 0.85),
+          color: tokens.surface,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withOpacity(0.06), width: 0.5),
+          border: Border.all(color: tokens.border),
         ),
         child: Text(
           _formatDate(date),
           style: TextStyle(
-            color: Colors.grey[400],
+            color: tokens.textMuted,
             fontSize: 11,
             fontWeight: FontWeight.w600,
-            letterSpacing: 0.3,
+            letterSpacing: 0.2,
           ),
         ),
       ),
@@ -52,32 +69,34 @@ class NewMessagesDivider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.pcTokens;
+
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
         children: [
-          Expanded(child: Divider(color: Colors.blueAccent.withOpacity(0.5), thickness: 1)),
+          Expanded(child: Divider(color: tokens.primaryBorder, thickness: 1)),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
               decoration: BoxDecoration(
-                color: Colors.blueAccent.withOpacity(0.15),
+                color: tokens.primarySoft,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
+                border: Border.all(color: tokens.primaryBorder),
               ),
-              child: const Text(
+              child: Text(
                 'NEW MESSAGES',
                 style: TextStyle(
-                  color: Colors.blueAccent,
+                  color: tokens.primary,
                   fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.8,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.7,
                 ),
               ),
             ),
           ),
-          Expanded(child: Divider(color: Colors.blueAccent.withOpacity(0.5), thickness: 1)),
+          Expanded(child: Divider(color: tokens.primaryBorder, thickness: 1)),
         ],
       ),
     );

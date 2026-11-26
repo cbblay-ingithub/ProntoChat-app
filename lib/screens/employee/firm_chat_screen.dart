@@ -2,18 +2,25 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../../models/firm.dart';
 import '../../services/db_service.dart';
+import '../../theme/pc_tokens.dart';
 import '../../widgets/chat/unified_chat_view.dart';
 
 class FirmChatScreen extends StatefulWidget {
   final String firmId;
   final String uid;
   final String name;
+  final bool isEmbedded;
+  final VoidCallback? onBack;
+  final Widget? extraAction;
 
   const FirmChatScreen({
     super.key,
     required this.firmId,
     required this.uid,
     required this.name,
+    this.isEmbedded = false,
+    this.onBack,
+    this.extraAction,
   });
 
   @override
@@ -29,8 +36,7 @@ class _FirmChatScreenState extends State<FirmChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final primaryColor = theme.colorScheme.primary;
+    final tokens = context.pcTokens;
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: DBService.instance.streamMember(widget.firmId, widget.uid),
@@ -39,7 +45,10 @@ class _FirmChatScreenState extends State<FirmChatScreen> {
         final userRole = memberData['role'] as String? ?? 'employee';
 
         return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance.collection('Firms').doc(widget.firmId).snapshots(),
+          stream: FirebaseFirestore.instance
+              .collection('Firms')
+              .doc(widget.firmId)
+              .snapshots(),
           builder: (context, firmSnap) {
             Firm? firm;
             if (firmSnap.hasData && firmSnap.data!.exists) {
@@ -57,8 +66,13 @@ class _FirmChatScreenState extends State<FirmChatScreen> {
               currentUid: widget.uid,
               currentUserName: widget.name,
               currentUserRole: userRole,
-              primaryColor: primaryColor,
+              primaryColor: tokens.primary,
               canPost: true,
+              isEmbedded: widget.isEmbedded,
+              onBack: widget.onBack,
+              extraActions: [
+                if (widget.extraAction != null) widget.extraAction!,
+              ],
             );
           },
         );

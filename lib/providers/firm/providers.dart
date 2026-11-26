@@ -7,6 +7,7 @@ import 'package:pronto_chat/models/firm.dart';
 import 'package:pronto_chat/providers/firm/firm_notifier.dart';
 import 'package:pronto_chat/providers/firm/firm_state.dart';
 import 'package:pronto_chat/services/db_service.dart';
+import 'package:pronto_chat/theme/pc_tokens.dart';
 
 /// Provider for DBService singleton
 final dbServiceProvider = Provider<DBService>((ref) {
@@ -196,71 +197,32 @@ final membershipLoaderProvider = Provider<void>((ref) {
 });
 
 /// Exposes a ThemeData object derived from the approved firm's colors.
-/// Falls back to a neutral dark theme if pending approval or if no colors are set.
+/// Defaults to ProntoChat's Clean Light Mode + dynamic firm accent tokens.
 final brandThemeProvider = Provider<ThemeData>((ref) {
   final currentFirm = ref.watch(currentFirmProvider);
   final membershipAsync = ref.watch(myMembershipStreamProvider);
-  
-  final membershipDoc = membershipAsync.value;
-  final isApproved = membershipDoc != null && 
-      membershipDoc.exists && 
-      (membershipDoc.data()?['status'] == 'approved' || membershipDoc.data()?['status'] == 'active');
-  
-  // Default neutral dark theme
-  final defaultTheme = ThemeData(
-    brightness: Brightness.dark,
-    scaffoldBackgroundColor: const Color(0xFF141313),
-    canvasColor: const Color(0xFF1A1919),
-    cardColor: const Color(0xFF1E1D1D),
-    dialogBackgroundColor: const Color(0xFF222121),
-    colorScheme: const ColorScheme.dark(
-      primary: Color.fromRGBO(41, 116, 188, 1),
-      secondary: Color.fromRGBO(41, 116, 188, 1),
-      surface: Color(0xFF1E1D1D),
-      background: Color(0xFF141313),
-      onPrimary: Colors.white,
-      onSurface: Colors.white,
-      onBackground: Colors.white,
-    ),
-    appBarTheme: const AppBarTheme(
-      backgroundColor: Color(0xFF1C1B1B),
-      foregroundColor: Colors.white,
-      elevation: 0,
-      centerTitle: false,
-    ),
-  );
 
-  // If not approved or no firm details are loaded, return the default neutral theme
+  final membershipDoc = membershipAsync.value;
+  final isApproved = membershipDoc != null &&
+      membershipDoc.exists &&
+      (membershipDoc.data()?['status'] == 'approved' ||
+          membershipDoc.data()?['status'] == 'active');
+
   if (!isApproved || currentFirm == null) {
-    return defaultTheme;
+    return PcThemeBuilder.buildLightTheme();
   }
-  
-  final primaryColor = hexToColor(currentFirm.primaryColor, const Color.fromRGBO(41, 116, 188, 1));
-  final secondaryColor = currentFirm.secondaryColor != null 
+
+  final primaryColor = hexToColor(
+    currentFirm.primaryColor,
+    PcTokens.defaultBrandBlue,
+  );
+  final secondaryColor = currentFirm.secondaryColor != null
       ? hexToColor(currentFirm.secondaryColor!, primaryColor)
       : primaryColor;
-      
-  return ThemeData(
-    brightness: Brightness.dark,
-    scaffoldBackgroundColor: const Color(0xFF141313),
-    canvasColor: const Color(0xFF1A1919),
-    cardColor: const Color(0xFF1E1D1D),
-    dialogBackgroundColor: const Color(0xFF222121),
-    colorScheme: ColorScheme.dark(
-      primary: primaryColor,
-      secondary: secondaryColor,
-      surface: const Color(0xFF1E1D1D),
-      background: const Color(0xFF141313),
-      onPrimary: Colors.white,
-      onSurface: Colors.white,
-      onBackground: Colors.white,
-    ),
-    appBarTheme: const AppBarTheme(
-      backgroundColor: Color(0xFF1C1B1B),
-      foregroundColor: Colors.white,
-      elevation: 0,
-      centerTitle: false,
-    ),
+
+  return PcThemeBuilder.buildLightTheme(
+    primaryColor: primaryColor,
+    secondaryColor: secondaryColor,
   );
 });
 

@@ -2,11 +2,9 @@ import 'package:flutter/material.dart';
 import '../../models/chat_message.dart';
 import '../../models/media_ref.dart';
 import '../../services/media_service.dart';
+import '../../theme/pc_tokens.dart';
 import 'fullscreen_image_viewer.dart';
 
-/// Bubble widget for rendering chat images.
-/// Reserves aspect-ratio space using `media.aspectRatio` to prevent scroll jumps,
-/// loads `chat_thumb` variant, and opens `FullscreenImageViewer` on tap.
 class ImageBubbleWidget extends StatelessWidget {
   final ChatMessage message;
   final bool isMine;
@@ -28,7 +26,9 @@ class ImageBubbleWidget extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    final thumbUrl = MediaService.instance.urlFor(media, MediaVariant.chatThumb);
+    final tokens = context.pcTokens;
+    final thumbUrl =
+        MediaService.instance.urlFor(media, MediaVariant.chatThumb);
     final aspectRatio = media.aspectRatio;
 
     return Column(
@@ -53,7 +53,7 @@ class ImageBubbleWidget extends StatelessWidget {
                 maxWidth: 280,
                 minWidth: 140,
               ),
-              color: Colors.black26,
+              color: tokens.surfaceSubtle,
               child: AspectRatio(
                 aspectRatio: aspectRatio,
                 child: Image.network(
@@ -62,18 +62,18 @@ class ImageBubbleWidget extends StatelessWidget {
                   loadingBuilder: (context, child, loadingProgress) {
                     if (loadingProgress == null) return child;
                     return Container(
-                      color: const Color(0xFF1E1E24),
+                      color: tokens.surfaceSubtle,
                       child: Center(
                         child: SizedBox(
-                          width: 28,
-                          height: 28,
+                          width: 26,
+                          height: 26,
                           child: CircularProgressIndicator(
-                            strokeWidth: 2.5,
+                            strokeWidth: 2.2,
                             value: loadingProgress.expectedTotalBytes != null
                                 ? loadingProgress.cumulativeBytesLoaded /
                                     loadingProgress.expectedTotalBytes!
                                 : null,
-                            color: Colors.white70,
+                            color: primaryColor,
                           ),
                         ),
                       ),
@@ -81,22 +81,22 @@ class ImageBubbleWidget extends StatelessWidget {
                   },
                   errorBuilder: (context, error, stackTrace) {
                     return Container(
-                      color: const Color(0xFF1E1E24),
+                      color: tokens.surfaceSubtle,
                       padding: const EdgeInsets.all(16),
                       child: Center(
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.broken_image_outlined,
-                              color: Colors.grey,
-                              size: 36,
+                              color: tokens.textMuted,
+                              size: 34,
                             ),
                             const SizedBox(height: 8),
                             Text(
                               'Failed to load image',
                               style: TextStyle(
-                                color: Colors.grey[400],
+                                color: tokens.textMuted,
                                 fontSize: 12,
                               ),
                             ),
@@ -110,8 +110,6 @@ class ImageBubbleWidget extends StatelessWidget {
             ),
           ),
         ),
-
-        // Caption text if provided
         if (message.text.trim().isNotEmpty) ...[
           const SizedBox(height: 6),
           if (captionWidget != null)
@@ -119,8 +117,10 @@ class ImageBubbleWidget extends StatelessWidget {
           else
             Text(
               message.text,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: isMine
+                    ? PcTokens.contrastOn(primaryColor)
+                    : tokens.textPrimary,
                 fontSize: 14,
                 height: 1.3,
               ),

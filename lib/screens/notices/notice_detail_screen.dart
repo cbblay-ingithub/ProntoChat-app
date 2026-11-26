@@ -4,6 +4,7 @@ import '../../models/firm.dart';
 import '../../models/notice_model.dart';
 import '../../services/notices_service.dart';
 import '../../services/db_service.dart';
+import '../../theme/pc_tokens.dart';
 import '../../widgets/common/pc_avatar.dart';
 import '../../widgets/notices/notice_image_carousel.dart';
 import '../../widgets/notices/notice_reactions_widget.dart';
@@ -28,7 +29,7 @@ class NoticeDetailScreen extends StatefulWidget {
       _primaryColor ??
       (firm != null
           ? _hexToColor(firm!.primaryColor)
-          : const Color(0xFF2974BC));
+          : PcTokens.defaultBrandBlue);
 
   static Color _hexToColor(String hexString) {
     String colorString = hexString.toUpperCase().replaceAll('#', '');
@@ -41,7 +42,7 @@ class NoticeDetailScreen extends StatefulWidget {
         return Color(value);
       }
     }
-    return const Color(0xFF2974BC);
+    return PcTokens.defaultBrandBlue;
   }
 
   const NoticeDetailScreen({
@@ -69,7 +70,9 @@ class _NoticeDetailScreenState extends State<NoticeDetailScreen> {
   bool _isRetracting = false;
 
   bool get isAuthor => widget.currentUid == _notice.authorId;
-  bool get isAdmin => widget.currentUserRole == 'admin' || widget.currentUserRole == 'super_admin';
+  bool get isAdmin =>
+      widget.currentUserRole == 'admin' ||
+      widget.currentUserRole == 'super_admin';
 
   @override
   void initState() {
@@ -134,29 +137,38 @@ class _NoticeDetailScreenState extends State<NoticeDetailScreen> {
 
   String _getVideoPlatformLabel(String url) {
     final lower = url.toLowerCase();
-    if (lower.contains('youtu.be') || lower.contains('youtube.com')) return 'YouTube';
+    if (lower.contains('youtu.be') || lower.contains('youtube.com')) {
+      return 'YouTube';
+    }
     if (lower.contains('vimeo.com')) return 'Vimeo';
     if (lower.contains('drive.google.com')) return 'Google Drive';
     return 'Video';
   }
 
   void _openLink(BuildContext context, String url, bool isTrustedVideo) {
+    final tokens = context.pcTokens;
+    final accent = PcTokens.readableAccentOnLight(widget.primaryColor);
+
     showDialog(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+        backgroundColor: tokens.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
             Icon(
               isTrustedVideo ? Icons.play_circle_fill : Icons.open_in_new,
-              color: isTrustedVideo ? Colors.redAccent : widget.primaryColor,
+              color: isTrustedVideo ? tokens.urgentText : accent,
               size: 24,
             ),
             const SizedBox(width: 10),
             Text(
               isTrustedVideo ? 'Watch Video' : 'External Link',
-              style: const TextStyle(color: Colors.white, fontSize: 17),
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ],
         ),
@@ -168,18 +180,27 @@ class _NoticeDetailScreenState extends State<NoticeDetailScreen> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.amber.withOpacity(0.12),
+                  color: tokens.warningSoft,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                  border: Border.all(
+                    color: tokens.warningAccent.withValues(alpha: 0.35),
+                  ),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
-                    Icon(Icons.info_outline, color: Colors.amberAccent, size: 18),
-                    SizedBox(width: 8),
+                    Icon(
+                      Icons.info_outline,
+                      color: tokens.warningAccent,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         'This link opens an external site. Please verify the destination.',
-                        style: TextStyle(color: Colors.white70, fontSize: 12),
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontSize: 12,
+                        ),
                       ),
                     ),
                   ],
@@ -189,19 +210,22 @@ class _NoticeDetailScreenState extends State<NoticeDetailScreen> {
             ],
             SelectableText(
               url,
-              style: const TextStyle(color: Colors.lightBlueAccent, fontSize: 13),
+              style: TextStyle(color: accent, fontSize: 13),
             ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogCtx),
-            child: const Text('Close', style: TextStyle(color: Colors.grey)),
+            child: Text(
+              'Close',
+              style: TextStyle(color: tokens.textSecondary),
+            ),
           ),
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
-              backgroundColor: widget.primaryColor,
-              foregroundColor: Colors.white,
+              backgroundColor: accent,
+              foregroundColor: PcTokens.contrastOn(accent),
             ),
             icon: const Icon(Icons.copy, size: 16),
             label: const Text('Copy Link'),
@@ -236,7 +260,7 @@ class _NoticeDetailScreenState extends State<NoticeDetailScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            backgroundColor: Colors.green,
+            backgroundColor: Color(0xFF059669),
             content: Text('You have acknowledged this policy notice.'),
           ),
         );
@@ -245,7 +269,7 @@ class _NoticeDetailScreenState extends State<NoticeDetailScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            backgroundColor: Colors.redAccent,
+            backgroundColor: const Color(0xFFDC2626),
             content: Text('Failed to acknowledge: $e'),
           ),
         );
@@ -256,35 +280,46 @@ class _NoticeDetailScreenState extends State<NoticeDetailScreen> {
   }
 
   Future<void> _handleRetract() async {
+    final tokens = context.pcTokens;
     final reasonController = TextEditingController();
 
     final confirm = await showDialog<bool>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+        backgroundColor: tokens.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Retract Notice?', style: TextStyle(color: Colors.white)),
+        title: Text(
+          'Retract Notice?',
+          style: TextStyle(
+            color: tokens.textPrimary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
+            Text(
               'Retracting this notice will immediately remove it from all feeds. This action is recorded and cannot be undone.',
-              style: TextStyle(color: Colors.white70, fontSize: 13),
+              style: TextStyle(color: tokens.textSecondary, fontSize: 13),
             ),
             const SizedBox(height: 14),
             TextField(
               controller: reasonController,
               maxLines: 2,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
+              style: TextStyle(color: tokens.textPrimary, fontSize: 13),
               decoration: InputDecoration(
                 hintText: 'Optional retraction reason...',
-                hintStyle: TextStyle(color: Colors.grey[500], fontSize: 13),
+                hintStyle: TextStyle(color: tokens.textMuted, fontSize: 13),
                 filled: true,
-                fillColor: const Color.fromRGBO(24, 23, 23, 1),
+                fillColor: tokens.surfaceSubtle,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
+                  borderSide: BorderSide(color: tokens.border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: tokens.border),
                 ),
               ),
             ),
@@ -293,11 +328,14 @@ class _NoticeDetailScreenState extends State<NoticeDetailScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogCtx, false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: tokens.textSecondary),
+            ),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent,
+              backgroundColor: tokens.urgentText,
               foregroundColor: Colors.white,
             ),
             onPressed: () => Navigator.pop(dialogCtx, true),
@@ -326,7 +364,10 @@ class _NoticeDetailScreenState extends State<NoticeDetailScreen> {
         if (mounted) {
           setState(() => _isRetracting = false);
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error retracting notice: $e'), backgroundColor: Colors.redAccent),
+            SnackBar(
+              content: Text('Error retracting notice: $e'),
+              backgroundColor: tokens.urgentText,
+            ),
           );
         }
       }
@@ -357,7 +398,8 @@ class _NoticeDetailScreenState extends State<NoticeDetailScreen> {
     if (userDept == null) return;
 
     try {
-      final deptDoc = await DBService.instance.getDepartment(widget.firmId, userDept);
+      final deptDoc =
+          await DBService.instance.getDepartment(widget.firmId, userDept);
       final convId = deptDoc?.conversationId;
       if (convId != null && mounted) {
         Navigator.push(
@@ -383,25 +425,487 @@ class _NoticeDetailScreenState extends State<NoticeDetailScreen> {
   bool get _canDiscussInDepartment {
     final dept = widget.userDepartmentId;
     if (dept == null) return false;
-    // Show only when audience is exactly a single department the reader belongs to
-    return _notice.audienceKeys.length == 1 && _notice.audienceKeys.first == 'dept:$dept';
+    return _notice.audienceKeys.length == 1 &&
+        _notice.audienceKeys.first == 'dept:$dept';
   }
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.pcTokens;
+    final accent = PcTokens.readableAccentOnLight(widget.primaryColor);
+    final isWide = !PcBreakpoints.isCompact(MediaQuery.sizeOf(context).width);
+
+    final articleBody = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Retracted Notice Warning Banner ──────────────────────────────
+        if (_notice.isRetracted)
+          Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: tokens.urgentBg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: tokens.urgentBorder),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, color: tokens.urgentText, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'This notice has been retracted and is hidden from standard feeds.',
+                    style: TextStyle(
+                      color: tokens.urgentText,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        // ── Author & Audience Metadata Header ────────────────────────────
+        Row(
+          children: [
+            PcAvatar(
+              name: _notice.authorName,
+              radius: 20,
+              backgroundColor: accent.withValues(alpha: 0.12),
+              foregroundColor: accent,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _notice.authorName,
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _notice.authorLabel.isNotEmpty
+                        ? '${_notice.authorLabel} • ${_formatDate(_notice.createdAt)}'
+                        : _formatDate(_notice.createdAt),
+                    style: TextStyle(color: tokens.textSecondary, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: tokens.surfaceSubtle,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: tokens.border),
+              ),
+              child: Text(
+                _notice.audienceSummary,
+                style: TextStyle(
+                  color: tokens.textSecondary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        if (_notice.isEdited) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Icon(Icons.history, color: tokens.textMuted, size: 14),
+              const SizedBox(width: 4),
+              Text(
+                'Edited ${_formatDate(_notice.editedAt!)} (v${_notice.version})',
+                style: TextStyle(color: tokens.textMuted, fontSize: 11),
+              ),
+            ],
+          ),
+        ],
+
+        const SizedBox(height: 18),
+
+        // ── Notice Title ─────────────────────────────────────────────────
+        Text(
+          _notice.title,
+          style: TextStyle(
+            color: tokens.textPrimary,
+            fontSize: 24,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.4,
+            height: 1.25,
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        // ── Image Carousel (if media attached) ───────────────────────────
+        if (_notice.media.isNotEmpty) ...[
+          NoticeImageCarousel(
+            mediaList: _notice.media,
+            height: 260,
+            title: _notice.title,
+          ),
+          const SizedBox(height: 18),
+        ],
+
+        // ── Body Text ────────────────────────────────────────────────────
+        SelectableText(
+          _notice.body,
+          style: TextStyle(
+            color: tokens.textPrimary,
+            fontSize: 15,
+            height: 1.6,
+          ),
+        ),
+
+        const SizedBox(height: 22),
+
+        // ── Video Links Section ──────────────────────────────────────────
+        if (_notice.videoLinks.isNotEmpty) ...[
+          Text(
+            'Links & Video',
+            style: TextStyle(
+              color: tokens.textSecondary,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 10),
+          ..._notice.videoLinks.map((url) {
+            final isTrusted = _isTrustedVideoUrl(url);
+            final platform = _getVideoPlatformLabel(url);
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: InkWell(
+                onTap: () => _openLink(context, url, isTrusted),
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: tokens.surfaceSubtle,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isTrusted ? tokens.urgentBorder : tokens.border,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        isTrusted ? Icons.play_circle_fill : Icons.link,
+                        color: isTrusted ? tokens.urgentText : accent,
+                        size: 22,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isTrusted
+                                  ? 'Watch on $platform'
+                                  : 'External Web Link',
+                              style: TextStyle(
+                                color: tokens.textPrimary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              url,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: tokens.textSecondary,
+                                fontSize: 11.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        color: tokens.textMuted,
+                        size: 18,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
+          const SizedBox(height: 14),
+        ],
+
+        // ── Policy Acknowledgement Section (Policy notices only) ─────────
+        if (_notice.isPolicy) ...[
+          StreamBuilder<NoticeAck?>(
+            stream: NoticesService.instance.streamUserAck(
+              widget.firmId,
+              _notice.id,
+              widget.currentUid,
+            ),
+            builder: (context, ackSnapshot) {
+              final ack = ackSnapshot.data;
+              final isAcknowledged =
+                  ack != null && ack.version == _notice.version;
+
+              if (isAcknowledged) {
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  decoration: BoxDecoration(
+                    color: tokens.online.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: tokens.online.withValues(alpha: 0.30),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.check_circle,
+                        color: Color(0xFF059669),
+                        size: 22,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Acknowledged',
+                              style: TextStyle(
+                                color: tokens.textPrimary,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                              ),
+                            ),
+                            Text(
+                              'You read and accepted version ${_notice.version} on ${_formatDate(ack.at)}',
+                              style: TextStyle(
+                                color: tokens.textSecondary,
+                                fontSize: 11.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: tokens.projectSoft,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: tokens.projectAccent.withValues(alpha: 0.30),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.gavel,
+                          color: tokens.projectAccent,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            ack != null
+                                ? 'Policy Updated (Version ${_notice.version})'
+                                : 'Formal Policy Acknowledgement Required',
+                            style: TextStyle(
+                              color: tokens.textPrimary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      ack != null
+                          ? 'This policy has been revised since you last acknowledged it. Please confirm you have read the updated terms.'
+                          : 'Please read this policy thoroughly and confirm below that you have understood and accepted it.',
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 12.5,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: tokens.projectAccent,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        icon: _isAcknowledging
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.check, size: 18),
+                        label: const Text(
+                          'I have read and acknowledge this policy',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                        onPressed: _isAcknowledging ? null : _handleAcknowledge,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+
+        // ── Interactive Reactions Bar ────────────────────────────────────
+        NoticeReactionsWidget(
+          firmId: widget.firmId,
+          noticeId: _notice.id,
+          currentUid: widget.currentUid,
+          primaryColor: accent,
+        ),
+
+        const SizedBox(height: 20),
+
+        // ── Contextual Actions: Message Poster & Discuss ─────────────────
+        Row(
+          children: [
+            if (!isAuthor)
+              Expanded(
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: tokens.textPrimary,
+                    side: BorderSide(color: tokens.borderStrong),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: Icon(
+                    Icons.chat_bubble_outline,
+                    size: 17,
+                    color: accent,
+                  ),
+                  label: const Text(
+                    'Message Poster',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  onPressed: _handleMessagePoster,
+                ),
+              ),
+            if (!isAuthor && _canDiscussInDepartment)
+              const SizedBox(width: 10),
+            if (_canDiscussInDepartment)
+              Expanded(
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: accent,
+                    foregroundColor: PcTokens.contrastOn(accent),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: const Icon(Icons.forum_outlined, size: 17),
+                  label: const Text(
+                    'Discuss in Team',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  onPressed: _handleDiscuss,
+                ),
+              ),
+          ],
+        ),
+
+        const SizedBox(height: 24),
+
+        // ── Author Oversight Information ─────────────────────────────────
+        if (isAuthor)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: tokens.surfaceSubtle,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: tokens.border),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.visibility_outlined, color: accent, size: 20),
+                const SizedBox(width: 10),
+                Text(
+                  _isLoadingViewCount
+                      ? 'Calculating views...'
+                      : '$_viewCount people have seen this notice',
+                  style: TextStyle(
+                    color: tokens.textSecondary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+
     return Scaffold(
-      backgroundColor: const Color.fromRGBO(28, 27, 27, 1),
+      backgroundColor: tokens.canvas,
       appBar: AppBar(
-        backgroundColor: const Color.fromRGBO(28, 27, 27, 1),
+        backgroundColor: tokens.surface,
         elevation: 0,
+        shape: Border(bottom: BorderSide(color: tokens.border)),
         title: Text(
           _notice.type.label,
-          style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: tokens.textPrimary,
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+          ),
         ),
         actions: [
           if (isAuthor && _notice.isPublished)
             IconButton(
-              icon: const Icon(Icons.edit_outlined, color: Colors.white70),
+              icon: Icon(Icons.edit_outlined, color: tokens.textSecondary),
               tooltip: 'Edit notice',
               onPressed: () async {
                 final updated = await Navigator.push<NoticeModel?>(
@@ -413,7 +917,7 @@ class _NoticeDetailScreenState extends State<NoticeDetailScreen> {
                       currentUserName: widget.currentUserName,
                       currentUserRole: widget.currentUserRole,
                       userDepartmentId: widget.userDepartmentId,
-                      primaryColor: widget.primaryColor,
+                      primaryColor: accent,
                       editingNotice: _notice,
                     ),
                   ),
@@ -426,406 +930,43 @@ class _NoticeDetailScreenState extends State<NoticeDetailScreen> {
           if ((isAuthor || isAdmin) && _notice.isPublished)
             IconButton(
               icon: _isRetracting
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 18,
                       height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.redAccent),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: tokens.urgentText,
+                      ),
                     )
-                  : const Icon(Icons.remove_circle_outline, color: Colors.redAccent),
+                  : Icon(
+                      Icons.remove_circle_outline,
+                      color: tokens.urgentText,
+                    ),
               tooltip: 'Retract notice',
               onPressed: _isRetracting ? null : _handleRetract,
             ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Retracted Notice Warning Banner ──────────────────────────────
-            if (_notice.isRetracted)
-              Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.redAccent.withOpacity(0.4)),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Colors.redAccent, size: 20),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'This notice has been retracted and is hidden from standard feeds.',
-                        style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-            // ── Author & Audience Metadata Header ────────────────────────────
-            Row(
-              children: [
-                PcAvatar(
-                  name: _notice.authorName,
-                  radius: 20,
-                  backgroundColor: widget.primaryColor.withOpacity(0.2),
-                  foregroundColor: widget.primaryColor,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _notice.authorName,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _notice.authorLabel.isNotEmpty
-                            ? '${_notice.authorLabel} • ${_formatDate(_notice.createdAt)}'
-                            : _formatDate(_notice.createdAt),
-                        style: TextStyle(color: Colors.grey[400], fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    _notice.audienceSummary,
-                    style: TextStyle(
-                      color: Colors.grey[300],
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 820),
+          child: SingleChildScrollView(
+            padding: EdgeInsets.symmetric(
+              horizontal: isWide ? 28 : 16,
+              vertical: isWide ? 24 : 16,
             ),
-
-            if (_notice.isEdited) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Icon(Icons.history, color: Colors.grey[500], size: 14),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Edited ${_formatDate(_notice.editedAt!)} (v${_notice.version})',
-                    style: TextStyle(color: Colors.grey[500], fontSize: 11),
-                  ),
-                ],
-              ),
-            ],
-
-            const SizedBox(height: 16),
-
-            // ── Notice Title ─────────────────────────────────────────────────
-            Text(
-              _notice.title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.4,
-                height: 1.25,
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // ── Image Carousel (if media attached) ───────────────────────────
-            if (_notice.media.isNotEmpty) ...[
-              NoticeImageCarousel(
-                mediaList: _notice.media,
-                height: 240,
-                title: _notice.title,
-              ),
-              const SizedBox(height: 18),
-            ],
-
-            // ── Body Text ────────────────────────────────────────────────────
-            SelectableText(
-              _notice.body,
-              style: const TextStyle(
-                color: Color.fromRGBO(235, 235, 235, 1),
-                fontSize: 15,
-                height: 1.5,
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            // ── Video Links Section ──────────────────────────────────────────
-            if (_notice.videoLinks.isNotEmpty) ...[
-              const Text(
-                'Links & Video',
-                style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 10),
-              ..._notice.videoLinks.map((url) {
-                final isTrusted = _isTrustedVideoUrl(url);
-                final platform = _getVideoPlatformLabel(url);
-
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: InkWell(
-                    onTap: () => _openLink(context, url, isTrusted),
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: const Color.fromRGBO(34, 33, 33, 1),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isTrusted
-                              ? Colors.redAccent.withOpacity(0.3)
-                              : Colors.white.withOpacity(0.08),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            isTrusted ? Icons.play_circle_fill : Icons.link,
-                            color: isTrusted ? Colors.redAccent : widget.primaryColor,
-                            size: 22,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  isTrusted ? 'Watch on $platform' : 'External Web Link',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  url,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(color: Colors.grey[400], fontSize: 11),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Icon(Icons.arrow_forward_ios, color: Colors.grey, size: 14),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              }),
-              const SizedBox(height: 14),
-            ],
-
-            // ── Policy Acknowledgement Section (Policy notices only) ─────────
-            if (_notice.isPolicy) ...[
-              StreamBuilder<NoticeAck?>(
-                stream: NoticesService.instance.streamUserAck(
-                  widget.firmId,
-                  _notice.id,
-                  widget.currentUid,
-                ),
-                builder: (context, ackSnapshot) {
-                  final ack = ackSnapshot.data;
-                  final isAcknowledged = ack != null && ack.version == _notice.version;
-
-                  if (isAcknowledged) {
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 16),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                      decoration: BoxDecoration(
-                        color: Colors.green.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: Colors.greenAccent.withOpacity(0.4)),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.check_circle, color: Colors.greenAccent, size: 22),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Acknowledged',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                Text(
-                                  'You read and accepted version ${_notice.version} on ${_formatDate(ack.at)}',
-                                  style: const TextStyle(color: Colors.white70, fontSize: 11),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.all(16),
+            child: isWide
+                ? Container(
+                    padding: const EdgeInsets.all(28),
                     decoration: BoxDecoration(
-                      color: Colors.indigo.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.indigoAccent.withOpacity(0.4)),
+                      color: tokens.surface,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: tokens.border),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.gavel, color: Colors.indigoAccent, size: 20),
-                            const SizedBox(width: 8),
-                            Text(
-                              ack != null
-                                  ? 'Policy Updated (Version ${_notice.version})'
-                                  : 'Formal Policy Acknowledgement Required',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          ack != null
-                              ? 'This policy has been revised since you last acknowledged it. Please confirm you have read the updated terms.'
-                              : 'Please read this policy thoroughly and confirm below that you have understood and accepted it.',
-                          style: TextStyle(color: Colors.grey[300], fontSize: 12),
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.indigoAccent,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                            icon: _isAcknowledging
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                  )
-                                : const Icon(Icons.check, size: 18),
-                            label: const Text(
-                              'I have read and acknowledge this policy',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                            ),
-                            onPressed: _isAcknowledging ? null : _handleAcknowledge,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ],
-
-            // ── Interactive Reactions Bar ────────────────────────────────────
-            NoticeReactionsWidget(
-              firmId: widget.firmId,
-              noticeId: _notice.id,
-              currentUid: widget.currentUid,
-              primaryColor: widget.primaryColor,
-            ),
-
-            const SizedBox(height: 20),
-
-            // ── Contextual Actions: Message Poster & Discuss ─────────────────
-            Row(
-              children: [
-                if (!isAuthor)
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: BorderSide(color: Colors.white.withOpacity(0.15)),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      icon: const Icon(Icons.chat_bubble_outline, size: 17),
-                      label: const Text('Message Poster', style: TextStyle(fontSize: 13)),
-                      onPressed: _handleMessagePoster,
-                    ),
-                  ),
-                if (!isAuthor && _canDiscussInDepartment) const SizedBox(width: 10),
-                if (_canDiscussInDepartment)
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: widget.primaryColor,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      icon: const Icon(Icons.forum_outlined, size: 17),
-                      label: const Text('Discuss in Team', style: TextStyle(fontSize: 13)),
-                      onPressed: _handleDiscuss,
-                    ),
-                  ),
-              ],
-            ),
-
-            const SizedBox(height: 24),
-
-            // ── Author Oversight Information ─────────────────────────────────
-            if (isAuthor)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color.fromRGBO(30, 30, 30, 1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white.withOpacity(0.06)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.visibility_outlined, color: widget.primaryColor, size: 20),
-                    const SizedBox(width: 10),
-                    Text(
-                      _isLoadingViewCount
-                          ? 'Calculating views...'
-                          : '$_viewCount people have seen this notice',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-            const SizedBox(height: 30),
-          ],
+                    child: articleBody,
+                  )
+                : articleBody,
+          ),
         ),
       ),
     );

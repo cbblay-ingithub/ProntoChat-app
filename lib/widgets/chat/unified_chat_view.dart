@@ -5,18 +5,19 @@ import 'package:flutter/material.dart';
 import '../../models/chat_message.dart';
 import '../../models/chat_polish_models.dart';
 import '../../models/firm.dart';
+import '../../models/media_ref.dart';
+import '../../models/poll_model.dart';
 import '../../services/db_service.dart';
+import '../../services/media_service.dart';
 import '../../services/snackbar_service.dart';
-import 'pinned_messages_banner.dart';
-import 'typing_indicator_widget.dart';
-import 'message_bubble_widget.dart';
+import '../../theme/pc_tokens.dart';
+import '../common/pc_avatar.dart';
 import 'chat_composer_widget.dart';
 import 'chat_date_divider.dart';
 import 'chat_search_sheet.dart';
-import '../../models/poll_model.dart';
-import '../../models/media_ref.dart';
-import '../../services/media_service.dart';
-import '../common/pc_avatar.dart';
+import 'message_bubble_widget.dart';
+import 'pinned_messages_banner.dart';
+import 'typing_indicator_widget.dart';
 
 enum UnifiedChatKind { direct, department, project, allStaff, general }
 
@@ -36,6 +37,9 @@ class UnifiedChatView extends StatefulWidget {
   final String? departmentId;
   final String? projectOwnerUid;
   final bool canPost;
+  final bool isEmbedded;
+  final VoidCallback? onBack;
+  final List<Widget> extraActions;
 
   const UnifiedChatView({
     super.key,
@@ -54,36 +58,36 @@ class UnifiedChatView extends StatefulWidget {
     this.departmentId,
     this.projectOwnerUid,
     this.canPost = true,
+    this.isEmbedded = false,
+    this.onBack,
+    this.extraActions = const [],
   });
 
   @override
   State<UnifiedChatView> createState() => _UnifiedChatViewState();
 }
 
-class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingObserver {
+class _UnifiedChatViewState extends State<UnifiedChatView>
+    with WidgetsBindingObserver {
   final ScrollController _scrollController = ScrollController();
   final Map<String, GlobalKey> _messageKeys = {};
 
   ChatMessage? _replyingTo;
   ChatMessage? _editingMessage;
 
-  // Pagination state
-  List<ChatMessage> _olderMessages = [];
+  final List<ChatMessage> _olderMessages = [];
   DocumentSnapshot? _lastVisibleDoc;
   bool _isLoadingMore = false;
   bool _hasMore = true;
 
-  // Jump / scroll state
   bool _showScrollToBottom = false;
   String? _firstUnreadMessageId;
 
-  // Persistent streams to prevent unmounting and scroll disruption on rebuilds
   late Stream<QuerySnapshot<Map<String, dynamic>>> _messagesStream;
   late Stream<List<PinnedMessage>> _pinsStream;
   late Stream<Map<String, ReadPointer>> _readPointersStream;
   late Stream<List<TypingIndicatorStatus>> _typingStream;
 
-  // Participants for @mention
   List<Map<String, String>> _participants = [];
   bool _isLoadingParticipants = false;
 
@@ -132,19 +136,15 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
       _lastVisibleDoc = null;
       _hasMore = true;
       _initStreams();
+      _markReadOnOpen();
     }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (widget.firmId != null && widget.firmId!.isNotEmpty) {
-      if (state == AppLifecycleState.resumed) {
-        DBService.instance.updatePresence(
-          firmId: widget.firmId!,
-          uid: widget.currentUid,
-          force: true,
-        );
-      } else if (state == AppLifecycleState.paused) {
+      if (state == AppLifecycleState.resumed ||
+          state == AppLifecycleState.paused) {
         DBService.instance.updatePresence(
           firmId: widget.firmId!,
           uid: widget.currentUid,
@@ -169,16 +169,17 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
     final offset = _scrollController.offset;
     final maxScroll = _scrollController.position.maxScrollExtent;
 
-    // Show scroll to bottom button if user scrolled up
     if (offset > 300 && !_showScrollToBottom) {
       setState(() => _showScrollToBottom = true);
     } else if (offset <= 300 && _showScrollToBottom) {
       setState(() => _showScrollToBottom = false);
     }
 
-    // Load more when reaching near the top of the chat (maxScrollExtent in reverse list)
-    // Only trigger if scroll extent exists (>100) and user actually scrolled near the top
-    if (maxScroll > 100 && offset >= maxScroll - 150 && !_isLoadingMore && _hasMore && _lastVisibleDoc != null) {
+    if (maxScroll > 100 &&
+        offset >= maxScroll - 150 &&
+        !_isLoadingMore &&
+        _hasMore &&
+        _lastVisibleDoc != null) {
       _loadOlderMessages();
     }
   }
@@ -220,7 +221,6 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
 
   Future<void> _loadOlderMessages() async {
     if (_lastVisibleDoc == null || _isLoadingMore || !_hasMore) return;
-    // Don't paginate if the cursor has uncommitted pending local writes
     if (_lastVisibleDoc!.metadata.hasPendingWrites) return;
 
     setState(() => _isLoadingMore = true);
@@ -237,14 +237,15 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
         _hasMore = false;
       } else {
         _lastVisibleDoc = docs.last;
-        final older = docs.map((d) => ChatMessage.fromMap(d.data(), d.id)).toList();
+        final older =
+            docs.map((d) => ChatMessage.fromMap(d.data(), d.id)).toList();
         setState(() {
           _olderMessages.addAll(older);
         });
       }
     } catch (e) {
       debugPrint('Notice: load older messages: $e');
-      _hasMore = false; // Stop thrashing on errors
+      _hasMore = false;
     } finally {
       if (mounted) setState(() => _isLoadingMore = false);
     }
@@ -281,7 +282,9 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
         curve: Curves.easeInOut,
       );
     } else {
-      SnackbarService().showSnackbar('Message is in older history. Scroll up to load.');
+      SnackbarService().showSnackbar(
+        'Message is in older history. Scroll up to load.',
+      );
     }
   }
 
@@ -425,7 +428,8 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
         mentions: mentions,
         replyTo: replyTo,
       );
-    } else if (widget.kind == UnifiedChatKind.allStaff || widget.kind == UnifiedChatKind.general) {
+    } else if (widget.kind == UnifiedChatKind.allStaff ||
+        widget.kind == UnifiedChatKind.general) {
       await DBService.instance.sendAllStaffMessage(
         firmId: widget.firmId!,
         conversationId: widget.conversationId,
@@ -471,6 +475,7 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.pcTokens;
     final showLastSeen = widget.firm?.showLastSeen ?? true;
     final showReadReceipts = widget.firm?.showReadReceipts ?? true;
 
@@ -482,197 +487,271 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
         final activePinIds = activePins.map((p) => p.messageId).toSet();
 
         return Scaffold(
-          backgroundColor: const Color.fromRGBO(24, 23, 26, 1),
-          appBar: _buildAppBar(showLastSeen, activePins),
+          backgroundColor: tokens.surface,
+          appBar: _buildAppBar(tokens, showLastSeen, activePins),
           body: Column(
             children: [
-              // Pinned Messages Banner
               PinnedMessagesBanner(
                 pins: activePins,
                 canManagePins: _canUserPin(),
                 onJumpToMessage: _jumpToMessage,
                 onUnpinMessage: _handleUnpinMessage,
               ),
-
-              // Messages stream + read pointers
               Expanded(
-                child: StreamBuilder<Map<String, ReadPointer>>(
-                  stream: _readPointersStream,
-                  builder: (context, readSnap) {
-                    final readPointers = readSnap.data ?? {};
-                    final otherPointer = widget.otherUserId != null
-                        ? readPointers[widget.otherUserId]
-                        : null;
+                child: Container(
+                  color: tokens.canvas,
+                  child: StreamBuilder<Map<String, ReadPointer>>(
+                    stream: _readPointersStream,
+                    builder: (context, readSnap) {
+                      final readPointers = readSnap.data ?? {};
+                      final otherPointer = widget.otherUserId != null
+                          ? readPointers[widget.otherUserId]
+                          : null;
 
-                    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: _messagesStream,
-                      builder: (context, msgSnap) {
-                        if (msgSnap.connectionState == ConnectionState.waiting && !msgSnap.hasData && _olderMessages.isEmpty) {
-                          return const Center(child: CircularProgressIndicator());
-                        }
+                      return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                        stream: _messagesStream,
+                        builder: (context, msgSnap) {
+                          if (msgSnap.connectionState ==
+                                  ConnectionState.waiting &&
+                              !msgSnap.hasData &&
+                              _olderMessages.isEmpty) {
+                            return Center(
+                              child: CircularProgressIndicator(
+                                color: widget.primaryColor,
+                              ),
+                            );
+                          }
 
-                        final streamDocs = msgSnap.data?.docs ?? [];
-                        if (streamDocs.isNotEmpty) {
-                          if (_lastVisibleDoc == null || _olderMessages.isEmpty) {
-                            final committedDocs = streamDocs.where((d) => !d.metadata.hasPendingWrites).toList();
-                            if (committedDocs.isNotEmpty) {
-                              _lastVisibleDoc = committedDocs.last;
+                          final streamDocs = msgSnap.data?.docs ?? [];
+                          if (streamDocs.isNotEmpty) {
+                            if (_lastVisibleDoc == null ||
+                                _olderMessages.isEmpty) {
+                              final committedDocs = streamDocs
+                                  .where((d) => !d.metadata.hasPendingWrites)
+                                  .toList();
+                              if (committedDocs.isNotEmpty) {
+                                _lastVisibleDoc = committedDocs.last;
+                              }
+                            }
+                            if (streamDocs.length < 50 &&
+                                _olderMessages.isEmpty) {
+                              _hasMore = false;
                             }
                           }
-                          // If fewer than limit arrived and no older messages loaded, all messages are present
-                          if (streamDocs.length < 50 && _olderMessages.isEmpty) {
-                            _hasMore = false;
+
+                          final List<ChatMessage> allMessages = [];
+                          for (final doc in streamDocs) {
+                            allMessages.add(
+                              ChatMessage.fromMap(
+                                doc.data(),
+                                doc.id,
+                                hasPendingWrites: doc.metadata.hasPendingWrites,
+                              ),
+                            );
                           }
-                        }
+                          allMessages.addAll(_olderMessages);
 
-                        // Combined messages list (newest first for reverse ListView)
-                        final List<ChatMessage> allMessages = [];
-                        for (final doc in streamDocs) {
-                          allMessages.add(ChatMessage.fromMap(
-                            doc.data(),
-                            doc.id,
-                            hasPendingWrites: doc.metadata.hasPendingWrites,
-                          ));
-                        }
-                        allMessages.addAll(_olderMessages);
+                          final seenIds = <String>{};
+                          final uniqueMessages = allMessages
+                              .where((m) => seenIds.add(m.messageId))
+                              .toList();
+                          _currentLoadedMessages = uniqueMessages;
 
-                        // De-duplicate in case older overlap
-                        final seenIds = <String>{};
-                        final uniqueMessages = allMessages.where((m) => seenIds.add(m.messageId)).toList();
-                        _currentLoadedMessages = uniqueMessages;
-
-                        if (uniqueMessages.isEmpty) {
-                          return Center(
-                            child: Text(
-                              'No messages yet in ${widget.title}.\nSay hello! 👋',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.grey[500], fontSize: 14),
-                            ),
-                          );
-                        }
-
-                        // Compute first unread message for divider
-                        final ownPointer = readPointers[widget.currentUid];
-                        if (ownPointer != null) {
-                          for (int i = uniqueMessages.length - 1; i >= 0; i--) {
-                            if (uniqueMessages[i].timestamp.isAfter(ownPointer.lastReadAt)) {
-                              _firstUnreadMessageId = uniqueMessages[i].messageId;
-                              break;
-                            }
-                          }
-                        }
-
-                        return Stack(
-                          children: [
-                            ListView.builder(
-                              controller: _scrollController,
-                              reverse: true,
-                              physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                              itemCount: uniqueMessages.length + (_isLoadingMore ? 1 : 0),
-                              itemBuilder: (context, index) {
-                                if (_isLoadingMore && index == uniqueMessages.length) {
-                                  return const Center(
-                                    child: Padding(
-                                      padding: EdgeInsets.all(8.0),
-                                      child: SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(strokeWidth: 2),
-                                      ),
-                                    ),
-                                  );
-                                }
-
-                                final msg = uniqueMessages[index];
-                                final isMine = msg.senderId == widget.currentUid;
-                                final key = _messageKeys.putIfAbsent(msg.messageId, () => GlobalKey());
-
-                                // Consecutive test
-                                bool isConsecutive = false;
-                                if (index < uniqueMessages.length - 1) {
-                                  final olderMsg = uniqueMessages[index + 1];
-                                  isConsecutive = olderMsg.senderId == msg.senderId &&
-                                      msg.timestamp.difference(olderMsg.timestamp).inMinutes < 3;
-                                }
-
-                                // Date separator test (older message has different day)
-                                bool showDateDivider = false;
-                                if (index == uniqueMessages.length - 1) {
-                                  showDateDivider = true;
-                                } else {
-                                  final olderMsg = uniqueMessages[index + 1];
-                                  final d1 = msg.timestamp.toLocal();
-                                  final d2 = olderMsg.timestamp.toLocal();
-                                  if (d1.year != d2.year || d1.month != d2.month || d1.day != d2.day) {
-                                    showDateDivider = true;
-                                  }
-                                }
-
-                                final isFirstUnread = msg.messageId == _firstUnreadMessageId;
-
-                                return Column(
-                                  key: key,
+                          if (uniqueMessages.isEmpty) {
+                            return Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    if (showDateDivider) ChatDateDivider(date: msg.timestamp),
-                                    if (isFirstUnread) const NewMessagesDivider(),
-                                    MessageBubbleWidget(
-                                      message: msg,
-                                      isMine: isMine,
-                                      isDirectChat: widget.kind == UnifiedChatKind.direct,
-                                      showReadReceipts: showReadReceipts,
-                                      otherReadPointer: otherPointer,
-                                      groupReadPointers: readPointers,
-                                      isConsecutive: isConsecutive,
-                                      primaryColor: widget.primaryColor,
-                                      canPin: _canUserPin(),
-                                      isPinned: activePinIds.contains(msg.messageId),
-                                      onReply: (m) => setState(() => _replyingTo = m),
-                                      onPin: (m, duration) => _handlePinMessage(m, duration),
-                                      onUnpin: (m) => _handleUnpinMessage(m.messageId),
-                                      onEdit: (m) => setState(() => _editingMessage = m),
-                                      onDelete: (m) {
-                                        DBService.instance.deleteMessage(
-                                          firmId: widget.firmId,
-                                          conversationId: widget.conversationId,
-                                          messageId: m.messageId,
-                                        );
-                                      },
-                                      onJumpToQuoted: _jumpToMessage,
-                                      currentUid: widget.currentUid,
-                                      firmId: widget.firmId,
-                                      conversationId: widget.conversationId,
-                                      currentUserRole: widget.currentUserRole,
-                                      participants: _participants,
-                                      isHighlighted: _highlightedMessageId == msg.messageId,
+                                    Container(
+                                      width: 56,
+                                      height: 56,
+                                      decoration: BoxDecoration(
+                                        color: widget.primaryColor
+                                            .withValues(alpha: 0.10),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Icon(
+                                        Icons.forum_outlined,
+                                        color: widget.primaryColor,
+                                        size: 26,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      'No messages yet in ${widget.title}.\nSay hello!',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: tokens.textMuted,
+                                        fontSize: 13.5,
+                                        height: 1.4,
+                                      ),
                                     ),
                                   ],
-                                );
-                              },
-                            ),
-
-                            // Scroll to bottom floating button
-                            if (_showScrollToBottom)
-                              Positioned(
-                                bottom: 16,
-                                right: 16,
-                                child: FloatingActionButton.small(
-                                  backgroundColor: const Color.fromRGBO(40, 40, 44, 0.95),
-                                  foregroundColor: Colors.white,
-                                  onPressed: _scrollToBottom,
-                                  child: const Icon(Icons.arrow_downward, size: 18),
                                 ),
                               ),
-                          ],
-                        );
-                      },
-                    );
-                  },
+                            );
+                          }
+
+                          final ownPointer = readPointers[widget.currentUid];
+                          if (ownPointer != null) {
+                            for (int i = uniqueMessages.length - 1;
+                                i >= 0;
+                                i--) {
+                              if (uniqueMessages[i]
+                                  .timestamp
+                                  .isAfter(ownPointer.lastReadAt)) {
+                                _firstUnreadMessageId =
+                                    uniqueMessages[i].messageId;
+                                break;
+                              }
+                            }
+                          }
+
+                          return Stack(
+                            children: [
+                              ListView.builder(
+                                controller: _scrollController,
+                                reverse: true,
+                                physics: const AlwaysScrollableScrollPhysics(
+                                  parent: BouncingScrollPhysics(),
+                                ),
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: widget.isEmbedded ? 22 : 14,
+                                  vertical: 12,
+                                ),
+                                itemCount: uniqueMessages.length +
+                                    (_isLoadingMore ? 1 : 0),
+                                itemBuilder: (context, index) {
+                                  if (_isLoadingMore &&
+                                      index == uniqueMessages.length) {
+                                    return Center(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(8.0),
+                                        child: SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: widget.primaryColor,
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }
+
+                                  final msg = uniqueMessages[index];
+                                  final isMine =
+                                      msg.senderId == widget.currentUid;
+                                  final key = _messageKeys.putIfAbsent(
+                                    msg.messageId,
+                                    () => GlobalKey(),
+                                  );
+
+                                  bool isConsecutive = false;
+                                  if (index < uniqueMessages.length - 1) {
+                                    final olderMsg = uniqueMessages[index + 1];
+                                    isConsecutive =
+                                        olderMsg.senderId == msg.senderId &&
+                                            msg.timestamp
+                                                    .difference(
+                                                      olderMsg.timestamp,
+                                                    )
+                                                    .inMinutes <
+                                                3;
+                                  }
+
+                                  bool showDateDivider = false;
+                                  if (index == uniqueMessages.length - 1) {
+                                    showDateDivider = true;
+                                  } else {
+                                    final olderMsg = uniqueMessages[index + 1];
+                                    final d1 = msg.timestamp.toLocal();
+                                    final d2 = olderMsg.timestamp.toLocal();
+                                    if (d1.year != d2.year ||
+                                        d1.month != d2.month ||
+                                        d1.day != d2.day) {
+                                      showDateDivider = true;
+                                    }
+                                  }
+
+                                  final isFirstUnread =
+                                      msg.messageId == _firstUnreadMessageId;
+
+                                  return Column(
+                                    key: key,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (showDateDivider)
+                                        ChatDateDivider(date: msg.timestamp),
+                                      if (isFirstUnread)
+                                        const NewMessagesDivider(),
+                                      MessageBubbleWidget(
+                                        message: msg,
+                                        isMine: isMine,
+                                        isDirectChat: widget.kind ==
+                                            UnifiedChatKind.direct,
+                                        showReadReceipts: showReadReceipts,
+                                        otherReadPointer: otherPointer,
+                                        groupReadPointers: readPointers,
+                                        isConsecutive: isConsecutive,
+                                        primaryColor: widget.primaryColor,
+                                        canPin: _canUserPin(),
+                                        isPinned: activePinIds
+                                            .contains(msg.messageId),
+                                        onReply: (m) =>
+                                            setState(() => _replyingTo = m),
+                                        onPin: (m, duration) =>
+                                            _handlePinMessage(m, duration),
+                                        onUnpin: (m) =>
+                                            _handleUnpinMessage(m.messageId),
+                                        onEdit: (m) =>
+                                            setState(() => _editingMessage = m),
+                                        onDelete: (m) {
+                                          DBService.instance.deleteMessage(
+                                            firmId: widget.firmId,
+                                            conversationId:
+                                                widget.conversationId,
+                                            messageId: m.messageId,
+                                          );
+                                        },
+                                        onJumpToQuoted: _jumpToMessage,
+                                        currentUid: widget.currentUid,
+                                        firmId: widget.firmId,
+                                        conversationId: widget.conversationId,
+                                        currentUserRole: widget.currentUserRole,
+                                        participants: _participants,
+                                        isHighlighted: _highlightedMessageId ==
+                                            msg.messageId,
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                              if (_showScrollToBottom)
+                                Positioned(
+                                  bottom: 16,
+                                  right: 16,
+                                  child: FloatingActionButton.small(
+                                    backgroundColor: tokens.surface,
+                                    foregroundColor: tokens.textPrimary,
+                                    elevation: 3,
+                                    onPressed: _scrollToBottom,
+                                    child: const Icon(
+                                      Icons.arrow_downward_rounded,
+                                      size: 18,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                      );
+                    },
+                  ),
                 ),
               ),
-
-              // Typing Indicators
               StreamBuilder<List<TypingIndicatorStatus>>(
                 stream: _typingStream,
                 builder: (context, typeSnap) {
@@ -682,8 +761,6 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
                   );
                 },
               ),
-
-              // Composer
               ChatComposerWidget(
                 canPost: widget.canPost,
                 cannotPostReason: widget.kind == UnifiedChatKind.allStaff
@@ -721,10 +798,14 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
     );
   }
 
-  void _showPinnedMessagesModal(BuildContext context, List<PinnedMessage> pins) {
+  void _showPinnedMessagesModal(
+    BuildContext context,
+    PcTokens tokens,
+    List<PinnedMessage> pins,
+  ) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color.fromRGBO(30, 29, 34, 1),
+      backgroundColor: tokens.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -743,52 +824,70 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
                       Container(
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
-                          color: Colors.amber.withOpacity(0.18),
+                          color: tokens.warningSoft,
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Icon(Icons.push_pin, color: Colors.amberAccent, size: 18),
+                        child: Icon(
+                          Icons.push_pin_rounded,
+                          color: tokens.warningAccent,
+                          size: 18,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Text(
                         'Pinned Messages (${pins.length})',
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: tokens.textPrimary,
                           fontSize: 18,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                       const Spacer(),
                       IconButton(
-                        icon: const Icon(Icons.close, color: Colors.grey, size: 20),
+                        icon: Icon(
+                          Icons.close_rounded,
+                          color: tokens.textMuted,
+                          size: 20,
+                        ),
                         onPressed: () => Navigator.pop(ctx),
                       ),
                     ],
                   ),
                 ),
-                const Divider(color: Colors.white12, height: 24),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Divider(color: tokens.border, height: 1),
+                ),
                 if (pins.isEmpty)
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 28,
+                    ),
                     child: Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.push_pin_outlined, size: 48, color: Colors.grey[600]),
+                          Icon(
+                            Icons.push_pin_outlined,
+                            size: 44,
+                            color: tokens.textMuted,
+                          ),
                           const SizedBox(height: 12),
-                          const Text(
+                          Text(
                             'No Pinned Messages',
                             style: TextStyle(
-                              color: Colors.white,
+                              color: tokens.textPrimary,
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            'Long press any message to pin it so everyone can easily reference it.',
+                            'Long press or right-click any message to pin it for quick team reference.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: Colors.grey[400],
+                              color: tokens.textMuted,
                               fontSize: 13,
                             ),
                           ),
@@ -801,20 +900,33 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
                     child: ListView.separated(
                       shrinkWrap: true,
                       itemCount: pins.length,
-                      separatorBuilder: (_, __) => const Divider(color: Colors.white10, height: 1),
+                      separatorBuilder: (_, _) =>
+                          Divider(color: tokens.border, height: 1),
                       itemBuilder: (ctx, i) {
                         final p = pins[i];
                         return ListTile(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 4,
+                          ),
                           leading: CircleAvatar(
-                            backgroundColor: Colors.amber.withOpacity(0.15),
-                            child: const Icon(Icons.push_pin, color: Colors.amberAccent, size: 18),
+                            backgroundColor: tokens.warningSoft,
+                            child: Icon(
+                              Icons.push_pin_rounded,
+                              color: tokens.warningAccent,
+                              size: 18,
+                            ),
                           ),
                           title: Text(
-                            p.snippet.isNotEmpty ? p.snippet : '(Media or attachment)',
+                            p.snippet.isNotEmpty
+                                ? p.snippet
+                                : '(Media or attachment)',
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white, fontSize: 14),
+                            style: TextStyle(
+                              color: tokens.textPrimary,
+                              fontSize: 14,
+                            ),
                           ),
                           subtitle: Padding(
                             padding: const EdgeInsets.only(top: 4.0),
@@ -822,18 +934,28 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
                               children: [
                                 Text(
                                   'By ${p.pinnedBy}',
-                                  style: TextStyle(color: Colors.grey[400], fontSize: 11),
+                                  style: TextStyle(
+                                    color: tokens.textMuted,
+                                    fontSize: 11,
+                                  ),
                                 ),
                                 const SizedBox(width: 8),
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 5,
+                                    vertical: 1,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: Colors.amber.withOpacity(0.12),
+                                    color: tokens.warningSoft,
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: Text(
                                     p.formatRemaining(),
-                                    style: const TextStyle(color: Colors.amberAccent, fontSize: 10),
+                                    style: TextStyle(
+                                      color: tokens.warningAccent,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -841,7 +963,11 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
                           ),
                           trailing: _canUserPin()
                               ? IconButton(
-                                  icon: const Icon(Icons.close, color: Colors.grey, size: 18),
+                                  icon: Icon(
+                                    Icons.close_rounded,
+                                    color: tokens.textMuted,
+                                    size: 18,
+                                  ),
                                   tooltip: 'Unpin',
                                   onPressed: () {
                                     _handleUnpinMessage(p.messageId);
@@ -865,14 +991,33 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
     );
   }
 
-  AppBar _buildAppBar(bool showLastSeen, List<PinnedMessage> activePins) {
+  AppBar _buildAppBar(
+    PcTokens tokens,
+    bool showLastSeen,
+    List<PinnedMessage> activePins,
+  ) {
     return AppBar(
-      backgroundColor: const Color.fromRGBO(28, 27, 27, 1),
+      automaticallyImplyLeading: !widget.isEmbedded && widget.onBack == null,
+      leading: widget.onBack != null
+          ? IconButton(
+              icon: Icon(Icons.arrow_back_rounded, color: tokens.textPrimary),
+              onPressed: widget.onBack,
+            )
+          : null,
+      backgroundColor: tokens.surface,
       elevation: 0,
-      titleSpacing: 0,
+      titleSpacing: widget.isEmbedded && widget.onBack == null ? 18 : 0,
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(1),
+        child: Divider(height: 1, color: tokens.border),
+      ),
       actions: [
         IconButton(
-          icon: const Icon(Icons.search, color: Colors.white70, size: 22),
+          icon: Icon(
+            Icons.search_rounded,
+            color: tokens.textSecondary,
+            size: 21,
+          ),
           tooltip: 'Search Messages',
           onPressed: _openSearchSheet,
         ),
@@ -883,17 +1028,21 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
               '${activePins.length}',
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10),
             ),
-            backgroundColor: Colors.amber,
-            textColor: Colors.black,
+            backgroundColor: tokens.warningAccent,
+            textColor: Colors.white,
             child: Icon(
               Icons.push_pin_outlined,
-              color: activePins.isNotEmpty ? Colors.amberAccent : Colors.grey[400],
+              size: 20,
+              color: activePins.isNotEmpty
+                  ? tokens.warningAccent
+                  : tokens.textSecondary,
             ),
           ),
           tooltip: 'Pinned Messages',
-          onPressed: () => _showPinnedMessagesModal(context, activePins),
+          onPressed: () => _showPinnedMessagesModal(context, tokens, activePins),
         ),
-        const SizedBox(width: 4),
+        ...widget.extraActions,
+        const SizedBox(width: 6),
       ],
       title: Row(
         children: [
@@ -903,14 +1052,19 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
                 legacyUrl: widget.otherUserImage,
                 name: widget.title,
                 radius: 18,
-                backgroundColor: widget.primaryColor.withOpacity(0.25),
+                backgroundColor: widget.primaryColor.withValues(alpha: 0.14),
+                foregroundColor: widget.primaryColor,
               ),
-              if (widget.kind == UnifiedChatKind.direct && widget.firmId != null && widget.otherUserId != null && showLastSeen)
+              if (widget.kind == UnifiedChatKind.direct &&
+                  widget.firmId != null &&
+                  widget.otherUserId != null &&
+                  showLastSeen)
                 Positioned(
                   right: 0,
                   bottom: 0,
                   child: StreamBuilder<UserPresence?>(
-                    stream: DBService.instance.streamPresence(widget.firmId!, widget.otherUserId!),
+                    stream: DBService.instance
+                        .streamPresence(widget.firmId!, widget.otherUserId!),
                     builder: (context, snap) {
                       final isOnline = snap.data?.isOnline == true;
                       if (!isOnline) return const SizedBox.shrink();
@@ -918,15 +1072,9 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
                         width: 10,
                         height: 10,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF00E676),
+                          color: tokens.online,
                           shape: BoxShape.circle,
-                          border: Border.all(color: const Color.fromRGBO(28, 27, 27, 1), width: 1.8),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF00E676).withOpacity(0.7),
-                              blurRadius: 3,
-                            ),
-                          ],
+                          border: Border.all(color: tokens.surface, width: 1.8),
                         ),
                       );
                     },
@@ -944,10 +1092,10 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
                   widget.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
+                  style: TextStyle(
+                    color: tokens.textPrimary,
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
                 StreamBuilder<List<TypingIndicatorStatus>>(
@@ -961,26 +1109,34 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
                         .toList();
 
                     if (othersTyping.isNotEmpty) {
-                      final names = othersTyping.map((t) => t.userName).toSet().toList();
-                      final String typingText = widget.kind == UnifiedChatKind.direct
-                          ? 'typing...'
-                          : (names.length == 1
-                              ? '${names.first} is typing...'
-                              : (names.length == 2
-                                  ? '${names[0]} and ${names[1]} are typing...'
-                                  : '${names[0]} and ${names.length - 1} others are typing...'));
+                      final names = othersTyping
+                          .map((t) => t.userName)
+                          .toSet()
+                          .toList();
+                      final String typingText =
+                          widget.kind == UnifiedChatKind.direct
+                              ? 'typing...'
+                              : (names.length == 1
+                                  ? '${names.first} is typing...'
+                                  : (names.length == 2
+                                      ? '${names[0]} and ${names[1]} are typing...'
+                                      : '${names[0]} and ${names.length - 1} others are typing...'));
 
                       return Row(
                         children: [
-                          const BouncingDots(color: Color(0xFF00E5FF), dotSize: 3.5),
+                          BouncingDots(color: widget.primaryColor, dotSize: 3.5),
                           const SizedBox(width: 5),
-                          Text(
-                            typingText,
-                            style: const TextStyle(
-                              color: Color(0xFF00E5FF),
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              fontStyle: FontStyle.italic,
+                          Flexible(
+                            child: Text(
+                              typingText,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: widget.primaryColor,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                fontStyle: FontStyle.italic,
+                              ),
                             ),
                           ),
                         ],
@@ -1005,40 +1161,37 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
 
                           return Row(
                             children: [
-                              if (isOnline) ...[
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF00E676),
-                                    shape: BoxShape.circle,
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: const Color(0xFF00E676).withOpacity(0.75),
-                                        blurRadius: 4,
-                                        spreadRadius: 1,
-                                      ),
-                                    ],
-                                  ),
+                              Container(
+                                width: 7,
+                                height: 7,
+                                decoration: BoxDecoration(
+                                  color: isOnline
+                                      ? tokens.online
+                                      : Colors.transparent,
+                                  shape: BoxShape.circle,
+                                  border: isOnline
+                                      ? null
+                                      : Border.all(
+                                          color: tokens.textMuted,
+                                          width: 1.2,
+                                        ),
                                 ),
-                                const SizedBox(width: 6),
-                              ] else ...[
-                                Container(
-                                  width: 6,
-                                  height: 6,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: Colors.grey[500]!, width: 1.2),
+                              ),
+                              const SizedBox(width: 5),
+                              Flexible(
+                                child: Text(
+                                  presence.formatLastSeen(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: isOnline
+                                        ? tokens.online
+                                        : tokens.textMuted,
+                                    fontSize: 11.5,
+                                    fontWeight: isOnline
+                                        ? FontWeight.w600
+                                        : FontWeight.normal,
                                   ),
-                                ),
-                                const SizedBox(width: 6),
-                              ],
-                              Text(
-                                presence.formatLastSeen(),
-                                style: TextStyle(
-                                  color: isOnline ? const Color(0xFF00E676) : Colors.grey[400],
-                                  fontSize: 11,
-                                  fontWeight: isOnline ? FontWeight.w600 : FontWeight.normal,
                                 ),
                               ),
                             ],
@@ -1057,7 +1210,7 @@ class _UnifiedChatViewState extends State<UnifiedChatView> with WidgetsBindingOb
                                         : (widget.kind == UnifiedChatKind.general
                                             ? 'General Team Chat'
                                             : 'Direct Chat')))),
-                        style: TextStyle(color: Colors.grey[400], fontSize: 11),
+                        style: TextStyle(color: tokens.textMuted, fontSize: 11.5),
                       );
                     }
                   },

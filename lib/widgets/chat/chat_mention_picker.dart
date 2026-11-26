@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../theme/pc_tokens.dart';
 
 class ChatMentionPicker extends StatelessWidget {
   final List<Map<String, String>> participants;
@@ -16,6 +17,7 @@ class ChatMentionPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.pcTokens;
     final cleanQuery = query.toLowerCase().replaceAll('@', '').trim();
 
     final filtered = participants.where((p) {
@@ -28,26 +30,25 @@ class ChatMentionPicker extends StatelessWidget {
           username.contains(cleanQuery);
     }).toList();
 
-    final showAll = canMentionAll && ('all'.contains(cleanQuery) || cleanQuery.isEmpty);
+    final showAll =
+        canMentionAll && ('all'.contains(cleanQuery) || cleanQuery.isEmpty);
 
     if (filtered.isEmpty && !showAll) {
       if (participants.isEmpty) {
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color.fromRGBO(34, 33, 33, 0.98),
+            color: tokens.surface,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-            border: Border(
-              top: BorderSide(color: Colors.blueAccent.withOpacity(0.3), width: 1.5),
-            ),
+            border: Border(top: BorderSide(color: tokens.border)),
           ),
-          child: const Row(
+          child: Row(
             children: [
-              Icon(Icons.info_outline, color: Colors.grey, size: 16),
-              SizedBox(width: 8),
+              Icon(Icons.info_outline_rounded, color: tokens.textMuted, size: 16),
+              const SizedBox(width: 8),
               Text(
                 'No team members found to mention',
-                style: TextStyle(color: Colors.grey, fontSize: 12),
+                style: TextStyle(color: tokens.textMuted, fontSize: 12),
               ),
             ],
           ),
@@ -59,16 +60,14 @@ class ChatMentionPicker extends StatelessWidget {
     return Container(
       constraints: const BoxConstraints(maxHeight: 200),
       decoration: BoxDecoration(
-        color: const Color.fromRGBO(34, 33, 33, 0.98),
+        color: tokens.surface,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-        border: Border(
-          top: BorderSide(color: Colors.blueAccent.withOpacity(0.3), width: 1.5),
-        ),
+        border: Border(top: BorderSide(color: tokens.primaryBorder, width: 1.2)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.4),
-            blurRadius: 10,
-            offset: const Offset(0, -3),
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, -4),
           ),
         ],
       ),
@@ -81,14 +80,31 @@ class ChatMentionPicker extends StatelessWidget {
               dense: true,
               leading: CircleAvatar(
                 radius: 14,
-                backgroundColor: Colors.amber.withOpacity(0.2),
-                child: const Text('@', style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 13)),
+                backgroundColor: tokens.warningSoft,
+                child: Text(
+                  '@',
+                  style: TextStyle(
+                    color: tokens.warningAccent,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
               ),
-              title: const Row(
+              title: Row(
                 children: [
-                  Text('@all', style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 13)),
-                  SizedBox(width: 8),
-                  Text('(Notify all participants)', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                  Text(
+                    '@all',
+                    style: TextStyle(
+                      color: tokens.warningAccent,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '(Notify all participants)',
+                    style: TextStyle(color: tokens.textMuted, fontSize: 11),
+                  ),
                 ],
               ),
               onTap: () => onSelectParticipant({'uid': 'all', 'name': 'all'}),
@@ -100,20 +116,28 @@ class ChatMentionPicker extends StatelessWidget {
               dense: true,
               leading: CircleAvatar(
                 radius: 14,
-                backgroundColor: Colors.blueAccent.withOpacity(0.2),
+                backgroundColor: tokens.primarySoft,
                 child: Text(
                   name.isNotEmpty ? name[0].toUpperCase() : '?',
-                  style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold, fontSize: 12),
+                  style: TextStyle(
+                    color: tokens.primary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
                 ),
               ),
               title: Text(
                 name,
-                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                style: TextStyle(
+                  color: tokens.textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               subtitle: (email.isNotEmpty && email != name)
                   ? Text(
                       email,
-                      style: TextStyle(color: Colors.grey[400], fontSize: 11),
+                      style: TextStyle(color: tokens.textMuted, fontSize: 11),
                     )
                   : null,
               onTap: () => onSelectParticipant(p),

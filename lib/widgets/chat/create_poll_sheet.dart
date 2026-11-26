@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/poll_model.dart';
+import '../../theme/pc_tokens.dart';
 
 class CreatePollSheet extends StatefulWidget {
   final Color primaryColor;
@@ -83,10 +84,12 @@ class _CreatePollSheetState extends State<CreatePollSheet> {
     for (var i = 0; i < _optionControllers.length; i++) {
       final text = _optionControllers[i].text.trim();
       if (text.isNotEmpty) {
-        validOptions.add(PollOption(
-          id: 'opt_${i + 1}',
-          text: text,
-        ));
+        validOptions.add(
+          PollOption(
+            id: 'opt_${i + 1}',
+            text: text,
+          ),
+        );
       }
     }
 
@@ -98,7 +101,8 @@ class _CreatePollSheetState extends State<CreatePollSheet> {
     }
 
     final now = DateTime.now();
-    final closesAt = _selectedDuration != null ? now.add(_selectedDuration!) : null;
+    final closesAt =
+        _selectedDuration != null ? now.add(_selectedDuration!) : null;
 
     final poll = PollModel(
       question: question,
@@ -115,13 +119,15 @@ class _CreatePollSheetState extends State<CreatePollSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.pcTokens;
+
     return Container(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
       ),
-      decoration: const BoxDecoration(
-        color: Color.fromRGBO(28, 27, 28, 1),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      decoration: BoxDecoration(
+        color: tokens.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: SafeArea(
         child: SingleChildScrollView(
@@ -130,75 +136,89 @@ class _CreatePollSheetState extends State<CreatePollSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.poll_rounded, color: widget.primaryColor, size: 22),
+                      Icon(
+                        Icons.poll_rounded,
+                        color: widget.primaryColor,
+                        size: 22,
+                      ),
                       const SizedBox(width: 8),
-                      const Text(
+                      Text(
                         'Create Poll',
                         style: TextStyle(
-                          color: Colors.white,
+                          color: tokens.textPrimary,
                           fontSize: 18,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ],
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close, color: Colors.grey),
+                    icon: Icon(Icons.close_rounded, color: tokens.textMuted),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
-
-              // Question Field
-              const Text(
+              Text(
                 'Question',
-                style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  color: tokens.textSecondary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 6),
               TextField(
                 controller: _questionController,
                 maxLength: 200,
-                style: const TextStyle(color: Colors.white, fontSize: 14),
+                style: TextStyle(color: tokens.textPrimary, fontSize: 14),
                 decoration: InputDecoration(
                   hintText: 'Ask a question...',
-                  hintStyle: const TextStyle(color: Colors.grey),
+                  hintStyle: TextStyle(color: tokens.textMuted),
                   filled: true,
-                  fillColor: const Color.fromRGBO(40, 39, 42, 1),
-                  counterStyle: const TextStyle(color: Colors.grey, fontSize: 11),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
+                  fillColor: tokens.surfaceSubtle,
+                  counterStyle: TextStyle(
+                    color: tokens.textMuted,
+                    fontSize: 11,
                   ),
                 ),
               ),
               const SizedBox(height: 12),
-
-              // Options Header
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'Options (2 to 6)',
-                    style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      color: tokens.textSecondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   if (_optionControllers.length < 6)
                     TextButton.icon(
                       onPressed: _addOption,
-                      icon: Icon(Icons.add, size: 16, color: widget.primaryColor),
-                      label: Text('Add Option', style: TextStyle(color: widget.primaryColor, fontSize: 13)),
+                      icon: Icon(
+                        Icons.add_rounded,
+                        size: 16,
+                        color: widget.primaryColor,
+                      ),
+                      label: Text(
+                        'Add Option',
+                        style: TextStyle(
+                          color: widget.primaryColor,
+                          fontSize: 13,
+                        ),
+                      ),
                     ),
                 ],
               ),
               const SizedBox(height: 6),
-
-              // Option Input Fields
               ...List.generate(_optionControllers.length, (index) {
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
@@ -208,25 +228,27 @@ class _CreatePollSheetState extends State<CreatePollSheet> {
                         child: TextField(
                           controller: _optionControllers[index],
                           maxLength: 80,
-                          style: const TextStyle(color: Colors.white, fontSize: 14),
+                          style: TextStyle(
+                            color: tokens.textPrimary,
+                            fontSize: 14,
+                          ),
                           decoration: InputDecoration(
                             hintText: 'Option ${index + 1}',
-                            hintStyle: const TextStyle(color: Colors.grey),
+                            hintStyle: TextStyle(color: tokens.textMuted),
                             filled: true,
-                            fillColor: const Color.fromRGBO(40, 39, 42, 1),
+                            fillColor: tokens.surfaceSubtle,
                             counterText: '',
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide.none,
-                            ),
                           ),
                         ),
                       ),
                       if (_optionControllers.length > 2) ...[
                         const SizedBox(width: 8),
                         IconButton(
-                          icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent, size: 20),
+                          icon: Icon(
+                            Icons.remove_circle_outline_rounded,
+                            color: tokens.urgentText,
+                            size: 20,
+                          ),
                           onPressed: () => _removeOption(index),
                           visualDensity: VisualDensity.compact,
                         ),
@@ -236,27 +258,32 @@ class _CreatePollSheetState extends State<CreatePollSheet> {
                 );
               }),
               const SizedBox(height: 12),
-
-              // Settings Switch
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Allow multiple answers', style: TextStyle(color: Colors.white, fontSize: 14)),
-                subtitle: const Text('Members can vote for more than one option', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                title: Text(
+                  'Allow multiple answers',
+                  style: TextStyle(color: tokens.textPrimary, fontSize: 14),
+                ),
+                subtitle: Text(
+                  'Members can vote for more than one option',
+                  style: TextStyle(color: tokens.textMuted, fontSize: 12),
+                ),
                 value: _allowMultiple,
-                activeColor: widget.primaryColor,
+                activeThumbColor: widget.primaryColor,
                 onChanged: (val) => setState(() => _allowMultiple = val),
               ),
               const SizedBox(height: 8),
-
-              // Duration Dropdown
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Poll closes in', style: TextStyle(color: Colors.white, fontSize: 14)),
+                  Text(
+                    'Poll closes in',
+                    style: TextStyle(color: tokens.textPrimary, fontSize: 14),
+                  ),
                   DropdownButton<Duration?>(
                     value: _selectedDuration,
-                    dropdownColor: const Color.fromRGBO(40, 39, 42, 1),
-                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    dropdownColor: tokens.surface,
+                    style: TextStyle(color: tokens.textPrimary, fontSize: 13),
                     underline: const SizedBox(),
                     items: _durationOptions.map((d) {
                       return DropdownMenuItem<Duration?>(
@@ -269,8 +296,6 @@ class _CreatePollSheetState extends State<CreatePollSheet> {
                 ],
               ),
               const SizedBox(height: 20),
-
-              // Create Button
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -279,9 +304,14 @@ class _CreatePollSheetState extends State<CreatePollSheet> {
                     backgroundColor: widget.primaryColor,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
-                  child: const Text('Create Poll', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                  child: const Text(
+                    'Create Poll',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                  ),
                 ),
               ),
             ],

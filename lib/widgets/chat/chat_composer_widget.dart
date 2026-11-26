@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../models/chat_message.dart';
 import '../../models/poll_model.dart';
+import '../../theme/pc_tokens.dart';
 import 'chat_mention_picker.dart';
 import 'create_poll_sheet.dart';
 import 'image_preview_sheet.dart';
@@ -38,7 +39,8 @@ class ChatComposerWidget extends StatefulWidget {
   const ChatComposerWidget({
     super.key,
     required this.canPost,
-    this.cannotPostReason = 'You do not have permission to post in this channel.',
+    this.cannotPostReason =
+        'You do not have permission to post in this channel.',
     required this.primaryColor,
     required this.participants,
     required this.canMentionAll,
@@ -82,14 +84,16 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
   @override
   void didUpdateWidget(covariant ChatComposerWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.editingMessage != null && widget.editingMessage != oldWidget.editingMessage) {
+    if (widget.editingMessage != null &&
+        widget.editingMessage != oldWidget.editingMessage) {
       _controller.text = widget.editingMessage!.text;
       _controller.selection = TextSelection.fromPosition(
         TextPosition(offset: _controller.text.length),
       );
       _focusNode.requestFocus();
     }
-    if (widget.replyingTo != null && widget.replyingTo != oldWidget.replyingTo) {
+    if (widget.replyingTo != null &&
+        widget.replyingTo != oldWidget.replyingTo) {
       _focusNode.requestFocus();
     }
   }
@@ -112,19 +116,21 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
     final text = _controller.text;
     final selection = _controller.selection;
 
-    // Typing heartbeat: throttled to 3-4s
     final now = DateTime.now();
-    if (_lastTypingEmit == null || now.difference(_lastTypingEmit!).inSeconds >= 3) {
+    if (_lastTypingEmit == null ||
+        now.difference(_lastTypingEmit!).inSeconds >= 3) {
       _lastTypingEmit = now;
       widget.onTyping(text);
     }
 
-    // Check for @mention trigger
     if (selection.baseOffset > 0 && selection.baseOffset <= text.length) {
       final textBeforeCursor = text.substring(0, selection.baseOffset);
       final lastAt = textBeforeCursor.lastIndexOf('@');
 
-      if (lastAt != -1 && (lastAt == 0 || textBeforeCursor[lastAt - 1] == ' ' || textBeforeCursor[lastAt - 1] == '\n')) {
+      if (lastAt != -1 &&
+          (lastAt == 0 ||
+              textBeforeCursor[lastAt - 1] == ' ' ||
+              textBeforeCursor[lastAt - 1] == '\n')) {
         final query = textBeforeCursor.substring(lastAt + 1);
         final spaceCount = ' '.allMatches(query).length;
         if (query.length <= 30 && !query.contains('\n') && spaceCount <= 1) {
@@ -153,19 +159,22 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
     if (_mentionStartIndex >= 0 && _mentionStartIndex <= text.length) {
       final before = text.substring(0, _mentionStartIndex);
       final currentOffset = _controller.selection.baseOffset;
-      final safeOffset = (currentOffset >= _mentionStartIndex && currentOffset <= text.length)
+      final safeOffset = (currentOffset >= _mentionStartIndex &&
+              currentOffset <= text.length)
           ? currentOffset
           : text.length;
       final after = text.substring(safeOffset);
       final insertText = '@$name ';
       final newText = '$before$insertText$after';
 
-      _detectedMentions.add(MessageMention(
-        uid: uid,
-        name: name,
-        start: _mentionStartIndex,
-        end: _mentionStartIndex + insertText.length - 1,
-      ));
+      _detectedMentions.add(
+        MessageMention(
+          uid: uid,
+          name: name,
+          start: _mentionStartIndex,
+          end: _mentionStartIndex + insertText.length - 1,
+        ),
+      );
 
       _justSelectedMention = true;
       _controller.text = newText;
@@ -199,20 +208,21 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
     final mentionsToSend = <MessageMention>[];
     final lowerText = text.toLowerCase();
 
-    // 1. Add detected mentions whose tagged name is still present in text
     for (final dm in _detectedMentions) {
       final lowerDmTag = '@${dm.name.toLowerCase()}';
-      if (lowerText.contains(lowerDmTag) && !mentionsToSend.any((m) => m.uid == dm.uid)) {
+      if (lowerText.contains(lowerDmTag) &&
+          !mentionsToSend.any((m) => m.uid == dm.uid)) {
         mentionsToSend.add(dm);
       }
     }
 
-    // 2. Also auto-detect any @[Name] or @[email/username] typed manually matching participants
     for (final p in widget.participants) {
       final pName = p['name'];
       final pUid = p['uid'];
       final pEmail = p['email'] ?? '';
-      if (pUid != null && pUid.isNotEmpty && !mentionsToSend.any((m) => m.uid == pUid)) {
+      if (pUid != null &&
+          pUid.isNotEmpty &&
+          !mentionsToSend.any((m) => m.uid == pUid)) {
         final List<String> tagsToTry = [];
         if (pName != null && pName.isNotEmpty) {
           tagsToTry.add('@${pName.toLowerCase()}');
@@ -238,12 +248,14 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
                 lowerText[nextCharIndex] == ',' ||
                 lowerText[nextCharIndex] == '.';
             if (isBoundary) {
-              mentionsToSend.add(MessageMention(
-                uid: pUid,
-                name: pName ?? tag.substring(1),
-                start: matchIndex,
-                end: matchIndex + tag.length,
-              ));
+              mentionsToSend.add(
+                MessageMention(
+                  uid: pUid,
+                  name: pName ?? tag.substring(1),
+                  start: matchIndex,
+                  end: matchIndex + tag.length,
+                ),
+              );
               break;
             }
           }
@@ -251,10 +263,18 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
       }
     }
 
-    // 3. If @all is written in text and permitted, add mention for @all
-    if (widget.canMentionAll && lowerText.contains('@all') && !mentionsToSend.any((m) => m.uid == 'all')) {
+    if (widget.canMentionAll &&
+        lowerText.contains('@all') &&
+        !mentionsToSend.any((m) => m.uid == 'all')) {
       final index = lowerText.indexOf('@all');
-      mentionsToSend.add(MessageMention(uid: 'all', name: 'all', start: index, end: index + 4));
+      mentionsToSend.add(
+        MessageMention(
+          uid: 'all',
+          name: 'all',
+          start: index,
+          end: index + 4,
+        ),
+      );
     }
 
     setState(() => _isSending = true);
@@ -271,7 +291,6 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
       if (widget.replyingTo != null) widget.onCancelReply();
       if (widget.editingMessage != null) widget.onCancelEdit();
     } catch (e) {
-      // Restore on failure
       _controller.text = text;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -287,19 +306,27 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.pcTokens;
+
     if (!widget.canPost) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        color: const Color.fromRGBO(24, 24, 24, 1),
+        decoration: BoxDecoration(
+          color: tokens.surfaceSubtle,
+          border: Border(top: BorderSide(color: tokens.border)),
+        ),
         child: SafeArea(
+          top: false,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.lock_outline, size: 16, color: Colors.grey),
+              Icon(Icons.lock_outline_rounded, size: 16, color: tokens.textMuted),
               const SizedBox(width: 8),
-              Text(
-                widget.cannotPostReason,
-                style: const TextStyle(color: Colors.grey, fontSize: 13),
+              Flexible(
+                child: Text(
+                  widget.cannotPostReason,
+                  style: TextStyle(color: tokens.textMuted, fontSize: 13),
+                ),
               ),
             ],
           ),
@@ -319,9 +346,9 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
           ),
         Container(
           decoration: BoxDecoration(
-            color: const Color.fromRGBO(28, 27, 27, 1),
+            color: tokens.surface,
             border: Border(
-              top: BorderSide(color: Colors.white.withOpacity(0.08), width: 0.5),
+              top: BorderSide(color: tokens.border, width: 1),
             ),
           ),
           child: SafeArea(
@@ -331,11 +358,16 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
               children: [
                 if (widget.replyingTo != null)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                    color: Colors.blueAccent.withOpacity(0.1),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    color: tokens.primarySoft,
                     child: Row(
                       children: [
-                        const Icon(Icons.reply, size: 16, color: Colors.blueAccent),
+                        Icon(
+                          Icons.reply_rounded,
+                          size: 16,
+                          color: tokens.primary,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Column(
@@ -343,23 +375,30 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
                             children: [
                               Text(
                                 'Replying to ${widget.replyingTo!.senderName}',
-                                style: const TextStyle(
-                                  color: Colors.blueAccent,
+                                style: TextStyle(
+                                  color: tokens.primary,
                                   fontSize: 11,
-                                  fontWeight: FontWeight.bold,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
                               Text(
                                 widget.replyingTo!.text,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                                style: TextStyle(
+                                  color: tokens.textSecondary,
+                                  fontSize: 12,
+                                ),
                               ),
                             ],
                           ),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.close, size: 18, color: Colors.grey),
+                          icon: Icon(
+                            Icons.close_rounded,
+                            size: 18,
+                            color: tokens.textMuted,
+                          ),
                           onPressed: widget.onCancelReply,
                           visualDensity: VisualDensity.compact,
                         ),
@@ -368,24 +407,33 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
                   ),
                 if (widget.editingMessage != null)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                    color: Colors.greenAccent.withOpacity(0.1),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    color: tokens.online.withValues(alpha: 0.12),
                     child: Row(
                       children: [
-                        const Icon(Icons.edit, size: 16, color: Colors.greenAccent),
+                        Icon(
+                          Icons.edit_rounded,
+                          size: 16,
+                          color: tokens.online,
+                        ),
                         const SizedBox(width: 8),
-                        const Expanded(
+                        Expanded(
                           child: Text(
                             'Editing message',
                             style: TextStyle(
-                              color: Colors.greenAccent,
+                              color: tokens.online,
                               fontSize: 12,
-                              fontWeight: FontWeight.bold,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.close, size: 18, color: Colors.grey),
+                          icon: Icon(
+                            Icons.close_rounded,
+                            size: 18,
+                            color: tokens.textMuted,
+                          ),
                           onPressed: widget.onCancelEdit,
                           visualDensity: VisualDensity.compact,
                         ),
@@ -393,37 +441,52 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
                     ),
                   ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Padding(
                         padding: const EdgeInsets.only(bottom: 2, right: 4),
                         child: IconButton(
-                          icon: const Icon(Icons.add_circle_outline, color: Colors.grey, size: 24),
+                          icon: Icon(
+                            Icons.add_circle_outline_rounded,
+                            color: tokens.textSecondary,
+                            size: 24,
+                          ),
                           tooltip: 'Attach image or poll',
-                          onPressed: () => _showActionsMenu(context),
+                          onPressed: () => _showActionsMenu(context, tokens),
                         ),
                       ),
                       Expanded(
                         child: Container(
                           decoration: BoxDecoration(
-                            color: const Color.fromRGBO(44, 43, 46, 1),
-                            borderRadius: BorderRadius.circular(20),
+                            color: tokens.surfaceSubtle,
+                            borderRadius: BorderRadius.circular(22),
+                            border: Border.all(color: tokens.border),
                           ),
                           child: TextField(
                             controller: _controller,
                             focusNode: _focusNode,
                             maxLines: 5,
                             minLines: 1,
-                            style: const TextStyle(color: Colors.white, fontSize: 15),
+                            style: TextStyle(
+                              color: tokens.textPrimary,
+                              fontSize: 14.5,
+                            ),
                             decoration: InputDecoration(
                               hintText: widget.editingMessage != null
-                                   ? 'Edit message...'
-                                   : 'Type a message...',
-                              hintStyle: TextStyle(color: Colors.grey[500]),
+                                  ? 'Edit message...'
+                                  : 'Type a message...',
+                              hintStyle: TextStyle(color: tokens.textMuted),
+                              filled: false,
                               border: InputBorder.none,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 10,
+                              ),
                             ),
                             onSubmitted: (_) => _handleSend(),
                           ),
@@ -431,21 +494,30 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
                       ),
                       const SizedBox(width: 6),
                       _isSending
-                          ? const Padding(
-                              padding: EdgeInsets.all(8.0),
+                          ? Padding(
+                              padding: const EdgeInsets.all(8.0),
                               child: SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: widget.primaryColor,
+                                ),
                               ),
                             )
                           : IconButton(
                               icon: Icon(
-                                widget.editingMessage != null ? Icons.check_circle : Icons.send,
-                                color: widget.editingMessage != null ? Colors.greenAccent : widget.primaryColor,
+                                widget.editingMessage != null
+                                    ? Icons.check_circle
+                                    : Icons.send,
+                                color: widget.editingMessage != null
+                                    ? tokens.online
+                                    : widget.primaryColor,
                               ),
                               onPressed: _handleSend,
-                              tooltip: widget.editingMessage != null ? 'Save Edit' : 'Send',
+                              tooltip: widget.editingMessage != null
+                                  ? 'Save Edit'
+                                  : 'Send',
                             ),
                     ],
                   ),
@@ -458,7 +530,10 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
     );
   }
 
-  Future<void> _pickAndPreviewImage(BuildContext context, ImageSource source) async {
+  Future<void> _pickAndPreviewImage(
+    BuildContext context,
+    ImageSource source,
+  ) async {
     try {
       final XFile? file = await _imagePicker.pickImage(
         source: source,
@@ -516,67 +591,109 @@ class _ChatComposerWidgetState extends State<ChatComposerWidget> {
     }
   }
 
-  void _showActionsMenu(BuildContext context) {
+  void _showActionsMenu(BuildContext context, PcTokens tokens) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color.fromRGBO(34, 33, 35, 1),
+      backgroundColor: tokens.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
       builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.blueAccent.withOpacity(0.2),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.photo_library_rounded, color: Colors.blueAccent, size: 20),
-              ),
-              title: const Text('Photo Library', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              subtitle: const Text('Send an image from your gallery', style: TextStyle(color: Colors.grey, fontSize: 12)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _pickAndPreviewImage(context, ImageSource.gallery);
-              },
-            ),
-            ListTile(
-              leading: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.tealAccent.withOpacity(0.2),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.camera_alt_rounded, color: Colors.tealAccent, size: 20),
-              ),
-              title: const Text('Take Photo', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              subtitle: const Text('Capture and send a photo instantly', style: TextStyle(color: Colors.grey, fontSize: 12)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _pickAndPreviewImage(context, ImageSource.camera);
-              },
-            ),
-            if (widget.canCreatePoll && widget.onCreatePoll != null)
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
               ListTile(
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.purpleAccent.withOpacity(0.2),
+                    color: tokens.infoSoft,
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.poll_rounded, color: Colors.purpleAccent, size: 20),
+                  child: Icon(
+                    Icons.photo_library_rounded,
+                    color: tokens.infoAccent,
+                    size: 20,
+                  ),
                 ),
-                title: const Text('Create Poll', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                subtitle: const Text('Ask a question and gather team votes', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                title: Text(
+                  'Photo Library',
+                  style: TextStyle(
+                    color: tokens.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                subtitle: Text(
+                  'Send an image from your gallery',
+                  style: TextStyle(color: tokens.textMuted, fontSize: 12),
+                ),
                 onTap: () {
                   Navigator.pop(ctx);
-                  _openCreatePollSheet(context);
+                  _pickAndPreviewImage(context, ImageSource.gallery);
                 },
               ),
-          ],
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: tokens.online.withValues(alpha: 0.14),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.camera_alt_rounded,
+                    color: tokens.online,
+                    size: 20,
+                  ),
+                ),
+                title: Text(
+                  'Take Photo',
+                  style: TextStyle(
+                    color: tokens.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                subtitle: Text(
+                  'Capture and send a photo instantly',
+                  style: TextStyle(color: tokens.textMuted, fontSize: 12),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickAndPreviewImage(context, ImageSource.camera);
+                },
+              ),
+              if (widget.canCreatePoll && widget.onCreatePoll != null)
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: tokens.projectSoft,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.poll_rounded,
+                      color: tokens.projectAccent,
+                      size: 20,
+                    ),
+                  ),
+                  title: Text(
+                    'Create Poll',
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'Ask a question and gather team votes',
+                    style: TextStyle(color: tokens.textMuted, fontSize: 12),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _openCreatePollSheet(context);
+                  },
+                ),
+            ],
+          ),
         ),
       ),
     );

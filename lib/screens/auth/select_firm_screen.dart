@@ -5,8 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/firm.dart';
 import '../../services/db_service.dart';
 import '../../providers/firm/providers.dart';
+import '../../theme/pc_tokens.dart';
 import '../../widgets/common/pc_logo.dart';
-import '../../models/media_ref.dart';
 
 /// Screen displayed when a user belongs to more than one firm, allowing workspace selection.
 class SelectFirmScreen extends ConsumerStatefulWidget {
@@ -59,16 +59,18 @@ class _SelectFirmScreenState extends ConsumerState<SelectFirmScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.pcTokens;
+
     return Scaffold(
-      backgroundColor: const Color.fromRGBO(24, 23, 23, 1),
+      backgroundColor: tokens.canvas,
       appBar: AppBar(
         title: const Text('Select Workspace'),
         centerTitle: true,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
+        backgroundColor: tokens.surface,
+        shape: Border(bottom: BorderSide(color: tokens.border)),
         actions: [
           IconButton(
-            icon: const Icon(Icons.logout),
+            icon: Icon(Icons.logout, color: tokens.textSecondary),
             tooltip: 'Sign Out',
             onPressed: () async {
               await FirebaseAuth.instance.signOut();
@@ -81,77 +83,125 @@ class _SelectFirmScreenState extends ConsumerState<SelectFirmScreen> {
       ),
       body: SafeArea(
         child: Center(
-          child: Container(
+          child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 520),
-            padding: const EdgeInsets.all(24.0),
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _errorMessage != null
-                    ? Text(_errorMessage!, style: const TextStyle(color: Colors.redAccent))
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const Text(
-                            'Choose a Company Workspace',
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: _isLoading
+                  ? Center(
+                      child: CircularProgressIndicator(color: tokens.primary),
+                    )
+                  : _errorMessage != null
+                      ? Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: tokens.urgentBg,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: tokens.urgentBorder),
+                          ),
+                          child: Text(
+                            _errorMessage!,
+                            style: TextStyle(color: tokens.urgentText),
+                          ),
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              'Choose a Company Workspace',
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                                color: tokens.textPrimary,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'You have access to multiple organizations:',
-                            style: TextStyle(color: Colors.grey[400], fontSize: 14),
-                          ),
-                          const SizedBox(height: 24),
-                          Expanded(
-                            child: ListView.separated(
-                              itemCount: _firms.length,
-                              separatorBuilder: (_, __) => const SizedBox(height: 12),
-                              itemBuilder: (context, index) {
-                                final firm = _firms[index];
-                                return Card(
-                                  color: const Color.fromRGBO(34, 33, 33, 1),
-                                  shape: RoundedRectangleBorder(
+                            const SizedBox(height: 6),
+                            Text(
+                              'You have access to multiple organizations:',
+                              style: TextStyle(
+                                color: tokens.textSecondary,
+                                fontSize: 14,
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            Expanded(
+                              child: ListView.separated(
+                                itemCount: _firms.length,
+                                separatorBuilder: (_, _) =>
+                                    const SizedBox(height: 12),
+                                itemBuilder: (context, index) {
+                                  final firm = _firms[index];
+                                  return Material(
+                                    color: tokens.surface,
                                     borderRadius: BorderRadius.circular(14),
-                                    side: BorderSide(color: Colors.grey[800]!),
-                                  ),
-                                  child: ListTile(
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 10,
-                                    ),
-                                    leading: PcLogo(
-                                      logo: firm.logo,
-                                      legacyUrl: firm.logoUrl,
-                                      size: 40,
-                                      borderRadius: 20,
-                                      variant: MediaVariant.logoSm,
-                                      firmName: firm.name,
-                                      primaryColor: const Color.fromRGBO(41, 116, 188, 1),
-                                    ),
-                                    title: Text(
-                                      firm.name,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(14),
+                                      onTap: () => _selectFirm(firm),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 12,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          borderRadius:
+                                              BorderRadius.circular(14),
+                                          border:
+                                              Border.all(color: tokens.border),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            PcLogo(
+                                              logo: firm.logo,
+                                              legacyUrl: firm.logoUrl,
+                                              size: 42,
+                                              borderRadius: 12,
+                                              variant: MediaVariant.logoSm,
+                                              firmName: firm.name,
+                                              primaryColor: tokens.primary,
+                                            ),
+                                            const SizedBox(width: 14),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    firm.name,
+                                                    style: TextStyle(
+                                                      color: tokens.textPrimary,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                      fontSize: 16,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 3),
+                                                  Text(
+                                                    'Plan: ${firm.plan.toUpperCase()} • ${firm.status}',
+                                                    style: TextStyle(
+                                                      color:
+                                                          tokens.textSecondary,
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            Icon(
+                                              Icons.chevron_right_rounded,
+                                              size: 20,
+                                              color: tokens.textMuted,
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                     ),
-                                    subtitle: Text(
-                                      'Plan: ${firm.plan.toUpperCase()} • ${firm.status}',
-                                      style: TextStyle(color: Colors.grey[400], fontSize: 12),
-                                    ),
-                                    trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
-                                    onTap: () => _selectFirm(firm),
-                                  ),
-                                );
-                              },
+                                  );
+                                },
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+            ),
           ),
         ),
       ),

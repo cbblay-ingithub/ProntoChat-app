@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
@@ -11,12 +10,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../models/firm.dart';
-import '../../../models/media_ref.dart';
+import '../../../models/media_ref.dart' show MediaPurpose;
 import '../../../providers/firm/providers.dart';
 import '../../../services/audit_service.dart';
 import '../../../services/chat_service.dart';
 import '../../../services/media_service.dart';
 import '../../../services/snackbar_service.dart';
+import '../../../theme/admin_theme_provider.dart';
+import '../../../theme/pronto_palette_engine.dart';
+import '../../../theme/pronto_tokens.dart';
 import '../../../widgets/common/pc_logo.dart';
 
 class CustomizationTab extends ConsumerStatefulWidget {
@@ -27,13 +29,13 @@ class CustomizationTab extends ConsumerStatefulWidget {
 }
 
 class _CustomizationTabState extends ConsumerState<CustomizationTab> {
-  // Staged state for live preview & unsaved changes guard
-  Color? _stagedPrimaryColor;
+  // Non-theme firm settings staged locally (accentHex + themeId are staged in AdminThemeController for live re-theming)
   String? _stagedWelcomeText;
   bool? _stagedShowLastSeen;
   bool? _stagedShowReadReceipts;
   MediaRef? _stagedLogo;
   String? _stagedLogoUrl;
+  bool _initializedNonThemeFields = false;
 
   final TextEditingController _welcomeTextController = TextEditingController();
 
@@ -41,7 +43,7 @@ class _CustomizationTabState extends ConsumerState<CustomizationTab> {
   bool _isSaving = false;
   bool _isDraggingLogo = false;
 
-  // Live preview preview mode: 0 = Join Screen, 1 = Chat Screen
+  // Live preview mode: 0 = Admin Hub Mini, 1 = Join Screen, 2 = Chat Home
   int _previewMode = 0;
 
   @override
@@ -49,18 +51,18 @@ class _CustomizationTabState extends ConsumerState<CustomizationTab> {
     super.initState();
     final firm = ref.read(currentFirmProvider);
     if (firm != null) {
-      _initFromFirm(firm);
+      _initNonThemeFields(firm);
     }
   }
 
-  void _initFromFirm(Firm firm) {
-    _stagedPrimaryColor = _hexToColor(firm.primaryColor);
+  void _initNonThemeFields(Firm firm) {
     _stagedWelcomeText = firm.welcomeText ?? '';
     _welcomeTextController.text = _stagedWelcomeText!;
     _stagedShowLastSeen = firm.showLastSeen;
     _stagedShowReadReceipts = firm.showReadReceipts;
     _stagedLogo = firm.logo;
     _stagedLogoUrl = firm.logoUrl;
+    _initializedNonThemeFields = true;
   }
 
   @override
@@ -69,26 +71,8 @@ class _CustomizationTabState extends ConsumerState<CustomizationTab> {
     super.dispose();
   }
 
-  Color _hexToColor(String hexString, [Color fallback = const Color(0xFF295CB4)]) {
-    try {
-      String clean = hexString.toUpperCase().replaceAll('#', '');
-      if (clean.length == 6) clean = 'FF$clean';
-      if (clean.length == 8) {
-        final val = int.tryParse(clean, radix: 16);
-        if (val != null) return Color(val);
-      }
-    } catch (_) {}
-    return fallback;
-  }
-
-  String _colorToHex(Color color) {
-    return '#${color.value.toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
-  }
-
-  bool _hasUnsavedChanges(Firm firm) {
-    if (_stagedPrimaryColor == null) return false;
-    final firmPrimary = _hexToColor(firm.primaryColor);
-    if (_stagedPrimaryColor!.value != firmPrimary.value) return true;
+  bool _hasNonThemeChanges(Firm firm) {
+    if (!_initializedNonThemeFields) return false;
     if (_stagedWelcomeText != (firm.welcomeText ?? '')) return true;
     if (_stagedShowLastSeen != firm.showLastSeen) return true;
     if (_stagedShowReadReceipts != firm.showReadReceipts) return true;
@@ -97,89 +81,128 @@ class _CustomizationTabState extends ConsumerState<CustomizationTab> {
     return false;
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // WCAG 2.1 CONTRAST RATIO CALCULATION
-  // ══════════════════════════════════════════════════════════════════════════
-
-  double _calculateLuminance(Color color) {
-    double getComponent(double val) {
-      return val <= 0.03928 ? val / 12.92 : math.pow((val + 0.055) / 1.055, 2.4).toDouble();
-    }
-
-    final r = getComponent(color.red / 255.0);
-    final g = getComponent(color.green / 255.0);
-    final b = getComponent(color.blue / 255.0);
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  void _handleDiscard(Firm firm) {
+    ref.read(adminThemeControllerProvider.notifier).discardStaged();
+    setState(() => _initNonThemeFields(firm));
   }
 
-  double _calculateContrastRatio(Color c1, Color c2) {
-    final l1 = _calculateLuminance(c1);
-    final l2 = _calculateLuminance(c2);
-    final lighter = math.max(l1, l2);
-    final darker = math.min(l1, l2);
-    return (lighter + 0.05) / (darker + 0.05);
+  void _handleResetDefaults() {
+    ref.read(adminThemeControllerProvider.notifier).stageDefaults();
   }
 
   @override
   Widget build(BuildContext context) {
+    final spec = ref.watch(adminThemeSpecProvider);
+    final themeState = ref.watch(adminThemeControllerProvider);
+    final tokens = spec.tokens;
+    final cs = spec.colorScheme;
     final firm = ref.watch(currentFirmProvider);
+
     if (firm == null) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(child: CircularProgressIndicator(color: cs.primary));
     }
 
-    if (_stagedPrimaryColor == null) {
-      _initFromFirm(firm);
+    if (!_initializedNonThemeFields) {
+      _initNonThemeFields(firm);
     }
 
-    final primaryColor = _stagedPrimaryColor ?? _hexToColor(firm.primaryColor);
-    final hasChanges = _hasUnsavedChanges(firm);
+    final activeSeedColor =
+        ProntoPaletteEngine.parseHex(themeState.effectiveAccentHex);
+    final activeThemeId = themeState.effectiveThemeId;
+    final hasChanges =
+        themeState.hasStagedBrandingChanges || _hasNonThemeChanges(firm);
+    final isAtDefaults = themeState.effectiveAccentHex.toUpperCase() ==
+            ProntoPaletteEngine.defaultAccentHex &&
+        activeThemeId == ProntoPaletteEngine.defaultThemeId;
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isMobile = constraints.maxWidth < 900;
+        final isCompactPadding = constraints.maxWidth < 760;
+        final isStackedColumns = constraints.maxWidth < 960;
 
         return SingleChildScrollView(
-          padding: EdgeInsets.all(isMobile ? 14 : 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header Card
-              _buildCustomizationHeader(context, firm, primaryColor, isMobile),
-              const SizedBox(height: 18),
+          padding: EdgeInsets.all(isCompactPadding ? 16 : 24),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1440),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildHeaderBar(
+                    context: context,
+                    tokens: tokens,
+                    cs: cs,
+                    firm: firm,
+                    themeState: themeState,
+                    hasChanges: hasChanges,
+                    isAtDefaults: isAtDefaults,
+                    isCompact: isCompactPadding,
+                  ),
+                  const SizedBox(height: 20),
 
-              // Unsaved changes banner
-              if (hasChanges) ...[
-                _buildUnsavedChangesBanner(context, firm, primaryColor),
-                const SizedBox(height: 18),
-              ],
-
-              // Main Layout: Configuration Column & Live Preview Column
-              if (isMobile) ...[
-                _buildConfigurationSection(context, firm, primaryColor),
-                const SizedBox(height: 24),
-                _buildLivePreviewDeviceFrame(context, firm, primaryColor),
-              ] else ...[
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      flex: 6,
-                      child: _buildConfigurationSection(context, firm, primaryColor),
+                  if (hasChanges) ...[
+                    _buildUnsavedBanner(
+                      context: context,
+                      tokens: tokens,
+                      cs: cs,
+                      firm: firm,
                     ),
-                    const SizedBox(width: 24),
-                    Expanded(
-                      flex: 4,
-                      child: _buildLivePreviewDeviceFrame(context, firm, primaryColor),
+                    const SizedBox(height: 20),
+                  ],
+
+                  // Full-width Harmony Theme & Accent Studio (5 Theme Preview Cards + Accent Picker + Light/Dark)
+                  _buildThemeHarmonyStudio(
+                    context: context,
+                    spec: spec,
+                    themeState: themeState,
+                    activeSeedColor: activeSeedColor,
+                    activeThemeId: activeThemeId,
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Lower workspace settings + interactive mockup
+                  if (isStackedColumns) ...[
+                    _buildWorkspaceDetailsColumn(
+                      context: context,
+                      tokens: tokens,
+                      cs: cs,
+                      firm: firm,
+                    ),
+                    const SizedBox(height: 24),
+                    _buildLivePreviewCard(
+                      spec: spec,
+                      firm: firm,
+                    ),
+                  ] else ...[
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 6,
+                          child: _buildWorkspaceDetailsColumn(
+                            context: context,
+                            tokens: tokens,
+                            cs: cs,
+                            firm: firm,
+                          ),
+                        ),
+                        const SizedBox(width: 24),
+                        Expanded(
+                          flex: 5,
+                          child: _buildLivePreviewCard(
+                            spec: spec,
+                            firm: firm,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
-                ),
-              ],
 
-              const SizedBox(height: 32),
-
-              // Danger Zone (Collapsed)
-              _buildDangerZone(context, firm),
-            ],
+                  const SizedBox(height: 28),
+                  _buildDangerZone(context, spec.themeData, tokens, firm),
+                ],
+              ),
+            ),
           ),
         );
       },
@@ -187,82 +210,210 @@ class _CustomizationTabState extends ConsumerState<CustomizationTab> {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // HEADER & UNSAVED CHANGES BANNER
+  // 1. HEADER BAR WITH LIGHT/DARK SWITCH, RESET, AND SAVE
   // ══════════════════════════════════════════════════════════════════════════
 
-  Widget _buildCustomizationHeader(BuildContext context, Firm firm, Color primaryColor, bool isMobile) {
+  Widget _buildHeaderBar({
+    required BuildContext context,
+    required ProntoTokens tokens,
+    required ColorScheme cs,
+    required Firm firm,
+    required AdminThemeControllerState themeState,
+    required bool hasChanges,
+    required bool isAtDefaults,
+    required bool isCompact,
+  }) {
+    final controls = Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        // Light / Dark Mode Switch Pill
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: tokens.cardSubtleBg,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: tokens.cardBorder),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                themeState.isDarkMode
+                    ? Icons.dark_mode_rounded
+                    : Icons.light_mode_rounded,
+                size: 17,
+                color: cs.primary,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                themeState.isDarkMode ? 'Dark Mode' : 'Light Mode',
+                style: TextStyle(
+                  color: tokens.textPrimary,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 6),
+              SizedBox(
+                height: 28,
+                child: Switch.adaptive(
+                  value: themeState.isDarkMode,
+                  onChanged: (val) => ref
+                      .read(adminThemeControllerProvider.notifier)
+                      .setDarkMode(val),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        OutlinedButton.icon(
+          onPressed: isAtDefaults ? null : _handleResetDefaults,
+          icon: const Icon(Icons.restart_alt_rounded, size: 17),
+          label: const Text('Reset'),
+        ),
+
+        ElevatedButton.icon(
+          onPressed: (!_isSaving && hasChanges)
+              ? () => _saveCustomizations(context, firm)
+              : null,
+          icon: _isSaving
+              ? SizedBox(
+                  width: 15,
+                  height: 15,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: cs.onPrimary,
+                  ),
+                )
+              : const Icon(Icons.check_rounded, size: 17),
+          label: Text(_isSaving ? 'Saving...' : 'Save Changes'),
+        ),
+      ],
+    );
+
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1D1D),
+        color: tokens.cardBg,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: tokens.cardBorder),
       ),
-      padding: EdgeInsets.all(isMobile ? 16 : 22),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: primaryColor.withOpacity(0.14),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(Icons.palette_outlined, color: primaryColor, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
+      padding: EdgeInsets.all(isCompact ? 16 : 22),
+      child: isCompact
+          ? Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Workspace Customization & Branding',
-                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Personalize your firm logo, brand palette, employee welcome text, and chat privacy policies.',
-                  style: TextStyle(color: Colors.grey[400], fontSize: 13),
-                ),
+                _buildHeaderTitleBlock(tokens, cs),
+                const SizedBox(height: 14),
+                controls,
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(child: _buildHeaderTitleBlock(tokens, cs)),
+                const SizedBox(width: 16),
+                controls,
               ],
             ),
-          ),
-        ],
-      ),
     );
   }
 
-  Widget _buildUnsavedChangesBanner(BuildContext context, Firm firm, Color primaryColor) {
+  Widget _buildHeaderTitleBlock(ProntoTokens tokens, ColorScheme cs) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: cs.primaryContainer,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(
+            Icons.palette_outlined,
+            color: cs.onPrimaryContainer,
+            size: 22,
+          ),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Workspace Customization & Theme Harmony',
+                style: TextStyle(
+                  color: tokens.textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.2,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                'Choose a brand accent color and one of five HCT color harmonies. Admin Web updates live as you preview.',
+                style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildUnsavedBanner({
+    required BuildContext context,
+    required ProntoTokens tokens,
+    required ColorScheme cs,
+    required Firm firm,
+  }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: primaryColor.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: primaryColor.withOpacity(0.5)),
+        color: cs.primaryContainer.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cs.primary.withValues(alpha: 0.35)),
       ),
-      child: Row(
+      child: Wrap(
+        spacing: 12,
+        runSpacing: 10,
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Icon(Icons.info_outline, color: primaryColor, size: 20),
-          const SizedBox(width: 10),
-          const Expanded(
-            child: Text(
-              'You have unsaved branding changes. Save to apply them firm-wide.',
-              style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
-            ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.auto_awesome_outlined, color: cs.primary, size: 19),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  'Live preview active — save to persist your accent and harmony theme for all admins.',
+                  style: TextStyle(
+                    color: tokens.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () => setState(() => _initFromFirm(firm)),
-            child: const Text('Discard', style: TextStyle(color: Colors.grey)),
-          ),
-          const SizedBox(width: 8),
-          ElevatedButton(
-            onPressed: _isSaving ? null : () => _saveCustomizations(context, firm),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: primaryColor,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            ),
-            child: _isSaving
-                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Text('Save Changes'),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextButton(
+                onPressed: () => _handleDiscard(firm),
+                child: Text(
+                  'Discard',
+                  style: TextStyle(color: tokens.textSecondary),
+                ),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed:
+                    _isSaving ? null : () => _saveCustomizations(context, firm),
+                child: const Text('Save Changes'),
+              ),
+            ],
           ),
         ],
       ),
@@ -270,37 +421,677 @@ class _CustomizationTabState extends ConsumerState<CustomizationTab> {
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // CONFIGURATION SECTION: LOGO, PALETTE, WELCOME TEXT, PRIVACY
+  // 2. ACCENT PICKER + 5 HARMONY THEME PREVIEW CARDS
   // ══════════════════════════════════════════════════════════════════════════
 
-  Widget _buildConfigurationSection(BuildContext context, Firm firm, Color primaryColor) {
-    // WCAG contrast against dark container background (#161515) and white text
-    final bgDark = const Color(0xFF161515);
-    final contrastAgainstDark = _calculateContrastRatio(primaryColor, bgDark);
-    final contrastWhiteText = _calculateContrastRatio(Colors.white, primaryColor);
+  Widget _buildThemeHarmonyStudio({
+    required BuildContext context,
+    required ProntoThemeSpec spec,
+    required AdminThemeControllerState themeState,
+    required Color activeSeedColor,
+    required ProntoThemeId activeThemeId,
+  }) {
+    final tokens = spec.tokens;
+    final cs = spec.colorScheme;
+    final hexLabel = ProntoPaletteEngine.toHex(activeSeedColor);
 
+    final bodyContrast =
+        ProntoPaletteEngine.contrastRatio(tokens.textPrimary, tokens.cardBg);
+    final labelContrast =
+        ProntoPaletteEngine.contrastRatio(tokens.textMuted, tokens.pageBg);
+    final buttonContrast =
+        ProntoPaletteEngine.contrastRatio(cs.onPrimary, cs.primary);
+    final chipContrast = ProntoPaletteEngine.contrastRatio(
+      cs.onSecondaryContainer,
+      cs.secondaryContainer,
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: tokens.cardBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: tokens.cardBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Accent Row
+          Wrap(
+            spacing: 16,
+            runSpacing: 12,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '1. Brand Accent Seed',
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Drives your primary action color, harmony hue angles, and subtle neutral surface tint.',
+                    style: TextStyle(color: tokens.textSecondary, fontSize: 12.5),
+                  ),
+                ],
+              ),
+              InkWell(
+                onTap: () => _openColorPickerDialog(
+                  context,
+                  spec.themeData,
+                  tokens,
+                  activeSeedColor,
+                ),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: tokens.cardSubtleBg,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: cs.outline),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 16,
+                        height: 16,
+                        decoration: BoxDecoration(
+                          color: activeSeedColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: tokens.cardBorder),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        hexLabel,
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Icon(
+                        Icons.colorize_rounded,
+                        size: 15,
+                        color: cs.primary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Custom',
+                        style: TextStyle(
+                          color: cs.primary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Preset Swatches
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: ProntoPaletteEngine.presetAccents.map((preset) {
+              final isChosen =
+                  ProntoPaletteEngine.toHex(preset) == hexLabel.toUpperCase();
+              final checkColor = ProntoPaletteEngine.contrastRatio(
+                        tokens.cardBg,
+                        preset,
+                      ) >=
+                      4.5
+                  ? tokens.cardBg
+                  : tokens.textPrimary;
+              return Tooltip(
+                message: ProntoPaletteEngine.toHex(preset),
+                child: InkWell(
+                  onTap: () => ref
+                      .read(adminThemeControllerProvider.notifier)
+                      .stageAccentColor(preset),
+                  borderRadius: BorderRadius.circular(20),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: preset,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isChosen ? tokens.textPrimary : tokens.cardBorder,
+                        width: isChosen ? 2.5 : 1.0,
+                      ),
+                    ),
+                    child: isChosen
+                        ? Icon(Icons.check_rounded, size: 18, color: checkColor)
+                        : null,
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+
+          const SizedBox(height: 20),
+          Divider(color: tokens.cardBorder, height: 1),
+          const SizedBox(height: 20),
+
+          // 5 Harmony Theme Preview Cards Header
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '2. Color Harmony Theme',
+                      style: TextStyle(
+                        color: tokens.textPrimary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Select a harmony model to preview how primary actions, secondary chips, tertiary badges, and tinted surfaces coordinate.',
+                      style:
+                          TextStyle(color: tokens.textSecondary, fontSize: 12.5),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Responsive Grid of 5 Theme Preview Cards
+          LayoutBuilder(
+            builder: (context, gridConstraints) {
+              final maxW = gridConstraints.maxWidth;
+              final int columns;
+              if (maxW >= 1120) {
+                columns = 5;
+              } else if (maxW >= 780) {
+                columns = 3;
+              } else if (maxW >= 460) {
+                columns = 2;
+              } else {
+                columns = 1;
+              }
+              const spacing = 12.0;
+              final cardWidth =
+                  (maxW - spacing * (columns - 1)) / columns;
+
+              return Wrap(
+                spacing: spacing,
+                runSpacing: spacing,
+                children: ProntoThemeId.values.map((option) {
+                  final previewSpec = ProntoPaletteEngine.build(
+                    seedColor: activeSeedColor,
+                    themeId: option,
+                    brightness: spec.brightness,
+                  );
+                  final isSelected = option == activeThemeId;
+
+                  return SizedBox(
+                    width: cardWidth,
+                    child: _buildHarmonyPreviewCard(
+                      option: option,
+                      cardSpec: previewSpec,
+                      hostTokens: tokens,
+                      hostScheme: cs,
+                      isSelected: isSelected,
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+
+          const SizedBox(height: 18),
+          Divider(color: tokens.cardBorder, height: 1),
+          const SizedBox(height: 14),
+
+          // Live WCAG AA Verification Strip
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Icon(
+                Icons.verified_user_outlined,
+                size: 17,
+                color: tokens.success,
+              ),
+              Text(
+                'WCAG AA Contrast (${activeThemeId.label} • ${themeState.isDarkMode ? 'Dark' : 'Light'}):',
+                style: TextStyle(
+                  color: tokens.textSecondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              _buildWcagBadge(tokens, 'Body Text', bodyContrast),
+              _buildWcagBadge(tokens, 'Muted Labels', labelContrast),
+              _buildWcagBadge(tokens, 'Primary Button', buttonContrast),
+              _buildWcagBadge(tokens, 'Secondary Chip', chipContrast),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHarmonyPreviewCard({
+    required ProntoThemeId option,
+    required ProntoThemeSpec cardSpec,
+    required ProntoTokens hostTokens,
+    required ColorScheme hostScheme,
+    required bool isSelected,
+  }) {
+    final pCs = cardSpec.colorScheme;
+    final pT = cardSpec.tokens;
+
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: () => ref
+            .read(adminThemeControllerProvider.notifier)
+            .stageThemeId(option),
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? hostScheme.primaryContainer.withValues(alpha: 0.32)
+                : hostTokens.cardSubtleBg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected ? hostScheme.primary : hostTokens.cardBorder,
+              width: isSelected ? 2.0 : 1.0,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Card Title + Selected Indicator
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      option.label,
+                      style: TextStyle(
+                        color: hostTokens.textPrimary,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (isSelected)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: hostScheme.primary,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'Active',
+                        style: TextStyle(
+                          color: hostScheme.onPrimary,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    )
+                  else
+                    Icon(
+                      Icons.radio_button_unchecked,
+                      size: 16,
+                      color: hostTokens.textMuted,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 2),
+              Text(
+                option.ruleLabel,
+                style: TextStyle(
+                  color: hostTokens.textSecondary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 10),
+
+              // Miniature Admin Layout Preview
+              Container(
+                height: 88,
+                decoration: BoxDecoration(
+                  color: pT.pageBg,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: pT.cardBorder),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Row(
+                  children: [
+                    // Mini Sidebar
+                    Container(
+                      width: 42,
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: pT.sidebarBg,
+                        border: Border(
+                          right: BorderSide(color: pT.sidebarBorder),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 12,
+                            height: 12,
+                            decoration: BoxDecoration(
+                              color: pCs.primary,
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            height: 9,
+                            decoration: BoxDecoration(
+                              color: pT.sidebarActive,
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          Container(
+                            width: 22,
+                            height: 5,
+                            decoration: BoxDecoration(
+                              color: pT.sidebarMuted.withValues(alpha: 0.45),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          Container(
+                            width: 26,
+                            height: 5,
+                            decoration: BoxDecoration(
+                              color: pT.sidebarMuted.withValues(alpha: 0.35),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Mini Content Area
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.all(7),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Top action + chip + badge row
+                            Row(
+                              children: [
+                                Container(
+                                  width: 34,
+                                  height: 11,
+                                  decoration: BoxDecoration(
+                                    color: pCs.primary,
+                                    borderRadius: BorderRadius.circular(3),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Container(
+                                  width: 24,
+                                  height: 11,
+                                  decoration: BoxDecoration(
+                                    color: pCs.secondaryContainer,
+                                    borderRadius: BorderRadius.circular(3),
+                                    border: Border.all(
+                                      color: pCs.secondary.withValues(
+                                        alpha: 0.45,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const Spacer(),
+                                Container(
+                                  width: 16,
+                                  height: 11,
+                                  decoration: BoxDecoration(
+                                    color: pCs.tertiaryContainer,
+                                    borderRadius: BorderRadius.circular(3),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 7),
+
+                            // Mini Card with 3 harmony series bars
+                            Expanded(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 7,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: pT.cardBg,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: pT.cardBorder),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Container(
+                                            width: 42,
+                                            height: 5,
+                                            decoration: BoxDecoration(
+                                              color: pT.textPrimary,
+                                              borderRadius:
+                                                  BorderRadius.circular(2),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Container(
+                                            width: 28,
+                                            height: 4,
+                                            decoration: BoxDecoration(
+                                              color: pT.textMuted,
+                                              borderRadius:
+                                                  BorderRadius.circular(2),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    _buildMiniBar(pT.chartPalette[0], 24),
+                                    const SizedBox(width: 3),
+                                    _buildMiniBar(pT.chartPalette[1], 17),
+                                    const SizedBox(width: 3),
+                                    _buildMiniBar(pT.chartPalette[2], 21),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              // 4 Group Swatches: Primary, Secondary, Tertiary, Surface
+              Row(
+                children: [
+                  _buildRoleSwatch(
+                    color: pCs.primary,
+                    borderColor: hostTokens.cardBorder,
+                    label: 'Pri',
+                    textColor: hostTokens.textMuted,
+                  ),
+                  const SizedBox(width: 6),
+                  _buildRoleSwatch(
+                    color: pCs.secondary,
+                    borderColor: hostTokens.cardBorder,
+                    label: 'Sec',
+                    textColor: hostTokens.textMuted,
+                  ),
+                  const SizedBox(width: 6),
+                  _buildRoleSwatch(
+                    color: pCs.tertiary,
+                    borderColor: hostTokens.cardBorder,
+                    label: 'Ter',
+                    textColor: hostTokens.textMuted,
+                  ),
+                  const SizedBox(width: 6),
+                  _buildRoleSwatch(
+                    color: pT.pageBg,
+                    borderColor: hostTokens.cardBorder,
+                    label: 'Srf',
+                    textColor: hostTokens.textMuted,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMiniBar(Color color, double height) {
+    return Container(
+      width: 7,
+      height: height,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(2),
+      ),
+    );
+  }
+
+  Widget _buildRoleSwatch({
+    required Color color,
+    required Color borderColor,
+    required String label,
+    required Color textColor,
+  }) {
+    return Expanded(
+      child: Column(
+        children: [
+          Container(
+            height: 16,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: borderColor),
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 9.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWcagBadge(ProntoTokens tokens, String label, double ratio) {
+    final passesAA = ratio >= 4.5;
+    final passesAAA = ratio >= 7.0;
+    final grade = passesAAA ? 'AAA' : (passesAA ? 'AA' : 'LOW');
+    final bg = passesAA ? tokens.successContainer : tokens.dangerContainer;
+    final fg = passesAA ? tokens.onSuccessContainer : tokens.onDangerContainer;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        '$label ${ratio.toStringAsFixed(1)}:1 ($grade)',
+        style: TextStyle(
+          color: fg,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 3. LOGO, JOIN WELCOME MESSAGE & CHAT POLICIES
+  // ══════════════════════════════════════════════════════════════════════════
+
+  Widget _buildWorkspaceDetailsColumn({
+    required BuildContext context,
+    required ProntoTokens tokens,
+    required ColorScheme cs,
+    required Firm firm,
+  }) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // 1. Logo Card
         Container(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            color: const Color(0xFF1E1D1D),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withOpacity(0.06)),
+            color: tokens.cardBg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: tokens.cardBorder),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Company Brand Logo',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                style: TextStyle(
+                  color: tokens.textPrimary,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
                 'Upload your company icon or seal. Dual-write supports Cloudinary named transformations.',
-                style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                style: TextStyle(color: tokens.textSecondary, fontSize: 12.5),
               ),
               const SizedBox(height: 16),
               Row(
@@ -312,13 +1103,15 @@ class _CustomizationTabState extends ConsumerState<CustomizationTab> {
                     borderRadius: 12,
                     variant: MediaVariant.logoSm,
                     firmName: firm.name,
-                    primaryColor: primaryColor,
+                    primaryColor: cs.primary,
                   ),
                   const SizedBox(width: 16),
                   Expanded(
                     child: DropTarget(
-                      onDragEntered: (_) => setState(() => _isDraggingLogo = true),
-                      onDragExited: (_) => setState(() => _isDraggingLogo = false),
+                      onDragEntered: (_) =>
+                          setState(() => _isDraggingLogo = true),
+                      onDragExited: (_) =>
+                          setState(() => _isDraggingLogo = false),
                       onDragDone: (details) async {
                         setState(() => _isDraggingLogo = false);
                         if (details.files.isNotEmpty) {
@@ -328,32 +1121,48 @@ class _CustomizationTabState extends ConsumerState<CustomizationTab> {
                         }
                       },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 14,
+                          horizontal: 16,
+                        ),
                         decoration: BoxDecoration(
-                          color: _isDraggingLogo ? primaryColor.withOpacity(0.1) : const Color(0xFF161515),
-                          borderRadius: BorderRadius.circular(8),
+                          color: _isDraggingLogo
+                              ? cs.primaryContainer.withValues(alpha: 0.45)
+                              : tokens.cardSubtleBg,
+                          borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: _isDraggingLogo ? primaryColor : Colors.white.withOpacity(0.1),
-                            style: BorderStyle.solid,
+                            color: _isDraggingLogo
+                                ? cs.primary
+                                : tokens.cardBorder,
                           ),
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                        child: Wrap(
+                          alignment: WrapAlignment.center,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 6,
                           children: [
-                            Icon(Icons.file_upload_outlined, size: 20, color: Colors.grey[400]),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'Drop image or ',
-                              style: TextStyle(color: Colors.grey, fontSize: 12),
+                            Icon(
+                              Icons.file_upload_outlined,
+                              size: 19,
+                              color: tokens.textMuted,
+                            ),
+                            Text(
+                              'Drop image or',
+                              style: TextStyle(
+                                color: tokens.textSecondary,
+                                fontSize: 12.5,
+                              ),
                             ),
                             InkWell(
-                              onTap: _isUploadingLogo ? null : () => _pickAndUploadLogo(context, firm),
+                              onTap: _isUploadingLogo
+                                  ? null
+                                  : () => _pickAndUploadLogo(context, firm),
                               child: Text(
                                 _isUploadingLogo ? 'Uploading...' : 'Browse',
                                 style: TextStyle(
-                                  color: primaryColor,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12,
+                                  color: cs.primary,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12.5,
                                   decoration: TextDecoration.underline,
                                 ),
                               ),
@@ -370,195 +1179,121 @@ class _CustomizationTabState extends ConsumerState<CustomizationTab> {
         ),
         const SizedBox(height: 16),
 
-        // 2. Brand Color Palette & WCAG 2.1 Checker
+        // 2. Employee Join Screen Welcome Message
         Container(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            color: const Color(0xFF1E1D1D),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withOpacity(0.06)),
+            color: tokens.cardBg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: tokens.cardBorder),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Brand Accent Color',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-                  ),
-                  InkWell(
-                    onTap: () => _openColorPickerDialog(context, primaryColor),
-                    borderRadius: BorderRadius.circular(6),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: primaryColor.withOpacity(0.18),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: primaryColor.withOpacity(0.4)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 14,
-                            height: 14,
-                            decoration: BoxDecoration(color: primaryColor, shape: BoxShape.circle),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            _colorToHex(primaryColor),
-                            style: TextStyle(color: primaryColor, fontSize: 12, fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(width: 4),
-                          const Icon(Icons.colorize, size: 14, color: Colors.grey),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              // Curated harmonious presets
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  const Color(0xFF00C853), // Electric Green
-                  const Color(0xFF295CB4), // Pronto Classic Blue
-                  const Color(0xFF7C4DFF), // Royal Indigo
-                  const Color(0xFF00B0FF), // Cyan Accent
-                  const Color(0xFFFF6D00), // Amber Coral
-                  const Color(0xFFE91E63), // Vivid Rose
-                  const Color(0xFF00E676), // Mint Emerald
-                ].map((preset) {
-                  final isChosen = preset.value == primaryColor.value;
-                  return InkWell(
-                    onTap: () => setState(() => _stagedPrimaryColor = preset),
-                    child: Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        color: preset,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: isChosen ? Colors.white : Colors.transparent,
-                          width: 2.5,
-                        ),
-                      ),
-                      child: isChosen ? const Icon(Icons.check, size: 16, color: Colors.white) : null,
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 16),
-              Divider(color: Colors.white.withOpacity(0.06), height: 1),
-              const SizedBox(height: 14),
-
-              // WCAG 2.1 Contrast Ratio Badge
-              Row(
-                children: [
-                  Icon(Icons.accessibility_new_rounded, size: 18, color: primaryColor),
-                  const SizedBox(width: 8),
-                  const Text('WCAG 2.1 Accessibility:', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                  const SizedBox(width: 8),
-                  _buildWcagBadge('Text on Brand', contrastWhiteText),
-                  const SizedBox(width: 8),
-                  _buildWcagBadge('Brand on Dark', contrastAgainstDark),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        // 3. Employee Join Screen Welcome Message
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1E1D1D),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withOpacity(0.06)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
+              Text(
                 'Join Screen Welcome Message',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                style: TextStyle(
+                  color: tokens.textPrimary,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
                 'Displayed to employees when they scan the QR code or enter the Firm ID (max 200 characters).',
-                style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                style: TextStyle(color: tokens.textSecondary, fontSize: 12.5),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _welcomeTextController,
                 maxLength: 200,
                 maxLines: 2,
-                style: const TextStyle(color: Colors.white, fontSize: 13),
+                style: TextStyle(color: tokens.textPrimary, fontSize: 13.5),
                 decoration: InputDecoration(
-                  hintText: 'e.g. Welcome to Acme Corp! Enter your staff code or request access.',
-                  hintStyle: TextStyle(color: Colors.grey[600], fontSize: 13),
-                  filled: true,
-                  fillColor: const Color(0xFF161515),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  hintText:
+                      'e.g. Welcome to Acme Corp! Enter your staff code or request access.',
+                  counterStyle:
+                      TextStyle(color: tokens.textMuted, fontSize: 11.5),
                 ),
-                onChanged: (val) => setState(() => _stagedWelcomeText = val.trim()),
+                onChanged: (val) =>
+                    setState(() => _stagedWelcomeText = val.trim()),
               ),
             ],
           ),
         ),
         const SizedBox(height: 16),
 
-        // 4. Chat & Privacy Policies
+        // 3. Chat & Presence Policies
         Container(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            color: const Color(0xFF1E1D1D),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withOpacity(0.06)),
+            color: tokens.cardBg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: tokens.cardBorder),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Chat & Presence Policies',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                style: TextStyle(
+                  color: tokens.textPrimary,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
                 'Firm-wide communication privacy toggles.',
-                style: TextStyle(color: Colors.grey[400], fontSize: 12),
+                style: TextStyle(color: tokens.textSecondary, fontSize: 12.5),
               ),
               const SizedBox(height: 8),
               Material(
-                color: Colors.transparent,
+                type: MaterialType.transparency,
                 child: Column(
                   children: [
                     SwitchListTile.adaptive(
                       contentPadding: EdgeInsets.zero,
-                      activeColor: primaryColor,
-                      title: const Text('Show Last Seen & Online Presence',
-                          style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
-                      subtitle: const Text('Allow members to see when teammates were last active in chats.',
-                          style: TextStyle(color: Colors.grey, fontSize: 11)),
+                      title: Text(
+                        'Show Last Seen & Online Presence',
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'Allow members to see when teammates were last active in chats.',
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
                       value: _stagedShowLastSeen ?? firm.showLastSeen,
-                      onChanged: (val) => setState(() => _stagedShowLastSeen = val),
+                      onChanged: (val) =>
+                          setState(() => _stagedShowLastSeen = val),
                     ),
-                    Divider(color: Colors.white.withOpacity(0.06), height: 16),
+                    Divider(color: tokens.cardBorder, height: 16),
                     SwitchListTile.adaptive(
                       contentPadding: EdgeInsets.zero,
-                      activeColor: primaryColor,
-                      title: const Text('Show Read Receipts',
-                          style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
-                      subtitle: const Text('Show double checkmarks in direct messages and participant counts in groups.',
-                          style: TextStyle(color: Colors.grey, fontSize: 11)),
+                      title: Text(
+                        'Show Read Receipts',
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'Show double checkmarks in direct messages and participant counts in groups.',
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
                       value: _stagedShowReadReceipts ?? firm.showReadReceipts,
-                      onChanged: (val) => setState(() => _stagedShowReadReceipts = val),
+                      onChanged: (val) =>
+                          setState(() => _stagedShowReadReceipts = val),
                     ),
                   ],
                 ),
@@ -570,72 +1305,65 @@ class _CustomizationTabState extends ConsumerState<CustomizationTab> {
     );
   }
 
-  Widget _buildWcagBadge(String label, double ratio) {
-    final passesAA = ratio >= 4.5;
-    final passesAAA = ratio >= 7.0;
-
-    Color badgeColor = Colors.greenAccent;
-    String grade = 'AAA';
-    if (!passesAAA && passesAA) {
-      grade = 'AA';
-      badgeColor = Colors.lightGreenAccent;
-    } else if (!passesAA) {
-      grade = 'FAIL';
-      badgeColor = Colors.redAccent;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: badgeColor.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: badgeColor.withOpacity(0.5)),
-      ),
-      child: Text(
-        '$label: ${ratio.toStringAsFixed(1)}:1 ($grade)',
-        style: TextStyle(color: badgeColor, fontSize: 10, fontWeight: FontWeight.bold),
-      ),
-    );
-  }
-
   // ══════════════════════════════════════════════════════════════════════════
-  // LIVE PREVIEW DEVICE FRAME
+  // 4. INTERACTIVE LIVE PREVIEW CARD (TOKEN-DRIVEN, ZERO HARDCODED COLORS)
   // ══════════════════════════════════════════════════════════════════════════
 
-  Widget _buildLivePreviewDeviceFrame(BuildContext context, Firm firm, Color primaryColor) {
+  Widget _buildLivePreviewCard({
+    required ProntoThemeSpec spec,
+    required Firm firm,
+  }) {
+    final tokens = spec.tokens;
+    final cs = spec.colorScheme;
+
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1D1D),
+        color: tokens.cardBg,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.06)),
+        border: Border.all(color: tokens.cardBorder),
       ),
       padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              const Row(
+              Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.phone_iphone, color: Colors.grey, size: 20),
-                  SizedBox(width: 8),
+                  Icon(
+                    Icons.devices_rounded,
+                    color: cs.primary,
+                    size: 19,
+                  ),
+                  const SizedBox(width: 8),
                   Text(
-                    'Interactive Live Preview',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                    'Interactive Role Preview',
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                    ),
                   ),
                 ],
               ),
-              // Segmented toggle
               Container(
+                padding: const EdgeInsets.all(3),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF161515),
+                  color: tokens.cardSubtleBg,
                   borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: tokens.cardBorder),
                 ),
                 child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    _buildPreviewTabBtn(0, 'Join Screen'),
-                    _buildPreviewTabBtn(1, 'Chat Home'),
+                    _buildPreviewTabBtn(tokens, 0, 'Hub Roles'),
+                    _buildPreviewTabBtn(tokens, 1, 'Join'),
+                    _buildPreviewTabBtn(tokens, 2, 'Chat'),
                   ],
                 ),
               ),
@@ -643,159 +1371,306 @@ class _CustomizationTabState extends ConsumerState<CustomizationTab> {
           ),
           const SizedBox(height: 16),
 
-          // Phone Mockup Frame
-          Center(
-            child: Container(
-              width: 290,
-              height: 520,
-              decoration: BoxDecoration(
-                color: const Color(0xFF121111),
-                borderRadius: BorderRadius.circular(32),
-                border: Border.all(color: Colors.grey[800]!, width: 4),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 20, spreadRadius: 2),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(28),
-                child: Column(
-                  children: [
-                    // Phone Top Notch
-                    Container(
-                      height: 24,
-                      color: Colors.black,
-                      child: Center(
-                        child: Container(
-                          width: 70,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[900],
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // Phone Screen Content
-                    Expanded(
-                      child: _previewMode == 0
-                          ? _buildLiveJoinScreenPreview(firm, primaryColor)
-                          : _buildLiveChatScreenPreview(firm, primaryColor),
-                    ),
-
-                    // Phone Bottom Pill Bar
-                    Container(
-                      height: 16,
-                      color: Colors.black,
-                      child: Center(
-                        child: Container(
-                          width: 80,
-                          height: 3,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[700],
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+          Container(
+            constraints: const BoxConstraints(minHeight: 360),
+            decoration: BoxDecoration(
+              color: tokens.pageBg,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: tokens.cardBorder, width: 1.5),
             ),
+            clipBehavior: Clip.antiAlias,
+            child: _previewMode == 0
+                ? _buildRoleBreakdownPreview(spec, firm)
+                : (_previewMode == 1
+                    ? _buildJoinPreview(spec, firm)
+                    : _buildChatPreview(spec, firm)),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildPreviewTabBtn(int mode, String label) {
+  Widget _buildPreviewTabBtn(ProntoTokens tokens, int mode, String label) {
     final isSelected = _previewMode == mode;
     return InkWell(
       onTap: () => setState(() => _previewMode = mode),
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(6),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.white.withOpacity(0.12) : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          color: isSelected
+              ? tokens.cardBg
+              : ProntoPaletteEngine.transparent,
+          borderRadius: BorderRadius.circular(6),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: isSelected ? Colors.white : Colors.grey[400],
-            fontSize: 11,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            color: isSelected ? tokens.textPrimary : tokens.textSecondary,
+            fontSize: 11.5,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
           ),
         ),
       ),
     );
   }
 
-  Widget _buildLiveJoinScreenPreview(Firm firm, Color primaryColor) {
+  Widget _buildRoleBreakdownPreview(ProntoThemeSpec spec, Firm firm) {
+    final tokens = spec.tokens;
+    final cs = spec.colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Top strip showing Primary, Secondary Chip, Tertiary Badge
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  color: cs.primary,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Primary Action',
+                  style: TextStyle(
+                    color: cs.onPrimary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: cs.secondaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Secondary Chip',
+                  style: TextStyle(
+                    color: cs.onSecondaryContainer,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: cs.tertiaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Tertiary Badge',
+                  style: TextStyle(
+                    color: cs.onTertiaryContainer,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // 5-Series Chart Palette Preview Card
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: tokens.cardBg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: tokens.cardBorder),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '5-Series Chart Harmony (${spec.themeId.label})',
+                  style: TextStyle(
+                    color: tokens.textPrimary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Drawn from primary, secondary, and tertiary tonal palettes.',
+                  style: TextStyle(color: tokens.textMuted, fontSize: 11.5),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  height: 94,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: List.generate(5, (index) {
+                      const heights = [68.0, 52.0, 60.0, 42.0, 48.0];
+                      return Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.only(right: index < 4 ? 8 : 0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Container(
+                                height: heights[index],
+                                decoration: BoxDecoration(
+                                  color: tokens.chartPalette[index],
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'S${index + 1}',
+                                style: TextStyle(
+                                  color: tokens.textMuted,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Fixed Semantic Status Pills
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildStatusPill(
+                bg: tokens.successContainer,
+                fg: tokens.onSuccessContainer,
+                label: 'Active • Semantic Success',
+              ),
+              _buildStatusPill(
+                bg: tokens.warningContainer,
+                fg: tokens.onWarningContainer,
+                label: 'Pending • Semantic Warning',
+              ),
+              _buildStatusPill(
+                bg: tokens.dangerContainer,
+                fg: tokens.onDangerContainer,
+                label: 'Alert • Semantic Danger',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusPill({
+    required Color bg,
+    required Color fg,
+    required String label,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4.5),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: fg,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildJoinPreview(ProntoThemeSpec spec, Firm firm) {
+    final tokens = spec.tokens;
+    final cs = spec.colorScheme;
     final welcome = _stagedWelcomeText?.isNotEmpty == true
         ? _stagedWelcomeText!
-        : (firm.welcomeText ?? 'Welcome to ${firm.name}');
+        : (firm.welcomeText?.isNotEmpty == true
+            ? firm.welcomeText!
+            : 'Welcome to ${firm.name}');
 
-    return Container(
-      color: const Color(0xFF161515),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           PcLogo(
             logo: _stagedLogo,
             legacyUrl: _stagedLogoUrl,
-            size: 64,
-            borderRadius: 16,
+            size: 60,
+            borderRadius: 14,
             variant: MediaVariant.logoSm,
             firmName: firm.name,
-            primaryColor: primaryColor,
+            primaryColor: cs.primary,
           ),
           const SizedBox(height: 14),
           Text(
             firm.name,
-            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+            style: TextStyle(
+              color: tokens.textPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
           ),
           const SizedBox(height: 6),
           Text(
             welcome,
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey[400], fontSize: 11),
+            style: TextStyle(color: tokens.textSecondary, fontSize: 12),
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 24),
-
-          // Sample input box
+          const SizedBox(height: 22),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFF1F1E1E),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.white.withOpacity(0.08)),
+              color: tokens.cardBg,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: tokens.cardBorder),
             ),
             child: Row(
               children: [
-                Icon(Icons.key, size: 14, color: Colors.grey[500]),
+                Icon(Icons.key_rounded, size: 15, color: tokens.textMuted),
                 const SizedBox(width: 8),
-                Text('Enter 6-digit staff code', style: TextStyle(color: Colors.grey[500], fontSize: 11)),
+                Text(
+                  'Enter 6-digit staff code',
+                  style: TextStyle(color: tokens.textMuted, fontSize: 12),
+                ),
               ],
             ),
           ),
           const SizedBox(height: 12),
-
-          // Primary Join Button
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 10),
+            padding: const EdgeInsets.symmetric(vertical: 11),
             decoration: BoxDecoration(
-              color: primaryColor,
-              borderRadius: BorderRadius.circular(8),
+              color: cs.primary,
+              borderRadius: BorderRadius.circular(10),
             ),
-            child: const Center(
+            child: Center(
               child: Text(
                 'Join Workspace',
-                style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: cs.onPrimary,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ),
@@ -804,133 +1679,178 @@ class _CustomizationTabState extends ConsumerState<CustomizationTab> {
     );
   }
 
-  Widget _buildLiveChatScreenPreview(Firm firm, Color primaryColor) {
+  Widget _buildChatPreview(ProntoThemeSpec spec, Firm firm) {
+    final tokens = spec.tokens;
+    final cs = spec.colorScheme;
     final showLastSeen = _stagedShowLastSeen ?? firm.showLastSeen;
     final showReceipts = _stagedShowReadReceipts ?? firm.showReadReceipts;
 
-    return Container(
-      color: const Color(0xFF141313),
-      child: Column(
-        children: [
-          // Mock AppBar
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: primaryColor,
-            child: Row(
-              children: [
-                PcLogo(
-                  logo: _stagedLogo,
-                  legacyUrl: _stagedLogoUrl,
-                  size: 24,
-                  borderRadius: 6,
-                  variant: MediaVariant.logoSm,
-                  firmName: firm.name,
-                  primaryColor: Colors.white,
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: tokens.cardBg,
+            border: Border(bottom: BorderSide(color: tokens.cardBorder)),
+          ),
+          child: Row(
+            children: [
+              PcLogo(
+                logo: _stagedLogo,
+                legacyUrl: _stagedLogoUrl,
+                size: 26,
+                borderRadius: 7,
+                variant: MediaVariant.logoSm,
+                firmName: firm.name,
+                primaryColor: cs.primary,
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '#all-staff',
+                      style: TextStyle(
+                        color: tokens.textPrimary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12.5,
+                      ),
+                    ),
+                    if (showLastSeen)
+                      Text(
+                        'Online • 5 active',
+                        style: TextStyle(
+                          color: tokens.success,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                Expanded(
+              ),
+              Icon(Icons.search_rounded, size: 17, color: tokens.textMuted),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: tokens.cardBg,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: tokens.cardBorder),
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '#all-staff',
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-                      ),
-                      if (showLastSeen)
-                        const Text(
-                          'Online • 5 active',
-                          style: TextStyle(color: Colors.white70, fontSize: 9),
+                        'Sarah Lead',
+                        style: TextStyle(
+                          color: cs.secondary,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700,
                         ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Welcome to our newly themed Admin Chat!',
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontSize: 12,
+                        ),
+                      ),
                     ],
                   ),
                 ),
-                const Icon(Icons.search, size: 16, color: Colors.white),
-              ],
-            ),
-          ),
-
-          // Mock Chat Feed
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(10),
-              children: [
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF222121),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Sarah Lead', style: TextStyle(color: Colors.purpleAccent, fontSize: 10, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 2),
-                        const Text('Welcome to our newly branded team space!', style: TextStyle(color: Colors.white, fontSize: 11)),
-                      ],
-                    ),
+              ),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: cs.primaryContainer,
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: primaryColor.withOpacity(0.85),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        const Text('Excited to collaborate!', style: TextStyle(color: Colors.white, fontSize: 11)),
-                        const SizedBox(height: 2),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text('10:42 AM', style: TextStyle(color: Colors.white70, fontSize: 8)),
-                            if (showReceipts) ...[
-                              const SizedBox(width: 4),
-                              const Icon(Icons.done_all, size: 10, color: Colors.white70),
-                            ],
-                          ],
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        'Harmony roles keep every message readable.',
+                        style: TextStyle(
+                          color: cs.onPrimaryContainer,
+                          fontSize: 12,
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 3),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '10:42 AM',
+                            style: TextStyle(
+                              color:
+                                  cs.onPrimaryContainer.withValues(alpha: 0.78),
+                              fontSize: 9.5,
+                            ),
+                          ),
+                          if (showReceipts) ...[
+                            const SizedBox(width: 4),
+                            Icon(
+                              Icons.done_all_rounded,
+                              size: 12,
+                              color: cs.primary,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // ACTIONS: SAVE, UPLOAD LOGO, PICK COLOR, DANGER ZONE
+  // 5. ACTIONS: SAVE, UPLOAD LOGO, COLOR PICKER, DANGER ZONE
   // ══════════════════════════════════════════════════════════════════════════
 
   Future<void> _pickAndUploadLogo(BuildContext context, Firm firm) async {
     try {
-      final result = await FilePicker.pickFiles(type: FileType.image, withData: true);
+      final result =
+          await FilePicker.pickFiles(type: FileType.image, withData: true);
       if (result == null || result.files.isEmpty) return;
 
       final file = result.files.first;
       if (file.bytes == null) {
-        SnackbarService().showSnackbar('Could not read image bytes.', isError: true);
+        SnackbarService()
+            .showSnackbar('Could not read image bytes.', isError: true);
         return;
       }
       await _uploadLogoBytes(file.bytes!, file.name, firm);
     } catch (e) {
-      SnackbarService().showSnackbar('Error selecting image: $e', isError: true);
+      SnackbarService()
+          .showSnackbar('Error selecting image: $e', isError: true);
     }
   }
 
-  Future<void> _uploadLogoBytes(Uint8List bytes, String fileName, Firm firm) async {
+  Future<void> _uploadLogoBytes(
+    Uint8List bytes,
+    String fileName,
+    Firm firm,
+  ) async {
     setState(() => _isUploadingLogo = true);
-    SnackbarService().showSnackbar('Uploading brand logo to Cloudinary...');
+    SnackbarService().showSnackbar('Uploading brand logo...');
 
     try {
       final mediaRef = await MediaService.instance.uploadBytes(
@@ -939,58 +1859,90 @@ class _CustomizationTabState extends ConsumerState<CustomizationTab> {
         purpose: MediaPurpose.logo,
         firmId: firm.firmId,
       );
-      final downloadUrl = MediaService.instance.urlFor(mediaRef, MediaVariant.logoLg);
+      final downloadUrl =
+          MediaService.instance.urlFor(mediaRef, MediaVariant.logoLg);
 
       setState(() {
         _stagedLogo = mediaRef;
         _stagedLogoUrl = downloadUrl;
         _isUploadingLogo = false;
       });
-      SnackbarService().showSnackbar('Logo uploaded! Click "Save Changes" to apply.');
+      SnackbarService()
+          .showSnackbar('Logo uploaded! Click "Save Changes" to apply.');
     } catch (e) {
       setState(() => _isUploadingLogo = false);
       SnackbarService().showSnackbar('Logo upload failed: $e', isError: true);
     }
   }
 
-  void _openColorPickerDialog(BuildContext context, Color initialColor) {
+  void _openColorPickerDialog(
+    BuildContext context,
+    ThemeData adminTheme,
+    ProntoTokens tokens,
+    Color initialColor,
+  ) {
     Color pickerColor = initialColor;
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF222121),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Select Brand Accent Color', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        content: SingleChildScrollView(
-          child: ColorPicker(
-            pickerColor: pickerColor,
-            onColorChanged: (c) => pickerColor = c,
-            labelTypes: const [],
+      builder: (ctx) => Theme(
+        data: adminTheme,
+        child: AlertDialog(
+          backgroundColor: tokens.cardBg,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: tokens.cardBorder),
           ),
+          title: Text(
+            'Select Brand Accent Color',
+            style: TextStyle(
+              color: tokens.textPrimary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          content: SingleChildScrollView(
+            child: ColorPicker(
+              pickerColor: pickerColor,
+              onColorChanged: (c) => pickerColor = c,
+              labelTypes: const [],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(
+                'Cancel',
+                style: TextStyle(color: tokens.textSecondary),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                ref
+                    .read(adminThemeControllerProvider.notifier)
+                    .stageAccentColor(pickerColor);
+              },
+              child: const Text('Preview Color'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              setState(() => _stagedPrimaryColor = pickerColor);
-            },
-            child: const Text('Apply'),
-          ),
-        ],
       ),
     );
   }
 
   Future<void> _saveCustomizations(BuildContext context, Firm firm) async {
     setState(() => _isSaving = true);
-    final hexString = _colorToHex(_stagedPrimaryColor ?? _hexToColor(firm.primaryColor));
+    final themeState = ref.read(adminThemeControllerProvider);
+    final hexString = ProntoPaletteEngine.toHex(
+      ProntoPaletteEngine.parseHex(themeState.effectiveAccentHex),
+    );
+    final selectedTheme = themeState.effectiveThemeId;
     final welcome = _stagedWelcomeText ?? (firm.welcomeText ?? '');
 
     try {
       final updateData = <String, dynamic>{
         'primaryColor': hexString,
+        'themeId': selectedTheme.id,
         'welcomeText': welcome,
         'showLastSeen': _stagedShowLastSeen ?? firm.showLastSeen,
         'showReadReceipts': _stagedShowReadReceipts ?? firm.showReadReceipts,
@@ -1003,73 +1955,113 @@ class _CustomizationTabState extends ConsumerState<CustomizationTab> {
         updateData['logoUrl'] = _stagedLogoUrl;
       }
 
-      await FirebaseFirestore.instance.collection('Firms').doc(firm.firmId).update(updateData);
+      await FirebaseFirestore.instance
+          .collection('Firms')
+          .doc(firm.firmId)
+          .update(updateData);
 
-      // Audit log
+      ref.read(adminThemeControllerProvider.notifier).markSaved(
+            accentHex: hexString,
+            themeId: selectedTheme,
+          );
+
       await AuditService.instance.logAction(
         firmId: firm.firmId,
         action: 'update_branding',
         targetType: 'firm',
         targetId: firm.firmId,
-        targetLabel: 'Brand settings updated',
+        targetLabel:
+            'Brand settings updated ($hexString • ${selectedTheme.label})',
       );
 
       await ref.read(firmNotifierProvider.notifier).loadFirm(firm.firmId);
-      SnackbarService().showSnackbar('Branding settings saved successfully!');
+      SnackbarService().showSnackbar('Branding & theme saved successfully!');
     } catch (e) {
-      SnackbarService().showSnackbar('Error saving branding: $e', isError: true);
+      SnackbarService()
+          .showSnackbar('Error saving branding: $e', isError: true);
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // DANGER ZONE (COLLAPSIBLE)
+  // 6. DANGER ZONE (COLLAPSIBLE)
   // ══════════════════════════════════════════════════════════════════════════
 
-  Widget _buildDangerZone(BuildContext context, Firm firm) {
+  Widget _buildDangerZone(
+    BuildContext context,
+    ThemeData adminTheme,
+    ProntoTokens tokens,
+    Firm firm,
+  ) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF1E1D1D),
+        color: tokens.cardBg,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
+        border: Border.all(color: tokens.danger.withValues(alpha: 0.45)),
       ),
       child: ExpansionTile(
-        title: const Row(
+        shape: const Border(),
+        collapsedShape: const Border(),
+        iconColor: tokens.danger,
+        collapsedIconColor: tokens.danger,
+        title: Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 20),
-            SizedBox(width: 8),
+            Icon(
+              Icons.warning_amber_rounded,
+              color: tokens.danger,
+              size: 20,
+            ),
+            const SizedBox(width: 8),
             Text(
               'Danger Zone: Delete Firm',
-              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 14),
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: tokens.danger,
+                fontSize: 14,
+              ),
             ),
           ],
         ),
         childrenPadding: const EdgeInsets.all(18),
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            spacing: 16,
+            runSpacing: 12,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              const Expanded(
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 680),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       'Permanently Erase Firm Workspace',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                      style: TextStyle(
+                        color: tokens.textPrimary,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
                     ),
-                    SizedBox(height: 2),
+                    const SizedBox(height: 2),
                     Text(
                       'All memberships, department channels, project groups, notices, and data will be permanently removed. This action cannot be undone.',
-                      style: TextStyle(color: Colors.grey, fontSize: 12),
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 12.5,
+                      ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 16),
               ElevatedButton(
-                onPressed: () => _deleteFirm(context, firm),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red[700], foregroundColor: Colors.white),
+                onPressed: () =>
+                    _deleteFirm(context, adminTheme, tokens, firm),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: tokens.danger,
+                  foregroundColor: tokens.onDanger,
+                ),
                 child: const Text('Delete Firm'),
               ),
             ],
@@ -1079,25 +2071,45 @@ class _CustomizationTabState extends ConsumerState<CustomizationTab> {
     );
   }
 
-  Future<void> _deleteFirm(BuildContext context, Firm firm) async {
+  Future<void> _deleteFirm(
+    BuildContext context,
+    ThemeData adminTheme,
+    ProntoTokens tokens,
+    Firm firm,
+  ) async {
     final firstConfirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF222121),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Delete Firm Workspace?'),
-        content: const Text(
-          'Are you sure you want to delete this firm? All staff memberships and data will be permanently erased. This is irreversible.',
-          style: TextStyle(color: Colors.grey, fontSize: 13),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red[600]),
-            child: const Text('Confirm Delete'),
+      builder: (ctx) => Theme(
+        data: adminTheme,
+        child: AlertDialog(
+          backgroundColor: tokens.cardBg,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: tokens.cardBorder),
           ),
-        ],
+          title: Text(
+            'Delete Firm Workspace?',
+            style: TextStyle(color: tokens.textPrimary),
+          ),
+          content: Text(
+            'Are you sure you want to delete this firm? All staff memberships and data will be permanently erased. This is irreversible.',
+            style: TextStyle(color: tokens.textSecondary, fontSize: 13),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(
+                'Cancel',
+                style: TextStyle(color: tokens.textSecondary),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: TextButton.styleFrom(foregroundColor: tokens.danger),
+              child: const Text('Confirm Delete'),
+            ),
+          ],
+        ),
       ),
     );
 
@@ -1108,53 +2120,83 @@ class _CustomizationTabState extends ConsumerState<CustomizationTab> {
 
     final doubleConfirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF222121),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Double Confirmation Required'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('To confirm deletion, please type the exact firm name:'),
-            const SizedBox(height: 8),
-            Text(firm.name, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
-            const SizedBox(height: 16),
-            TextField(
-              controller: nameController,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: 'Enter firm name',
+      builder: (ctx) => Theme(
+        data: adminTheme,
+        child: AlertDialog(
+          backgroundColor: tokens.cardBg,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: tokens.cardBorder),
+          ),
+          title: Text(
+            'Double Confirmation Required',
+            style: TextStyle(color: tokens.textPrimary),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'To confirm deletion, please type the exact firm name:',
+                style: TextStyle(color: tokens.textSecondary),
               ),
+              const SizedBox(height: 8),
+              Text(
+                firm.name,
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: tokens.danger,
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: nameController,
+                style: TextStyle(color: tokens.textPrimary),
+                decoration: const InputDecoration(
+                  hintText: 'Enter firm name',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(
+                'Cancel',
+                style: TextStyle(color: tokens.textSecondary),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                if (nameController.text.trim() == firm.name) {
+                  Navigator.pop(ctx, true);
+                } else {
+                  SnackbarService().showSnackbar(
+                    'Firm name does not match!',
+                    isError: true,
+                  );
+                }
+              },
+              style: TextButton.styleFrom(foregroundColor: tokens.danger),
+              child: const Text('DELETE PERMANENTLY'),
             ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(
-            onPressed: () {
-              if (nameController.text.trim() == firm.name) {
-                Navigator.pop(ctx, true);
-              } else {
-                SnackbarService().showSnackbar('Firm name does not match!', isError: true);
-              }
-            },
-            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
-            child: const Text('DELETE PERMANENTLY'),
-          ),
-        ],
       ),
     );
 
     if (doubleConfirm == true) {
       try {
-        await FirebaseFirestore.instance.collection('Firms').doc(firm.firmId).delete();
+        await FirebaseFirestore.instance
+            .collection('Firms')
+            .doc(firm.firmId)
+            .delete();
         ChatService.instance.cancelAllSubscriptions();
         await FirebaseAuth.instance.signOut();
         if (mounted && context.mounted) context.go('/register-firm');
       } catch (e) {
-        SnackbarService().showSnackbar('Error deleting firm: $e', isError: true);
+        SnackbarService()
+            .showSnackbar('Error deleting firm: $e', isError: true);
       }
     }
   }

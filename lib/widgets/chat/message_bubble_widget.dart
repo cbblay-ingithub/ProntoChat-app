@@ -1,9 +1,11 @@
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../../models/chat_message.dart';
 import '../../models/chat_polish_models.dart';
-import 'poll_bubble_widget.dart';
+import '../../theme/pc_tokens.dart';
 import 'image_bubble.dart';
+import 'poll_bubble_widget.dart';
 
 class MessageBubbleWidget extends StatelessWidget {
   final ChatMessage message;
@@ -65,11 +67,12 @@ class MessageBubbleWidget extends StatelessWidget {
   }
 
   void _showPinDurationDialog(BuildContext context) {
+    final tokens = context.pcTokens;
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+      backgroundColor: tokens.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
       builder: (ctx) => SafeArea(
         child: Padding(
@@ -78,53 +81,75 @@ class MessageBubbleWidget extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 child: Row(
                   children: [
-                    Icon(Icons.push_pin, color: Colors.amberAccent, size: 20),
-                    SizedBox(width: 8),
+                    Icon(
+                      Icons.push_pin_rounded,
+                      color: tokens.warningAccent,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
                     Text(
                       'Choose Pin Duration',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: tokens.textPrimary,
                         fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
                 ),
               ),
-              const Padding(
-                padding: EdgeInsets.only(left: 16, right: 16, bottom: 8),
+              Padding(
+                padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
                 child: Text(
                   'Messages cannot be pinned indefinitely. Newly pinned messages take precedence.',
-                  style: TextStyle(color: Colors.grey, fontSize: 12),
+                  style: TextStyle(color: tokens.textMuted, fontSize: 12),
                 ),
               ),
-              const Divider(color: Colors.white12, height: 1),
+              Divider(color: tokens.border, height: 1),
               ListTile(
-                leading: const Icon(Icons.timer_outlined, color: Colors.lightBlueAccent),
-                title: const Text('3 Hours', style: TextStyle(color: Colors.white)),
-                subtitle: const Text('Keep pinned for a few hours', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                leading: Icon(Icons.timer_outlined, color: tokens.infoAccent),
+                title: Text(
+                  '3 Hours',
+                  style: TextStyle(color: tokens.textPrimary),
+                ),
+                subtitle: Text(
+                  'Keep pinned for a few hours',
+                  style: TextStyle(color: tokens.textMuted, fontSize: 11),
+                ),
                 onTap: () {
                   Navigator.pop(ctx);
                   onPin(message, const Duration(hours: 3));
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.today, color: Colors.amberAccent),
-                title: const Text('24 Hours (1 Day)', style: TextStyle(color: Colors.white)),
-                subtitle: const Text('Keep pinned until tomorrow', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                leading: Icon(Icons.today_rounded, color: tokens.warningAccent),
+                title: Text(
+                  '24 Hours (1 Day)',
+                  style: TextStyle(color: tokens.textPrimary),
+                ),
+                subtitle: Text(
+                  'Keep pinned until tomorrow',
+                  style: TextStyle(color: tokens.textMuted, fontSize: 11),
+                ),
                 onTap: () {
                   Navigator.pop(ctx);
                   onPin(message, const Duration(hours: 24));
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.date_range, color: Colors.purpleAccent),
-                title: const Text('7 Days (1 Week)', style: TextStyle(color: Colors.white)),
-                subtitle: const Text('Keep pinned for the entire week', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                leading: Icon(Icons.date_range_rounded, color: tokens.projectAccent),
+                title: Text(
+                  '7 Days (1 Week)',
+                  style: TextStyle(color: tokens.textPrimary),
+                ),
+                subtitle: Text(
+                  'Keep pinned for the entire week',
+                  style: TextStyle(color: tokens.textMuted, fontSize: 11),
+                ),
                 onTap: () {
                   Navigator.pop(ctx);
                   onPin(message, const Duration(days: 7));
@@ -139,19 +164,20 @@ class MessageBubbleWidget extends StatelessWidget {
 
   void _showMessageActions(BuildContext context) {
     if (message.deleted) return;
+    final tokens = context.pcTokens;
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+      backgroundColor: tokens.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
       builder: (ctx) => SafeArea(
         child: Wrap(
           children: [
             ListTile(
-              leading: const Icon(Icons.reply, color: Colors.blueAccent),
-              title: const Text('Reply', style: TextStyle(color: Colors.white)),
+              leading: Icon(Icons.reply_rounded, color: tokens.primary),
+              title: Text('Reply', style: TextStyle(color: tokens.textPrimary)),
               onTap: () {
                 Navigator.pop(ctx);
                 onReply(message);
@@ -159,9 +185,15 @@ class MessageBubbleWidget extends StatelessWidget {
             ),
             if (isPinned && canPin)
               ListTile(
-                leading: const Icon(Icons.push_pin, color: Colors.amberAccent),
-                title: const Text('Unpin Message', style: TextStyle(color: Colors.white)),
-                subtitle: const Text('Remove from pinned messages banner', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                leading: Icon(Icons.push_pin_rounded, color: tokens.warningAccent),
+                title: Text(
+                  'Unpin Message',
+                  style: TextStyle(color: tokens.textPrimary),
+                ),
+                subtitle: Text(
+                  'Remove from pinned messages banner',
+                  style: TextStyle(color: tokens.textMuted, fontSize: 11),
+                ),
                 onTap: () {
                   Navigator.pop(ctx);
                   onUnpin?.call(message);
@@ -169,9 +201,18 @@ class MessageBubbleWidget extends StatelessWidget {
               )
             else if (canPin)
               ListTile(
-                leading: const Icon(Icons.push_pin_outlined, color: Colors.amberAccent),
-                title: const Text('Pin Message', style: TextStyle(color: Colors.white)),
-                subtitle: const Text('Select a duration (hours, day, or week)', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                leading: Icon(
+                  Icons.push_pin_outlined,
+                  color: tokens.warningAccent,
+                ),
+                title: Text(
+                  'Pin Message',
+                  style: TextStyle(color: tokens.textPrimary),
+                ),
+                subtitle: Text(
+                  'Select a duration (hours, day, or week)',
+                  style: TextStyle(color: tokens.textMuted, fontSize: 11),
+                ),
                 onTap: () {
                   Navigator.pop(ctx);
                   _showPinDurationDialog(context);
@@ -179,16 +220,22 @@ class MessageBubbleWidget extends StatelessWidget {
               ),
             if (isMine && !message.deleted) ...[
               ListTile(
-                leading: const Icon(Icons.edit_outlined, color: Colors.greenAccent),
-                title: const Text('Edit Message', style: TextStyle(color: Colors.white)),
+                leading: Icon(Icons.edit_outlined, color: tokens.online),
+                title: Text(
+                  'Edit Message',
+                  style: TextStyle(color: tokens.textPrimary),
+                ),
                 onTap: () {
                   Navigator.pop(ctx);
                   onEdit(message);
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                title: const Text('Delete Message', style: TextStyle(color: Colors.redAccent)),
+                leading: Icon(Icons.delete_outline_rounded, color: tokens.urgentText),
+                title: Text(
+                  'Delete Message',
+                  style: TextStyle(color: tokens.urgentText),
+                ),
                 onTap: () {
                   Navigator.pop(ctx);
                   onDelete(message);
@@ -197,8 +244,11 @@ class MessageBubbleWidget extends StatelessWidget {
             ],
             if (message.isFailed && onRetry != null)
               ListTile(
-                leading: const Icon(Icons.refresh, color: Colors.orangeAccent),
-                title: const Text('Retry Sending', style: TextStyle(color: Colors.white)),
+                leading: Icon(Icons.refresh_rounded, color: tokens.warningAccent),
+                title: Text(
+                  'Retry Sending',
+                  style: TextStyle(color: tokens.textPrimary),
+                ),
                 onTap: () {
                   Navigator.pop(ctx);
                   onRetry!(message);
@@ -212,6 +262,7 @@ class MessageBubbleWidget extends StatelessWidget {
 
   void _showSeenBySheet(BuildContext context) {
     if (isDirectChat || groupReadPointers == null) return;
+    final tokens = context.pcTokens;
 
     final seenBy = groupReadPointers!.entries.where((e) {
       return e.key != message.senderId &&
@@ -220,9 +271,9 @@ class MessageBubbleWidget extends StatelessWidget {
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+      backgroundColor: tokens.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
       ),
       builder: (ctx) => SafeArea(
         child: Padding(
@@ -233,19 +284,19 @@ class MessageBubbleWidget extends StatelessWidget {
             children: [
               Text(
                 'Seen by ${seenBy.length}',
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: tokens.textPrimary,
                   fontSize: 16,
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 12),
               if (seenBy.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8.0),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8.0),
                   child: Text(
                     'No participants have viewed this message yet.',
-                    style: TextStyle(color: Colors.grey),
+                    style: TextStyle(color: tokens.textMuted),
                   ),
                 )
               else
@@ -257,15 +308,22 @@ class MessageBubbleWidget extends StatelessWidget {
                     return ListTile(
                       dense: true,
                       contentPadding: EdgeInsets.zero,
-                      leading: const CircleAvatar(
+                      leading: CircleAvatar(
                         radius: 14,
-                        backgroundColor: Colors.blueAccent,
-                        child: Icon(Icons.check, size: 14, color: Colors.white),
+                        backgroundColor: tokens.primarySoft,
+                        child: Icon(
+                          Icons.check_rounded,
+                          size: 14,
+                          color: tokens.primary,
+                        ),
                       ),
-                      title: Text(item.key, style: const TextStyle(color: Colors.white)),
+                      title: Text(
+                        item.key,
+                        style: TextStyle(color: tokens.textPrimary),
+                      ),
                       trailing: Text(
                         _formatTime(item.value.lastReadAt),
-                        style: const TextStyle(color: Colors.grey, fontSize: 11),
+                        style: TextStyle(color: tokens.textMuted, fontSize: 11),
                       ),
                     );
                   },
@@ -277,16 +335,19 @@ class MessageBubbleWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildReadStatusIcon(BuildContext context) {
+  Widget _buildReadStatusIcon(BuildContext context, Color fgText) {
     if (!isMine) return const SizedBox.shrink();
 
     if (message.isPending || message.hasPendingWrites) {
-      return const Padding(
-        padding: EdgeInsets.only(left: 6),
+      return Padding(
+        padding: const EdgeInsets.only(left: 6),
         child: SizedBox(
           width: 9,
           height: 9,
-          child: CircularProgressIndicator(strokeWidth: 1.2, color: Colors.white54),
+          child: CircularProgressIndicator(
+            strokeWidth: 1.2,
+            color: fgText.withValues(alpha: 0.7),
+          ),
         ),
       );
     }
@@ -294,63 +355,65 @@ class MessageBubbleWidget extends StatelessWidget {
     if (message.isFailed) {
       return const Padding(
         padding: EdgeInsets.only(left: 4),
-        child: Icon(Icons.error_outline_rounded, size: 12, color: Colors.redAccent),
+        child: Icon(
+          Icons.error_outline_rounded,
+          size: 12,
+          color: Color(0xFFFCA5A5),
+        ),
       );
     }
 
-    // Direct Chat Receipts
     if (isDirectChat) {
       if (!showReadReceipts || otherReadPointer == null) {
-        // Single Crystal: Sent
-        return const Padding(
-          padding: EdgeInsets.only(left: 6),
-          child: _NeonCrystal(
+        return Padding(
+          padding: const EdgeInsets.only(left: 6),
+          child: _StatusCrystal(
             isFilled: true,
             isGlow: false,
-            color: Colors.white54,
-            size: 6.5,
+            color: fgText.withValues(alpha: 0.65),
+            size: 6.2,
           ),
         );
       }
 
-      // Check if other user's pointer is at or past this message's timestamp
       final isSeen = !otherReadPointer!.lastReadAt.isBefore(message.timestamp);
-
-      // Twin Crystals: Delivered (silver) vs Read (glowing electric-cyan neon crystals)
       return Padding(
         padding: const EdgeInsets.only(left: 6),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _NeonCrystal(
+            _StatusCrystal(
               isFilled: true,
               isGlow: isSeen,
-              color: isSeen ? const Color(0xFF00E5FF) : Colors.white60,
-              glowColor: isSeen ? const Color(0xFF00E5FF) : null,
-              size: 6.5,
+              color: isSeen
+                  ? const Color(0xFF7DD3FC)
+                  : fgText.withValues(alpha: 0.7),
+              size: 6.2,
             ),
             const SizedBox(width: 3.5),
-            _NeonCrystal(
+            _StatusCrystal(
               isFilled: isSeen,
               isGlow: isSeen,
-              color: isSeen ? const Color(0xFF00E5FF) : Colors.white38,
-              glowColor: isSeen ? const Color(0xFF00B0FF) : null,
-              size: 6.5,
+              color: isSeen
+                  ? const Color(0xFF7DD3FC)
+                  : fgText.withValues(alpha: 0.45),
+              size: 6.2,
             ),
           ],
         ),
       );
     }
 
-    // Group / Department / General Chat Receipts
-    if (groupReadPointers == null || groupReadPointers!.isEmpty || !showReadReceipts) {
-      return const Padding(
-        padding: EdgeInsets.only(left: 6),
-        child: _NeonCrystal(
+    if (groupReadPointers == null ||
+        groupReadPointers!.isEmpty ||
+        !showReadReceipts) {
+      return Padding(
+        padding: const EdgeInsets.only(left: 6),
+        child: _StatusCrystal(
           isFilled: true,
           isGlow: false,
-          color: Colors.white54,
-          size: 6.5,
+          color: fgText.withValues(alpha: 0.65),
+          size: 6.2,
         ),
       );
     }
@@ -364,26 +427,30 @@ class MessageBubbleWidget extends StatelessWidget {
     return GestureDetector(
       onTap: () => _showSeenBySheet(context),
       child: Tooltip(
-        message: hasAnySeen ? 'Seen by $seenCount (tap to view)' : 'Sent (tap to view)',
+        message: hasAnySeen
+            ? 'Seen by $seenCount (tap to view)'
+            : 'Sent (tap to view)',
         child: Padding(
           padding: const EdgeInsets.only(left: 6),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _NeonCrystal(
+              _StatusCrystal(
                 isFilled: true,
                 isGlow: hasAnySeen,
-                color: hasAnySeen ? const Color(0xFF00E5FF) : Colors.white60,
-                glowColor: hasAnySeen ? const Color(0xFF00E5FF) : null,
-                size: 6.5,
+                color: hasAnySeen
+                    ? const Color(0xFF7DD3FC)
+                    : fgText.withValues(alpha: 0.7),
+                size: 6.2,
               ),
               const SizedBox(width: 3.5),
-              _NeonCrystal(
+              _StatusCrystal(
                 isFilled: hasAnySeen,
                 isGlow: hasAnySeen,
-                color: hasAnySeen ? const Color(0xFF00E5FF) : Colors.white38,
-                glowColor: hasAnySeen ? const Color(0xFF00B0FF) : null,
-                size: 6.5,
+                color: hasAnySeen
+                    ? const Color(0xFF7DD3FC)
+                    : fgText.withValues(alpha: 0.45),
+                size: 6.2,
               ),
             ],
           ),
@@ -392,12 +459,12 @@ class MessageBubbleWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildTextSpans(BuildContext context) {
+  Widget _buildTextSpans(BuildContext context, PcTokens tokens, Color fgText) {
     if (message.deleted) {
-      return const Text(
+      return Text(
         'Message deleted',
         style: TextStyle(
-          color: Colors.grey,
+          color: isMine ? fgText.withValues(alpha: 0.7) : tokens.textMuted,
           fontSize: 14,
           fontStyle: FontStyle.italic,
         ),
@@ -408,11 +475,10 @@ class MessageBubbleWidget extends StatelessWidget {
     if (message.mentions.isEmpty && !text.contains('@')) {
       return Text(
         text,
-        style: const TextStyle(color: Colors.white, fontSize: 15),
+        style: TextStyle(color: fgText, fontSize: 14.5, height: 1.35),
       );
     }
 
-    // Parse @mentions spans
     final List<InlineSpan> spans = [];
     final List<String> patterns = ['@all'];
     for (final m in message.mentions) {
@@ -426,38 +492,48 @@ class MessageBubbleWidget extends StatelessWidget {
 
     for (final match in regex.allMatches(text)) {
       if (match.start > lastEnd) {
-        spans.add(TextSpan(
-          text: text.substring(lastEnd, match.start),
-          style: const TextStyle(color: Colors.white, fontSize: 15),
-        ));
+        spans.add(
+          TextSpan(
+            text: text.substring(lastEnd, match.start),
+            style: TextStyle(color: fgText, fontSize: 14.5, height: 1.35),
+          ),
+        );
       }
 
       final mentionText = match.group(0)!;
       final isAll = mentionText.toLowerCase() == '@all';
 
-      spans.add(TextSpan(
-        text: mentionText,
-        style: TextStyle(
-          color: isAll ? Colors.amberAccent : Colors.lightBlueAccent,
-          fontWeight: FontWeight.bold,
-          fontSize: 15,
+      spans.add(
+        TextSpan(
+          text: mentionText,
+          style: TextStyle(
+            color: isMine
+                ? (isAll ? const Color(0xFFFDE68A) : Colors.white)
+                : (isAll ? tokens.warningAccent : tokens.primary),
+            decoration: isMine ? TextDecoration.underline : null,
+            fontWeight: FontWeight.w700,
+            fontSize: 14.5,
+            height: 1.35,
+          ),
         ),
-      ));
+      );
 
       lastEnd = match.end;
     }
 
     if (lastEnd < text.length) {
-      spans.add(TextSpan(
-        text: text.substring(lastEnd),
-        style: const TextStyle(color: Colors.white, fontSize: 15),
-      ));
+      spans.add(
+        TextSpan(
+          text: text.substring(lastEnd),
+          style: TextStyle(color: fgText, fontSize: 14.5, height: 1.35),
+        ),
+      );
     }
 
     return RichText(text: TextSpan(children: spans));
   }
 
-  Widget _buildQuotedReply() {
+  Widget _buildQuotedReply(PcTokens tokens, Color fgText) {
     final reply = message.replyTo;
     if (reply == null) return const SizedBox.shrink();
 
@@ -467,12 +543,14 @@ class MessageBubbleWidget extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.25),
+          color: isMine
+              ? Colors.black.withValues(alpha: 0.16)
+              : tokens.surface,
           borderRadius: BorderRadius.circular(8),
           border: Border(
             left: BorderSide(
-              color: isMine ? Colors.white : primaryColor,
-              width: 3.5,
+              color: isMine ? fgText : primaryColor,
+              width: 3,
             ),
           ),
         ),
@@ -482,9 +560,9 @@ class MessageBubbleWidget extends StatelessWidget {
             Text(
               reply.senderName.isNotEmpty ? reply.senderName : 'Colleague',
               style: TextStyle(
-                color: isMine ? Colors.white : primaryColor,
+                color: isMine ? fgText : primaryColor,
                 fontSize: 11,
-                fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 2),
@@ -493,7 +571,9 @@ class MessageBubbleWidget extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: Colors.grey[300],
+                color: isMine
+                    ? fgText.withValues(alpha: 0.85)
+                    : tokens.textSecondary,
                 fontSize: 12,
               ),
             ),
@@ -505,29 +585,35 @@ class MessageBubbleWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bubbleColor = isMine
-        ? primaryColor
-        : const Color.fromRGBO(48, 48, 48, 1);
+    final tokens = context.pcTokens;
+    final effectiveOutgoing = PcTokens.readableAccentOnLight(primaryColor);
+    final bubbleColor = isMine ? effectiveOutgoing : tokens.surface;
+    final fgText =
+        isMine ? PcTokens.contrastOn(effectiveOutgoing) : tokens.textPrimary;
 
     final bool mentionsMe = !isMine &&
         currentUid.isNotEmpty &&
         message.mentions.any((m) => m.uid == currentUid || m.uid == 'all');
 
+    final double maxBubbleWidth =
+        math.min(MediaQuery.sizeOf(context).width * 0.76, 620.0);
+
     Widget bubble = Align(
       alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(
-        crossAxisAlignment: isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment:
+            isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           if (!isMine && !isConsecutive)
             Padding(
-              padding: const EdgeInsets.only(left: 12, bottom: 3, top: 4),
+              padding: const EdgeInsets.only(left: 10, bottom: 3, top: 6),
               child: Text(
                 message.senderName.isNotEmpty ? message.senderName : 'Colleague',
                 style: TextStyle(
-                  color: Colors.grey[400],
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
+                  color: tokens.textSecondary,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
@@ -536,138 +622,156 @@ class MessageBubbleWidget extends StatelessWidget {
             onLongPress: () => _showMessageActions(context),
             onSecondaryTap: () => _showMessageActions(context),
             child: Container(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.76,
+              constraints: BoxConstraints(maxWidth: maxBubbleWidth),
+              margin: EdgeInsets.only(
+                top: isConsecutive ? 2 : 3,
+                bottom: 2,
+                left: isMine ? 48 : 0,
+                right: isMine ? 0 : 48,
               ),
-                margin: EdgeInsets.only(
-                  top: isConsecutive ? 2 : 4,
-                  bottom: 2,
-                  left: isMine ? 48 : 0,
-                  right: isMine ? 0 : 48,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              decoration: BoxDecoration(
+                color: bubbleColor,
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(16),
+                  topRight: const Radius.circular(16),
+                  bottomLeft: Radius.circular(isMine ? 16 : 4),
+                  bottomRight: Radius.circular(isMine ? 4 : 16),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: bubbleColor,
-                  borderRadius: BorderRadius.only(
-                    topLeft: const Radius.circular(16),
-                    topRight: const Radius.circular(16),
-                    bottomLeft: Radius.circular(isMine ? 16 : (isConsecutive ? 4 : 4)),
-                    bottomRight: Radius.circular(isMine ? (isConsecutive ? 4 : 4) : 16),
+                border: isHighlighted
+                    ? Border.all(color: tokens.warningAccent, width: 2)
+                    : mentionsMe
+                        ? Border.all(color: tokens.primary, width: 1.4)
+                        : (!isMine ? Border.all(color: tokens.border) : null),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
                   ),
-                  border: isHighlighted
-                      ? Border.all(color: Colors.amberAccent, width: 2)
-                      : mentionsMe
-                          ? Border.all(color: Colors.lightBlueAccent, width: 1.2)
-                          : null,
-                  boxShadow: [
-                    if (mentionsMe)
-                      BoxShadow(
-                        color: Colors.lightBlueAccent.withOpacity(0.2),
-                        blurRadius: 8,
-                        spreadRadius: 1,
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (mentionsMe)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 5),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
                       ),
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.12),
-                      blurRadius: 4,
-                      offset: const Offset(0, 1),
+                      decoration: BoxDecoration(
+                        color: tokens.primarySoft,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.alternate_email_rounded,
+                            size: 10,
+                            color: tokens.primary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Mentioned you',
+                            style: TextStyle(
+                              color: tokens.primary,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (mentionsMe)
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 5),
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.lightBlueAccent.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.alternate_email, size: 10, color: Colors.lightBlueAccent),
-                            SizedBox(width: 4),
-                            Text(
-                              'Mentioned you',
-                              style: TextStyle(
-                                color: Colors.lightBlueAccent,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
+                  if (isPinned)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 5),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
                       ),
-                    if (isPinned)
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 5),
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.push_pin, size: 11, color: Colors.amberAccent),
-                            SizedBox(width: 4),
-                            Text(
-                              'Pinned',
-                              style: TextStyle(
-                                color: Colors.amberAccent,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
+                      decoration: BoxDecoration(
+                        color: isMine
+                            ? Colors.black.withValues(alpha: 0.16)
+                            : tokens.warningSoft,
+                        borderRadius: BorderRadius.circular(4),
                       ),
-                    _buildQuotedReply(),
-                    if (message.type == 'poll' && message.poll != null)
-                      PollBubbleWidget(
-                        message: message,
-                        firmId: firmId,
-                        conversationId: conversationId ?? '',
-                        currentUid: currentUid,
-                        currentUserRole: currentUserRole,
-                        primaryColor: primaryColor,
-                        participants: participants,
-                      )
-                    else if (message.type == 'image' && message.media != null)
-                      ImageBubbleWidget(
-                        message: message,
-                        isMine: isMine,
-                        primaryColor: primaryColor,
-                        captionWidget: message.text.isNotEmpty ? _buildTextSpans(context) : null,
-                      )
-                    else
-                      _buildTextSpans(context),
-                    const SizedBox(height: 3),
-                    Row(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.push_pin_rounded,
+                            size: 11,
+                            color: isMine
+                                ? const Color(0xFFFDE68A)
+                                : tokens.warningAccent,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Pinned',
+                            style: TextStyle(
+                              color: isMine
+                                  ? const Color(0xFFFDE68A)
+                                  : tokens.warningAccent,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  _buildQuotedReply(tokens, fgText),
+                  if (message.type == 'poll' && message.poll != null)
+                    PollBubbleWidget(
+                      message: message,
+                      firmId: firmId,
+                      conversationId: conversationId ?? '',
+                      currentUid: currentUid,
+                      currentUserRole: currentUserRole,
+                      primaryColor: effectiveOutgoing,
+                      isMine: isMine,
+                      participants: participants,
+                    )
+                  else if (message.type == 'image' && message.media != null)
+                    ImageBubbleWidget(
+                      message: message,
+                      isMine: isMine,
+                      primaryColor: effectiveOutgoing,
+                      captionWidget: message.text.isNotEmpty
+                          ? _buildTextSpans(context, tokens, fgText)
+                          : null,
+                    )
+                  else
+                    _buildTextSpans(context, tokens, fgText),
+                  const SizedBox(height: 4),
+                  Row(
                     mainAxisSize: MainAxisSize.min,
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      if (message.editedAt != null && !message.deleted) ...[
+                      if (message.editedAt != null && !message.deleted)
                         Text(
                           'edited ',
                           style: TextStyle(
-                            color: isMine ? Colors.white60 : Colors.grey[400],
+                            color: isMine
+                                ? fgText.withValues(alpha: 0.72)
+                                : tokens.textMuted,
                             fontSize: 10,
                             fontStyle: FontStyle.italic,
                           ),
                         ),
-                      ],
                       Text(
                         _formatTime(message.timestamp),
                         style: TextStyle(
-                          color: isMine ? Colors.white70 : Colors.grey[400],
+                          color: isMine
+                              ? fgText.withValues(alpha: 0.78)
+                              : tokens.textMuted,
                           fontSize: 10,
                         ),
                       ),
-                      _buildReadStatusIcon(context),
+                      _buildReadStatusIcon(context, fgText),
                     ],
                   ),
                 ],
@@ -678,19 +782,18 @@ class MessageBubbleWidget extends StatelessWidget {
       ),
     );
 
-    // On mobile, support swipe-to-reply gesture
     if (!kIsWeb && !message.deleted) {
       return Dismissible(
         key: Key('reply_${message.messageId}'),
         direction: DismissDirection.startToEnd,
         confirmDismiss: (direction) async {
           onReply(message);
-          return false; // Don't dismiss the widget
+          return false;
         },
         background: Container(
           alignment: Alignment.centerLeft,
           padding: const EdgeInsets.only(left: 16),
-          child: const Icon(Icons.reply, color: Colors.blueAccent, size: 24),
+          child: Icon(Icons.reply_rounded, color: tokens.primary, size: 22),
         ),
         child: bubble,
       );
@@ -700,26 +803,23 @@ class MessageBubbleWidget extends StatelessWidget {
   }
 }
 
-class _NeonCrystal extends StatelessWidget {
+class _StatusCrystal extends StatelessWidget {
   final bool isFilled;
   final bool isGlow;
   final Color color;
-  final Color? glowColor;
   final double size;
 
-  const _NeonCrystal({
+  const _StatusCrystal({
     required this.isFilled,
     required this.isGlow,
     required this.color,
-    this.glowColor,
-    this.size = 6.5,
+    this.size = 6.2,
   });
 
   @override
   Widget build(BuildContext context) {
-    final effectiveGlow = glowColor ?? color;
     return Transform.rotate(
-      angle: 0.785398, // 45 degrees into diamond crystal
+      angle: 0.785398,
       child: Container(
         width: size,
         height: size,
@@ -727,36 +827,15 @@ class _NeonCrystal extends StatelessWidget {
           color: isFilled ? color : Colors.transparent,
           borderRadius: BorderRadius.circular(1.2),
           border: Border.all(
-            color: isGlow ? Colors.white.withOpacity(0.9) : color,
-            width: 1.1,
+            color: isGlow ? Colors.white : color,
+            width: 1.0,
           ),
-          gradient: isFilled
-              ? LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: isGlow
-                      ? [
-                          const Color(0xFFE0F7FA), // Specular light highlight
-                          color,
-                          color.withOpacity(0.85),
-                        ]
-                      : [
-                          color,
-                          color.withOpacity(0.7),
-                        ],
-                )
-              : null,
           boxShadow: isGlow
               ? [
                   BoxShadow(
-                    color: effectiveGlow.withOpacity(0.95),
-                    blurRadius: 5.0,
-                    spreadRadius: 1.0,
-                  ),
-                  BoxShadow(
-                    color: effectiveGlow.withOpacity(0.45),
-                    blurRadius: 10.0,
-                    spreadRadius: 2.0,
+                    color: color.withValues(alpha: 0.8),
+                    blurRadius: 4,
+                    spreadRadius: 0.5,
                   ),
                 ]
               : null,

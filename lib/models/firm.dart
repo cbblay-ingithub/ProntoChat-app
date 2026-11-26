@@ -13,6 +13,9 @@ class Firm {
   /// Primary brand color as hex string (e.g., "#295CB4")
   final String primaryColor;
 
+  /// Harmony theme identifier for Admin Web ("calm" | "harmony" | "contrast" | "balanced" | "playful")
+  final String themeId;
+
   /// UID of the admin/owner who created this firm
   final String ownerUid;
 
@@ -63,6 +66,7 @@ class Firm {
     required this.firmId,
     required this.name,
     required this.primaryColor,
+    this.themeId = 'calm',
     String? ownerUid,
     String? adminId,
     this.plan = 'trial',
@@ -90,6 +94,7 @@ class Firm {
     String? firmId,
     String? name,
     String? primaryColor,
+    String? themeId,
     String? ownerUid,
     String? plan,
     String? status,
@@ -110,6 +115,7 @@ class Firm {
       firmId: firmId ?? this.firmId,
       name: name ?? this.name,
       primaryColor: primaryColor ?? this.primaryColor,
+      themeId: themeId ?? this.themeId,
       ownerUid: ownerUid ?? this.ownerUid,
       plan: plan ?? this.plan,
       status: status ?? this.status,
@@ -123,7 +129,9 @@ class Firm {
       inviteToken: inviteToken ?? this.inviteToken,
       showLastSeen: showLastSeen ?? this.showLastSeen,
       showReadReceipts: showReadReceipts ?? this.showReadReceipts,
-      leadsMayTargetBeyondOwnDepartment: leadsMayTargetBeyondOwnDepartment ?? this.leadsMayTargetBeyondOwnDepartment,
+      leadsMayTargetBeyondOwnDepartment:
+          leadsMayTargetBeyondOwnDepartment ??
+              this.leadsMayTargetBeyondOwnDepartment,
       welcomeText: welcomeText ?? this.welcomeText,
     );
   }
@@ -131,11 +139,15 @@ class Firm {
   factory Firm.fromJson(Map<String, dynamic> json) {
     MediaRef? parsedLogo;
     if (json['logo'] is Map) {
-      parsedLogo = MediaRef.fromMap(Map<String, dynamic>.from(json['logo'] as Map));
+      parsedLogo =
+          MediaRef.fromMap(Map<String, dynamic>.from(json['logo'] as Map));
     }
 
-    final noticesMap = json['notices'] is Map ? (json['notices'] as Map<String, dynamic>) : null;
-    final leadsMayTarget = noticesMap != null && noticesMap.containsKey('leadsMayTargetBeyondOwnDepartment')
+    final noticesMap = json['notices'] is Map
+        ? (json['notices'] as Map<String, dynamic>)
+        : null;
+    final leadsMayTarget = noticesMap != null &&
+            noticesMap.containsKey('leadsMayTargetBeyondOwnDepartment')
         ? (noticesMap['leadsMayTargetBeyondOwnDepartment'] as bool? ?? true)
         : true;
 
@@ -143,13 +155,15 @@ class Firm {
       firmId: json['firmId'] as String? ?? '',
       name: json['name'] as String? ?? '',
       primaryColor: json['primaryColor'] as String? ?? '#295CB4',
+      themeId: json['themeId'] as String? ?? 'calm',
       ownerUid: (json['ownerUid'] ?? json['adminId']) as String? ?? '',
       plan: json['plan'] as String? ?? 'trial',
       status: json['status'] as String? ?? 'active',
       seatLimit: (json['seatLimit'] as num?)?.toInt() ?? 5,
       seatCount: (json['seatCount'] as num?)?.toInt() ?? 1,
       termsAcceptedAt: json['termsAcceptedAt'] != null
-          ? DateTime.tryParse(json['termsAcceptedAt'].toString()) ?? DateTime.now()
+          ? DateTime.tryParse(json['termsAcceptedAt'].toString()) ??
+              DateTime.now()
           : DateTime.now(),
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'].toString()) ?? DateTime.now()
@@ -170,6 +184,7 @@ class Firm {
       'firmId': firmId,
       'name': name,
       'primaryColor': primaryColor,
+      'themeId': themeId,
       'ownerUid': ownerUid,
       'adminId': ownerUid,
       'plan': plan,
@@ -193,7 +208,7 @@ class Firm {
 
   factory Firm.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? {};
-    
+
     DateTime parseDate(dynamic val) {
       if (val is Timestamp) return val.toDate();
       if (val is String) return DateTime.tryParse(val) ?? DateTime.now();
@@ -207,11 +222,15 @@ class Firm {
 
     MediaRef? parsedLogo;
     if (data['logo'] is Map) {
-      parsedLogo = MediaRef.fromMap(Map<String, dynamic>.from(data['logo'] as Map));
+      parsedLogo =
+          MediaRef.fromMap(Map<String, dynamic>.from(data['logo'] as Map));
     }
 
-    final noticesMap = data['notices'] is Map ? (data['notices'] as Map<String, dynamic>) : null;
-    final leadsMayTarget = noticesMap != null && noticesMap.containsKey('leadsMayTargetBeyondOwnDepartment')
+    final noticesMap = data['notices'] is Map
+        ? (data['notices'] as Map<String, dynamic>)
+        : null;
+    final leadsMayTarget = noticesMap != null &&
+            noticesMap.containsKey('leadsMayTargetBeyondOwnDepartment')
         ? (noticesMap['leadsMayTargetBeyondOwnDepartment'] as bool? ?? true)
         : true;
 
@@ -219,6 +238,7 @@ class Firm {
       firmId: doc.id,
       name: data['name'] as String? ?? '',
       primaryColor: data['primaryColor'] as String? ?? '#295CB4',
+      themeId: data['themeId'] as String? ?? 'calm',
       ownerUid: (data['ownerUid'] ?? data['adminId']) as String? ?? '',
       plan: data['plan'] as String? ?? 'trial',
       status: data['status'] as String? ?? 'active',
@@ -241,8 +261,9 @@ class Firm {
     return {
       'name': name,
       'primaryColor': primaryColor,
+      'themeId': themeId,
       'ownerUid': ownerUid,
-      'adminId': ownerUid, // for backward compatibility with existing rules/code
+      'adminId': ownerUid,
       'plan': plan,
       'status': status,
       'seatLimit': seatLimit,

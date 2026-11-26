@@ -1,32 +1,31 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../../models/active_chat_selection.dart';
 import '../../models/firm.dart';
 import '../../models/membership.dart';
 import '../../models/notice_model.dart';
+import '../../screens/employee/channel_chat_screen.dart';
+import '../../screens/notices/notice_composer_screen.dart';
+import '../../screens/notices/notice_detail_screen.dart';
 import '../../services/db_service.dart';
 import '../../services/notices_service.dart';
 import '../../services/urgent_notice_notifier_service.dart';
-import '../../widgets/notices/notice_card.dart';
-import '../../screens/notices/notice_detail_screen.dart';
-import '../../screens/notices/notice_composer_screen.dart';
-import '../../screens/employee/channel_chat_screen.dart';
-import '../search_page.dart';
+import '../../theme/pc_tokens.dart';
+import '../../widgets/chat/unified_chat_view.dart';
 import '../../widgets/common/pc_logo.dart';
+import '../../widgets/notices/notice_card.dart';
+import '../search_page.dart';
 
-/// The redesigned Home tab that serves as the default landing screen for all members.
-/// Features:
-/// - Workspace header with firm branding and colleague search
-/// - Urgent notice banner (addressed, unacknowledged, dismissible locally)
-/// - Quick links row (#all-staff, My Department, Direct Chats, Directory)
-/// - Pinned notices carousel (up to 3 pinned unexpired notices)
-/// - Main feed of notice cards with pull-to-refresh & pagination
-/// - Role & permission gated FAB for posting notices (admin, lead, or noticePublisher)
+/// Home tab serving as the workspace portal and official noticeboard.
+/// Adapts between full-bleed mobile scroll and centered max-width Web canvas.
 class EmployeeHomeTab extends StatefulWidget {
   final String uid;
   final String userName;
   final Firm firm;
   final void Function(int tabIndex) onNavigateToTab;
+  final ValueChanged<ActiveChatSelection>? onOpenChat;
+  final bool isWideLayout;
 
   const EmployeeHomeTab({
     super.key,
@@ -34,6 +33,8 @@ class EmployeeHomeTab extends StatefulWidget {
     required this.userName,
     required this.firm,
     required this.onNavigateToTab,
+    this.onOpenChat,
+    this.isWideLayout = false,
   });
 
   @override
@@ -64,17 +65,16 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
     super.initState();
     _scrollController.addListener(_onScroll);
 
-    // 1. Listen to membership to know user's role and department
     _memberSub = DBService.instance
         .streamMember(widget.firm.firmId, widget.uid)
         .listen((doc) {
       if (doc.exists && mounted) {
         final newMembership = Membership.fromFirestore(doc);
-        final shouldRefresh = _myMembership == null || _myMembership?.departmentId != newMembership.departmentId;
+        final shouldRefresh = _myMembership == null ||
+            _myMembership?.departmentId != newMembership.departmentId;
         setState(() {
           _myMembership = newMembership;
         });
-        // Start urgent notice listener with resolved department
         _listenUrgentNotice();
         if (shouldRefresh) {
           _loadInitialData(forceRefresh: true);
@@ -82,7 +82,6 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
       }
     });
 
-    // 2. Stream user's lastSeenAt for unread badge calculation
     _lastSeenSub = NoticesService.instance
         .streamLastSeenAt(widget.firm.firmId, widget.uid)
         .listen((lastSeen) {
@@ -91,13 +90,9 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
       }
     });
 
-    // 3. Initial load of feed & pinned notices
     _loadInitialData();
-
-    // 4. Update lastSeenAt (throttled to at most once per 60s)
     NoticesService.instance.updateLastSeenAt(widget.firm.firmId, widget.uid);
 
-    // 5. Start foreground urgent notifier for alerts & haptics
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       UrgentNoticeNotifierService.instance.startListening(
@@ -228,7 +223,6 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
       ),
     );
 
-    // Refresh feed if notice was retracted or modified
     if (result == true && mounted) {
       _loadInitialData(forceRefresh: true);
     }
@@ -248,15 +242,144 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final primaryColor = theme.colorScheme.primary;
+    final tokens = context.pcTokens;
+    final primaryColor = tokens.primary;
+
+    Widget scrollBody = RefreshIndicator(
+      color: primaryColor,
+      backgroundColor: tokens.surface,
+      onRefresh: () async {
+        await _loadInitialData(forceRefresh: true);
+        await NoticesService.instance.updateLastSeenAt(
+          widget.firm.firmId,
+          widget.uid,
+        );
+      },
+      child: CustomScrollView(
+        controller: _scrollController,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverPadding(
+            padding: EdgeInsets.symmetric(
+              horizontal: widget.isWideLayout ? 28 : 16,
+              vertical: widget.isWideLayout ? 20 : 12,
+            ),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
+                _buildGreetingCard(tokens),
+                const SizedBox(height: 14),
+                if (_urgentNotice != null &&
+                    !_urgentDismissed &&
+                    !_urgentNotice!.isExpired) ...[
+                  _buildUrgentBanner(_urgentNotice!, tokens),
+                  const SizedBox(height: 14),
+                ],
+                _buildQuickLinks(tokens),
+                const SizedBox(height: 22),
+                if (_pinnedNotices.isNotEmpty) ...[
+                  _buildPinnedSection(tokens),
+                  const SizedBox(height: 22),
+                ],
+                Row(
+                  children: [
+                    Icon(Icons.feed_outlined, color: tokens.textSecondary, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Recent Notices',
+                      style: TextStyle(
+                        color: tokens.textPrimary,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const Spacer(),
+                    if (_notices.isNotEmpty)
+                      Text(
+                        '${_notices.length} notices',
+                        style: TextStyle(color: tokens.textMuted, fontSize: 12),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ]),
+            ),
+          ),
+          if (_isLoading)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(40),
+                  child: CircularProgressIndicator(color: primaryColor),
+                ),
+              ),
+            )
+          else if (_notices.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: _buildEmptyFeedState(tokens),
+            )
+          else
+            SliverPadding(
+              padding: EdgeInsets.symmetric(
+                horizontal: widget.isWideLayout ? 28 : 16,
+              ),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, index) {
+                    if (index == _notices.length) {
+                      return _isFetchingMore
+                          ? Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 20),
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: primaryColor,
+                                ),
+                              ),
+                            )
+                          : const SizedBox(height: 80);
+                    }
+
+                    final notice = _notices[index];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: NoticeCard(
+                        notice: notice,
+                        lastSeenAt: _lastSeenAt,
+                        primaryColor: primaryColor,
+                        onTap: () => _openNoticeDetail(notice),
+                      ),
+                    );
+                  },
+                  childCount: _notices.length + 1,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+
+    if (widget.isWideLayout) {
+      scrollBody = Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 880),
+          child: scrollBody,
+        ),
+      );
+    }
 
     return Scaffold(
-      backgroundColor: const Color.fromRGBO(28, 27, 27, 1),
+      backgroundColor: tokens.canvas,
       appBar: AppBar(
-        backgroundColor: const Color.fromRGBO(28, 27, 27, 1),
+        backgroundColor: tokens.surface,
         elevation: 0,
-        titleSpacing: 16,
+        titleSpacing: widget.isWideLayout ? 24 : 16,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Divider(height: 1, color: tokens.border),
+        ),
         title: Row(
           children: [
             PcLogo(
@@ -265,7 +388,7 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
               firmName: widget.firm.name,
               width: 34,
               height: 34,
-              borderRadius: 17,
+              borderRadius: 10,
               fallbackColor: primaryColor,
             ),
             const SizedBox(width: 10),
@@ -277,15 +400,15 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
                     widget.firm.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 17,
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontSize: 16.5,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const Text(
+                  Text(
                     'Workspace Portal',
-                    style: TextStyle(color: Colors.grey, fontSize: 11),
+                    style: TextStyle(color: tokens.textMuted, fontSize: 11.5),
                   ),
                 ],
               ),
@@ -294,7 +417,7 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.search, color: Colors.white),
+            icon: Icon(Icons.search_rounded, color: tokens.textSecondary),
             tooltip: 'Search colleagues',
             onPressed: () {
               Navigator.push(
@@ -303,17 +426,18 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
               );
             },
           ),
+          const SizedBox(width: 8),
         ],
       ),
       floatingActionButton: _canPublish
           ? FloatingActionButton.extended(
               backgroundColor: primaryColor,
-              foregroundColor: Colors.white,
-              elevation: 4,
-              icon: const Icon(Icons.campaign, size: 22),
+              foregroundColor: tokens.onPrimary,
+              elevation: 2,
+              icon: const Icon(Icons.campaign_rounded, size: 20),
               label: const Text(
                 'Post Notice',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5),
               ),
               onPressed: () async {
                 final created = await Navigator.push<bool>(
@@ -338,146 +462,37 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
               },
             )
           : null,
-      body: RefreshIndicator(
-        color: primaryColor,
-        backgroundColor: const Color.fromRGBO(38, 37, 37, 1),
-        onRefresh: () async {
-          await _loadInitialData(forceRefresh: true);
-          await NoticesService.instance.updateLastSeenAt(widget.firm.firmId, widget.uid);
-        },
-        child: CustomScrollView(
-          controller: _scrollController,
-          physics: const AlwaysScrollableScrollPhysics(),
-          slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate([
-                  // ── 1. Greeting Card ───────────────────────────────────────
-                  _buildGreetingCard(primaryColor),
-
-                  const SizedBox(height: 14),
-
-                  // ── 2. Urgent Notice Banner (if active & not dismissed) ────
-                  if (_urgentNotice != null &&
-                      !_urgentDismissed &&
-                      !_urgentNotice!.isExpired) ...[
-                    _buildUrgentBanner(_urgentNotice!),
-                    const SizedBox(height: 14),
-                  ],
-
-                  // ── 3. Quick Links Row ─────────────────────────────────────
-                  _buildQuickLinks(primaryColor),
-
-                  const SizedBox(height: 20),
-
-                  // ── 4. Pinned Notices Carousel ─────────────────────────────
-                  if (_pinnedNotices.isNotEmpty) ...[
-                    _buildPinnedSection(primaryColor),
-                    const SizedBox(height: 22),
-                  ],
-
-                  // ── 5. Main Notices Feed Header ────────────────────────────
-                  Row(
-                    children: [
-                      const Icon(Icons.feed_outlined, color: Colors.white70, size: 20),
-                      const SizedBox(width: 8),
-                      const Text(
-                        'Recent Notices',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const Spacer(),
-                      if (_notices.isNotEmpty)
-                        Text(
-                          '${_notices.length} notices',
-                          style: TextStyle(color: Colors.grey[500], fontSize: 12),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                ]),
-              ),
-            ),
-
-            // ── 6. Notices Feed Items ────────────────────────────────────────
-            if (_isLoading)
-              const SliverFillRemaining(
-                hasScrollBody: false,
-                child: Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(40),
-                    child: CircularProgressIndicator(),
-                  ),
-                ),
-              )
-            else if (_notices.isEmpty)
-              SliverFillRemaining(
-                hasScrollBody: false,
-                child: _buildEmptyFeedState(primaryColor),
-              )
-            else
-              SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      if (index == _notices.length) {
-                        return _isFetchingMore
-                            ? const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 20),
-                                child: Center(
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                ),
-                              )
-                            : const SizedBox(height: 80); // spacing for FAB
-                      }
-
-                      final notice = _notices[index];
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: NoticeCard(
-                          notice: notice,
-                          lastSeenAt: _lastSeenAt,
-                          primaryColor: primaryColor,
-                          onTap: () => _openNoticeDetail(notice),
-                        ),
-                      );
-                    },
-                    childCount: _notices.length + 1,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
+      body: scrollBody,
     );
   }
 
-  // ── Greeting Card ──────────────────────────────────────────────────────────
-  Widget _buildGreetingCard(Color primaryColor) {
+  Widget _buildGreetingCard(PcTokens tokens) {
     final firstName = widget.userName.split(' ').first;
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            primaryColor.withValues(alpha: 0.22),
-            const Color.fromRGBO(38, 37, 37, 1),
+            tokens.primarySoft,
+            tokens.surface,
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: primaryColor.withValues(alpha: 0.28),
-          width: 1.2,
+          color: tokens.primaryBorder,
+          width: 1,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -485,22 +500,23 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                 decoration: BoxDecoration(
-                  color: primaryColor.withValues(alpha: 0.2),
+                  color: tokens.surface,
                   borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: tokens.primaryBorder),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    CircleAvatar(radius: 4, backgroundColor: primaryColor),
+                    CircleAvatar(radius: 4, backgroundColor: tokens.primary),
                     const SizedBox(width: 6),
                     Text(
                       widget.firm.name,
                       style: TextStyle(
-                        color: primaryColor,
+                        color: tokens.primary,
                         fontSize: 11,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
@@ -509,17 +525,18 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
               const Spacer(),
               if (_myMembership != null)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.08),
+                    color: tokens.surfaceSubtle,
                     borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: tokens.border),
                   ),
                   child: Text(
                     _myMembership!.role.name.toUpperCase(),
                     style: TextStyle(
-                      color: Colors.grey[300],
+                      color: tokens.textSecondary,
                       fontSize: 10,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
@@ -528,9 +545,9 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
           const SizedBox(height: 12),
           Text(
             '${_getGreeting()}, $firstName!',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 20,
+            style: TextStyle(
+              color: tokens.textPrimary,
+              fontSize: 21,
               fontWeight: FontWeight.w800,
               letterSpacing: -0.4,
             ),
@@ -539,9 +556,9 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
           Text(
             'Official company announcements, updates, and department notices.',
             style: TextStyle(
-              color: Colors.grey[400],
-              fontSize: 12,
-              height: 1.35,
+              color: tokens.textSecondary,
+              fontSize: 13,
+              height: 1.4,
             ),
           ),
         ],
@@ -549,21 +566,13 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
     );
   }
 
-  // ── Urgent Notice Banner ───────────────────────────────────────────────────
-  Widget _buildUrgentBanner(NoticeModel notice) {
+  Widget _buildUrgentBanner(NoticeModel notice, PcTokens tokens) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color.fromRGBO(48, 20, 20, 1),
+        color: tokens.urgentBg,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.redAccent.withOpacity(0.6), width: 1.4),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.redAccent.withOpacity(0.12),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        border: Border.all(color: tokens.urgentBorder, width: 1.2),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -571,22 +580,26 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.redAccent.withOpacity(0.2),
+              color: tokens.urgentText.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 20),
+            child: Icon(
+              Icons.warning_amber_rounded,
+              color: tokens.urgentText,
+              size: 20,
+            ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    const Text(
+                    Text(
                       'URGENT NOTICE',
                       style: TextStyle(
-                        color: Colors.redAccent,
+                        color: tokens.urgentText,
                         fontWeight: FontWeight.w800,
                         fontSize: 11,
                         letterSpacing: 0.5,
@@ -598,40 +611,46 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
                         'from ${notice.authorName}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: Colors.grey[400], fontSize: 11),
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontSize: 11,
+                        ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 Text(
                   notice.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
+                  style: TextStyle(
+                    color: tokens.textPrimary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13.5,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 8),
                 Row(
                   children: [
                     InkWell(
                       onTap: () => _openNoticeDetail(notice),
-                      borderRadius: BorderRadius.circular(6),
+                      borderRadius: BorderRadius.circular(7),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 11,
+                          vertical: 5,
+                        ),
                         decoration: BoxDecoration(
-                          color: Colors.redAccent,
-                          borderRadius: BorderRadius.circular(6),
+                          color: tokens.urgentText,
+                          borderRadius: BorderRadius.circular(7),
                         ),
                         child: const Text(
                           'View Notice',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 11,
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
@@ -639,17 +658,24 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
                     const SizedBox(width: 8),
                     TextButton(
                       style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         minimumSize: Size.zero,
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                       onPressed: () {
-                        UrgentNoticeNotifierService.instance.dismissLocally(notice.id);
+                        UrgentNoticeNotifierService.instance
+                            .dismissLocally(notice.id);
                         setState(() => _urgentDismissed = true);
                       },
                       child: Text(
                         'Dismiss',
-                        style: TextStyle(color: Colors.grey[400], fontSize: 11),
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontSize: 11.5,
+                        ),
                       ),
                     ),
                   ],
@@ -662,51 +688,51 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
     );
   }
 
-  // ── Quick Links Row ────────────────────────────────────────────────────────
-  Widget _buildQuickLinks(Color primaryColor) {
+  Widget _buildQuickLinks(PcTokens tokens) {
     final deptId = _myMembership?.departmentId;
 
     return Row(
       children: [
-        // #all-staff
         Expanded(
           child: _QuickLinkCard(
             title: '#all-staff',
             subtitle: 'Company',
-            icon: Icons.campaign,
-            iconColor: Colors.blueAccent,
+            icon: Icons.campaign_rounded,
+            iconColor: tokens.infoAccent,
+            tokens: tokens,
             onTap: () async {
               await DBService.instance.ensureAllStaffChannel(widget.firm.firmId);
-              if (mounted) {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ChannelChatScreen(
-                      channelType: ChannelType.allStaff,
-                      firmId: widget.firm.firmId,
-                      conversationId: 'all_staff',
-                      title: '#all-staff',
-                      uid: widget.uid,
-                      userName: widget.userName,
-                    ),
-                  ),
-                );
+              if (!mounted) return;
+              if (widget.onOpenChat != null) {
+                widget.onOpenChat!(ActiveChatSelection.allStaff());
+                return;
               }
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ChannelChatScreen(
+                    channelType: ChannelType.allStaff,
+                    firmId: widget.firm.firmId,
+                    conversationId: 'all_staff',
+                    title: '#all-staff',
+                    uid: widget.uid,
+                    userName: widget.userName,
+                  ),
+                ),
+              );
             },
           ),
         ),
         const SizedBox(width: 8),
-
-        // Department
         Expanded(
           child: _QuickLinkCard(
-            title: deptId != null ? 'Department' : 'Channels',
-            subtitle: deptId != null ? 'My Team' : 'All Chats',
-            icon: Icons.corporate_fare,
-            iconColor: primaryColor,
+            title: deptId != null ? 'Department' : 'Team Chat',
+            subtitle: deptId != null ? 'My Team' : 'Open Chat',
+            icon: Icons.corporate_fare_rounded,
+            iconColor: tokens.primary,
+            tokens: tokens,
             onTap: () async {
               if (deptId != null) {
-                // Fetch department conversationId
                 final doc = await FirebaseFirestore.instance
                     .collection('Firms')
                     .doc(widget.firm.firmId)
@@ -718,6 +744,18 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
                 final name = data['name'] as String? ?? 'Department';
 
                 if (convId != null && convId.isNotEmpty && mounted) {
+                  if (widget.onOpenChat != null) {
+                    widget.onOpenChat!(
+                      ActiveChatSelection(
+                        kind: UnifiedChatKind.department,
+                        conversationId: convId,
+                        title: name,
+                        subtitle: 'Department Channel',
+                        departmentId: deptId,
+                      ),
+                    );
+                    return;
+                  }
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -735,52 +773,57 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
                   return;
                 }
               }
-              // Fallback: Navigate to Chats tab
+              if (widget.onOpenChat != null) {
+                widget.onOpenChat!(
+                  ActiveChatSelection.general(
+                    widget.firm.firmId,
+                    widget.firm.name,
+                  ),
+                );
+                return;
+              }
               widget.onNavigateToTab(1);
             },
           ),
         ),
         const SizedBox(width: 8),
-
-        // Direct Messages
         Expanded(
           child: _QuickLinkCard(
-            title: 'Messages',
+            title: 'Message',
             subtitle: 'Direct Chats',
-            icon: Icons.chat_bubble_outline,
-            iconColor: Colors.tealAccent,
-            onTap: () => widget.onNavigateToTab(1), // Switch to Chats tab
+            icon: Icons.chat_bubble_outline_rounded,
+            iconColor: const Color(0xFF0D9488),
+            tokens: tokens,
+            onTap: () => widget.onNavigateToTab(1),
           ),
         ),
         const SizedBox(width: 8),
-
-        // Directory
         Expanded(
           child: _QuickLinkCard(
             title: 'Directory',
             subtitle: 'Colleagues',
-            icon: Icons.people_outline,
-            iconColor: Colors.purpleAccent,
-            onTap: () => widget.onNavigateToTab(2), // Switch to Directory tab
+            icon: Icons.people_outline_rounded,
+            iconColor: tokens.projectAccent,
+            tokens: tokens,
+            onTap: () => widget.onNavigateToTab(2),
           ),
         ),
       ],
     );
   }
 
-  // ── Pinned Notices Carousel ────────────────────────────────────────────────
-  Widget _buildPinnedSection(Color primaryColor) {
+  Widget _buildPinnedSection(PcTokens tokens) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            const Icon(Icons.push_pin, color: Colors.amberAccent, size: 18),
+            Icon(Icons.push_pin_rounded, color: tokens.warningAccent, size: 18),
             const SizedBox(width: 6),
-            const Text(
+            Text(
               'Pinned Notices',
               style: TextStyle(
-                color: Colors.white,
+                color: tokens.textPrimary,
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
               ),
@@ -789,13 +832,13 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
               decoration: BoxDecoration(
-                color: Colors.amber.withOpacity(0.18),
+                color: tokens.warningSoft,
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
                 '${_pinnedNotices.length}',
-                style: const TextStyle(
-                  color: Colors.amberAccent,
+                style: TextStyle(
+                  color: tokens.warningAccent,
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
                 ),
@@ -805,16 +848,16 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
         ),
         const SizedBox(height: 10),
         SizedBox(
-          height: 130,
+          height: 132,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: _pinnedNotices.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 12),
+            separatorBuilder: (_, _) => const SizedBox(width: 12),
             itemBuilder: (context, index) {
               final notice = _pinnedNotices[index];
               return _PinnedNoticeCard(
                 notice: notice,
-                primaryColor: primaryColor,
+                tokens: tokens,
                 onTap: () => _openNoticeDetail(notice),
               );
             },
@@ -824,8 +867,7 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
     );
   }
 
-  // ── Empty Feed State ───────────────────────────────────────────────────────
-  Widget _buildEmptyFeedState(Color primaryColor) {
+  Widget _buildEmptyFeedState(PcTokens tokens) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
@@ -833,28 +875,36 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width: 72,
-              height: 72,
+              width: 68,
+              height: 68,
               decoration: BoxDecoration(
-                color: primaryColor.withValues(alpha: 0.15),
+                color: tokens.primarySoft,
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.task_alt, color: primaryColor, size: 36),
+              child: Icon(
+                Icons.task_alt_rounded,
+                color: tokens.primary,
+                size: 34,
+              ),
             ),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               'All Caught Up!',
               style: TextStyle(
-                color: Colors.white,
+                color: tokens.textPrimary,
                 fontSize: 18,
-                fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 6),
             Text(
               'There are no active notices for your audience right now.\nPull down to refresh.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey[400], fontSize: 13, height: 1.4),
+              style: TextStyle(
+                color: tokens.textMuted,
+                fontSize: 13,
+                height: 1.45,
+              ),
             ),
           ],
         ),
@@ -863,13 +913,12 @@ class _EmployeeHomeTabState extends State<EmployeeHomeTab> {
   }
 }
 
-// ── Sub-Widgets ──────────────────────────────────────────────────────────────
-
 class _QuickLinkCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final IconData icon;
   final Color iconColor;
+  final PcTokens tokens;
   final VoidCallback onTap;
 
   const _QuickLinkCard({
@@ -877,6 +926,7 @@ class _QuickLinkCard extends StatelessWidget {
     required this.subtitle,
     required this.icon,
     required this.iconColor,
+    required this.tokens,
     required this.onTap,
   });
 
@@ -886,17 +936,24 @@ class _QuickLinkCard extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 8),
         decoration: BoxDecoration(
-          color: const Color.fromRGBO(36, 35, 35, 1),
+          color: tokens.surface,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+          border: Border.all(color: tokens.border),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.02),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Column(
           children: [
             CircleAvatar(
               radius: 17,
-              backgroundColor: iconColor.withValues(alpha: 0.15),
+              backgroundColor: iconColor.withValues(alpha: 0.12),
               child: Icon(icon, color: iconColor, size: 17),
             ),
             const SizedBox(height: 8),
@@ -904,8 +961,8 @@ class _QuickLinkCard extends StatelessWidget {
               title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: tokens.textPrimary,
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
               ),
@@ -916,8 +973,8 @@ class _QuickLinkCard extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: Colors.grey[500],
-                fontSize: 10,
+                color: tokens.textMuted,
+                fontSize: 10.5,
               ),
             ),
           ],
@@ -929,12 +986,12 @@ class _QuickLinkCard extends StatelessWidget {
 
 class _PinnedNoticeCard extends StatelessWidget {
   final NoticeModel notice;
-  final Color primaryColor;
+  final PcTokens tokens;
   final VoidCallback onTap;
 
   const _PinnedNoticeCard({
     required this.notice,
-    required this.primaryColor,
+    required this.tokens,
     required this.onTap,
   });
 
@@ -944,14 +1001,14 @@ class _PinnedNoticeCard extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
       child: Container(
-        width: 250,
-        padding: const EdgeInsets.all(12),
+        width: 252,
+        padding: const EdgeInsets.all(13),
         decoration: BoxDecoration(
-          color: const Color.fromRGBO(34, 33, 33, 1),
+          color: tokens.surface,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: Colors.amberAccent.withOpacity(0.3),
-            width: 1.1,
+            color: tokens.warningAccent.withValues(alpha: 0.35),
+            width: 1,
           ),
         ),
         child: Column(
@@ -962,16 +1019,20 @@ class _PinnedNoticeCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.08),
+                    color: tokens.surfaceSubtle,
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
                     notice.audienceSummary,
-                    style: TextStyle(color: Colors.grey[300], fontSize: 9, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      color: tokens.textSecondary,
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 const Spacer(),
-                const Icon(Icons.push_pin, color: Colors.amberAccent, size: 14),
+                Icon(Icons.push_pin_rounded, color: tokens.warningAccent, size: 14),
               ],
             ),
             const SizedBox(height: 8),
@@ -979,9 +1040,9 @@ class _PinnedNoticeCard extends StatelessWidget {
               notice.title,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontWeight: FontWeight.w700,
                 fontSize: 13,
                 height: 1.25,
               ),
@@ -994,10 +1055,10 @@ class _PinnedNoticeCard extends StatelessWidget {
                     notice.authorName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: Colors.grey[400], fontSize: 11),
+                    style: TextStyle(color: tokens.textMuted, fontSize: 11),
                   ),
                 ),
-                const Icon(Icons.chevron_right, color: Colors.grey, size: 16),
+                Icon(Icons.chevron_right_rounded, color: tokens.textMuted, size: 16),
               ],
             ),
           ],

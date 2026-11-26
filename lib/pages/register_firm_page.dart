@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/firm/providers.dart';
 import '../services/db_service.dart';
+import '../theme/pc_tokens.dart';
 
 /// Web Firm Registration Wizard (/register-firm)
 /// Steps:
@@ -34,7 +35,7 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  Color _selectedColor = const Color(0xFF295CB4);
+  Color _selectedColor = const Color(0xFF2563EB);
   bool _obscurePassword = true;
   bool _termsAccepted = false;
   bool _isLoading = false;
@@ -54,11 +55,15 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
   }
 
   void _showColorPicker() {
+    final tokens = context.pcTokens;
     showDialog(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
-        title: const Text('Select Brand Color', style: TextStyle(color: Colors.white)),
+        backgroundColor: tokens.surface,
+        title: Text(
+          'Select Brand Color',
+          style: TextStyle(color: tokens.textPrimary),
+        ),
         content: SingleChildScrollView(
           child: ColorPicker(
             pickerColor: _selectedColor,
@@ -69,7 +74,13 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogCtx),
-            child: const Text('Done', style: TextStyle(color: Color.fromRGBO(41, 116, 188, 1))),
+            child: Text(
+              'Done',
+              style: TextStyle(
+                color: tokens.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
         ],
       ),
@@ -77,7 +88,7 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
   }
 
   String _colorToHex(Color color) {
-    return '#${color.value.toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
+    return '#${color.toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
   }
 
   // Step 2 -> Step 3: Create Auth user and send verification email
@@ -101,7 +112,6 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
         );
       } on FirebaseAuthException catch (e) {
         if (e.code == 'email-already-in-use') {
-          // Check if already signed in or try sign in
           credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
             email: email,
             password: password,
@@ -114,23 +124,29 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
       _createdUser = credential.user;
       await _createdUser?.updateDisplayName(_adminNameController.text.trim());
 
-      // If email is not yet verified, send verification link
       if (_createdUser != null && !_createdUser!.emailVerified) {
         await _createdUser!.sendEmailVerification();
         _startEmailVerificationPolling();
       }
 
-      setState(() {
-        _currentStep = 2; // Move to Verification Step
-      });
+      if (mounted) {
+        setState(() {
+          _currentStep = 2;
+        });
+      }
     } on FirebaseAuthException catch (e) {
-      setState(() {
-        _errorMessage = e.message ?? 'Authentication error during registration';
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage =
+              e.message ?? 'Authentication error during registration';
+        });
+      }
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+        });
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -138,7 +154,8 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
 
   void _startEmailVerificationPolling() {
     _verificationTimer?.cancel();
-    _verificationTimer = Timer.periodic(const Duration(seconds: 4), (timer) async {
+    _verificationTimer =
+        Timer.periodic(const Duration(seconds: 4), (timer) async {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         await user.reload();
@@ -146,7 +163,7 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
           timer.cancel();
           if (mounted) {
             setState(() {
-              _currentStep = 3; // Move to Terms & Creation
+              _currentStep = 3;
             });
           }
         }
@@ -158,6 +175,7 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       await user.reload();
+      if (!mounted) return;
       if (user.emailVerified) {
         _verificationTimer?.cancel();
         setState(() {
@@ -166,7 +184,9 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Email not yet verified. Please click the link sent to your inbox.'),
+            content: Text(
+              'Email not yet verified. Please click the link sent to your inbox.',
+            ),
           ),
         );
       }
@@ -182,12 +202,17 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
     }
 
     if (!user.emailVerified) {
-      setState(() => _errorMessage = 'Admin email must be verified before firm creation.');
+      setState(
+        () => _errorMessage =
+            'Admin email must be verified before firm creation.',
+      );
       return;
     }
 
     if (!_termsAccepted) {
-      setState(() => _errorMessage = 'Please accept the Terms of Service to proceed.');
+      setState(
+        () => _errorMessage = 'Please accept the Terms of Service to proceed.',
+      );
       return;
     }
 
@@ -205,10 +230,8 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
         primaryColor: _colorToHex(_selectedColor),
       );
 
-      // Warm up firm provider state
       await ref.read(firmNotifierProvider.notifier).loadFirm(firmId);
 
-      // Navigate to Admin Dashboard on Web
       if (mounted) {
         context.go('/admin-dashboard');
       }
@@ -225,35 +248,70 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.pcTokens;
+    final activeAccent = PcTokens.readableAccentOnLight(_selectedColor);
+
     // Guard against unauthorized mobile access
     if (!kIsWeb) {
       return Scaffold(
-        backgroundColor: const Color.fromRGBO(24, 23, 23, 1),
+        backgroundColor: tokens.canvas,
         appBar: AppBar(backgroundColor: Colors.transparent),
         body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.computer, size: 54, color: Colors.blueAccent),
-                const SizedBox(height: 16),
-                const Text(
-                  'Web Only Feature',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440),
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Container(
+                padding: const EdgeInsets.all(32),
+                decoration: BoxDecoration(
+                  color: tokens.surface,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: tokens.border),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Corporate firm registration and admin setup are managed exclusively through the web portal.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: tokens.primarySoft,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: tokens.primaryBorder),
+                      ),
+                      child: Icon(
+                        Icons.computer,
+                        size: 32,
+                        color: tokens.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      'Web Only Feature',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        color: tokens.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Corporate firm registration and admin setup are managed exclusively through the web portal.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: tokens.textSecondary,
+                        fontSize: 14,
+                        height: 1.45,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton(
+                      onPressed: () => context.go('/welcome'),
+                      child: const Text('Back to Welcome'),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 24),
-                ElevatedButton(
-                  onPressed: () => context.go('/welcome'),
-                  child: const Text('Back to Welcome'),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -261,61 +319,72 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
     }
 
     return Scaffold(
-      backgroundColor: const Color.fromRGBO(24, 23, 23, 1),
+      backgroundColor: tokens.canvas,
       appBar: AppBar(
         title: const Text('Register Corporate Firm'),
         centerTitle: true,
-        backgroundColor: const Color.fromRGBO(34, 33, 33, 1),
+        backgroundColor: tokens.surface,
+        shape: Border(bottom: BorderSide(color: tokens.border)),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
+          icon: Icon(Icons.arrow_back, color: tokens.textPrimary),
           onPressed: () => context.go('/sign-in'),
         ),
       ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 640),
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 32),
-              child: Card(
-                color: const Color.fromRGBO(30, 29, 29, 1),
-                elevation: 4,
-                shape: RoundedRectangleBorder(
+              child: Container(
+                padding: const EdgeInsets.all(32.0),
+                decoration: BoxDecoration(
+                  color: tokens.surface,
                   borderRadius: BorderRadius.circular(20),
-                  side: BorderSide(color: Colors.grey[800]!),
+                  border: Border.all(color: tokens.border),
+                  boxShadow: [
+                    BoxShadow(
+                      color: tokens.textPrimary.withValues(alpha: 0.04),
+                      blurRadius: 24,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.all(32.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Step Progress Indicator
-                      _buildStepIndicator(),
-                      const SizedBox(height: 32),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildStepIndicator(tokens, activeAccent),
+                    const SizedBox(height: 32),
 
-                      if (_errorMessage != null) ...[
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.red[900]?.withOpacity(0.3),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: Colors.red[700]!),
-                          ),
-                          child: Text(
-                            _errorMessage!,
-                            style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+                    if (_errorMessage != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: tokens.urgentBg,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: tokens.urgentBorder),
+                        ),
+                        child: Text(
+                          _errorMessage!,
+                          style: TextStyle(
+                            color: tokens.urgentText,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
-                        const SizedBox(height: 24),
-                      ],
-
-                      // Step Content Switcher
-                      if (_currentStep == 0) _buildFirmDetailsStep(),
-                      if (_currentStep == 1) _buildAdminAccountStep(),
-                      if (_currentStep == 2) _buildEmailVerificationStep(),
-                      if (_currentStep == 3) _buildTermsAndConfirmStep(),
+                      ),
+                      const SizedBox(height: 24),
                     ],
-                  ),
+
+                    if (_currentStep == 0)
+                      _buildFirmDetailsStep(tokens, activeAccent),
+                    if (_currentStep == 1)
+                      _buildAdminAccountStep(tokens, activeAccent),
+                    if (_currentStep == 2)
+                      _buildEmailVerificationStep(tokens, activeAccent),
+                    if (_currentStep == 3)
+                      _buildTermsAndConfirmStep(tokens, activeAccent),
+                  ],
                 ),
               ),
             ),
@@ -325,17 +394,21 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
     );
   }
 
-  Widget _buildStepIndicator() {
-    final steps = ['Firm Details', 'Admin Account', 'Verify Email', 'Accept Terms'];
+  Widget _buildStepIndicator(PcTokens tokens, Color activeAccent) {
+    const steps = [
+      'Firm Details',
+      'Admin Account',
+      'Verify Email',
+      'Accept Terms',
+    ];
 
     return Row(
       children: List.generate(steps.length * 2 - 1, (index) {
         if (index.isOdd) {
+          final completedLine = index ~/ 2 < _currentStep;
           return Expanded(
             child: Divider(
-              color: (index ~/ 2 < _currentStep)
-                  ? const Color.fromRGBO(41, 116, 188, 1)
-                  : Colors.grey[800],
+              color: completedLine ? activeAccent : tokens.border,
               thickness: 2,
             ),
           );
@@ -352,23 +425,29 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: isDone
-                    ? const Color.fromRGBO(41, 116, 188, 1)
-                    : (isActive ? const Color.fromRGBO(41, 116, 188, 0.2) : Colors.grey[900]),
+                    ? activeAccent
+                    : (isActive
+                        ? activeAccent.withValues(alpha: 0.12)
+                        : tokens.surfaceSubtle),
                 border: Border.all(
                   color: (isActive || isDone)
-                      ? const Color.fromRGBO(41, 116, 188, 1)
-                      : Colors.grey[700]!,
-                  width: 2,
+                      ? activeAccent
+                      : tokens.borderStrong,
+                  width: 1.8,
                 ),
               ),
               child: Center(
                 child: isDone
-                    ? const Icon(Icons.check, size: 16, color: Colors.white)
+                    ? Icon(
+                        Icons.check,
+                        size: 16,
+                        color: PcTokens.contrastOn(activeAccent),
+                      )
                     : Text(
                         '${stepIndex + 1}',
                         style: TextStyle(
-                          color: isActive ? Colors.white : Colors.grey[400],
-                          fontWeight: FontWeight.bold,
+                          color: isActive ? activeAccent : tokens.textMuted,
+                          fontWeight: FontWeight.w700,
                           fontSize: 12,
                         ),
                       ),
@@ -379,8 +458,8 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
               steps[stepIndex],
               style: TextStyle(
                 fontSize: 11,
-                color: isActive ? Colors.white : Colors.grey[500],
-                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                color: isActive ? tokens.textPrimary : tokens.textMuted,
+                fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
               ),
             ),
           ],
@@ -390,61 +469,89 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
   }
 
   // Step 1: Firm Details
-  Widget _buildFirmDetailsStep() {
+  Widget _buildFirmDetailsStep(PcTokens tokens, Color activeAccent) {
     return Form(
       key: _firmFormKey,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
+          Text(
             'Company Information',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: tokens.textPrimary,
+            ),
           ),
           const SizedBox(height: 6),
           Text(
             'Configure your company name and primary brand identity.',
-            style: TextStyle(color: Colors.grey[400], fontSize: 13),
+            style: TextStyle(color: tokens.textSecondary, fontSize: 13.5),
           ),
           const SizedBox(height: 24),
           TextFormField(
             controller: _firmNameController,
-            style: const TextStyle(color: Colors.white),
+            style: TextStyle(color: tokens.textPrimary),
             decoration: InputDecoration(
               labelText: 'Company / Firm Name',
               hintText: 'e.g. Acme Corporation',
-              prefixIcon: const Icon(Icons.business_outlined, color: Colors.grey),
-              filled: true,
-              fillColor: const Color.fromRGBO(24, 23, 23, 1),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              prefixIcon: Icon(
+                Icons.business_outlined,
+                color: tokens.textMuted,
+              ),
             ),
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'Please enter your firm name' : null,
+            validator: (v) => (v == null || v.trim().isEmpty)
+                ? 'Please enter your firm name'
+                : null,
           ),
           const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Brand Theme Color', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 4),
-                    Text(_colorToHex(_selectedColor), style: TextStyle(color: Colors.grey[500], fontSize: 12)),
-                  ],
-                ),
-              ),
-              GestureDetector(
-                onTap: _showColorPicker,
-                child: Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: _selectedColor,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white24, width: 2),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: tokens.surfaceSubtle,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: tokens.border),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Brand Theme Color',
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _colorToHex(_selectedColor),
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-            ],
+                InkWell(
+                  onTap: _showColorPicker,
+                  borderRadius: BorderRadius.circular(24),
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: _selectedColor,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: tokens.borderStrong, width: 2),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 32),
           ElevatedButton(
@@ -454,12 +561,17 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
               }
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color.fromRGBO(41, 116, 188, 1),
-              foregroundColor: Colors.white,
+              backgroundColor: activeAccent,
+              foregroundColor: PcTokens.contrastOn(activeAccent),
               padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
-            child: const Text('Next: Admin Account', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: const Text(
+              'Next: Admin Account',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
           ),
         ],
       ),
@@ -467,49 +579,51 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
   }
 
   // Step 2: Admin Account
-  Widget _buildAdminAccountStep() {
+  Widget _buildAdminAccountStep(PcTokens tokens, Color activeAccent) {
     return Form(
       key: _adminFormKey,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
+          Text(
             'Create Admin Account',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: tokens.textPrimary,
+            ),
           ),
           const SizedBox(height: 6),
           Text(
             'You will be the primary administrator of this firm workspace.',
-            style: TextStyle(color: Colors.grey[400], fontSize: 13),
+            style: TextStyle(color: tokens.textSecondary, fontSize: 13.5),
           ),
           const SizedBox(height: 24),
           TextFormField(
             controller: _adminNameController,
-            style: const TextStyle(color: Colors.white),
+            style: TextStyle(color: tokens.textPrimary),
             decoration: InputDecoration(
               labelText: 'Your Full Name',
-              prefixIcon: const Icon(Icons.person_outline, color: Colors.grey),
-              filled: true,
-              fillColor: const Color.fromRGBO(24, 23, 23, 1),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              prefixIcon: Icon(Icons.person_outline, color: tokens.textMuted),
             ),
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'Please enter your name' : null,
+            validator: (v) => (v == null || v.trim().isEmpty)
+                ? 'Please enter your name'
+                : null,
           ),
           const SizedBox(height: 16),
           TextFormField(
             controller: _emailController,
             keyboardType: TextInputType.emailAddress,
-            style: const TextStyle(color: Colors.white),
+            style: TextStyle(color: tokens.textPrimary),
             decoration: InputDecoration(
               labelText: 'Corporate Email',
               hintText: 'admin@company.com',
-              prefixIcon: const Icon(Icons.email_outlined, color: Colors.grey),
-              filled: true,
-              fillColor: const Color.fromRGBO(24, 23, 23, 1),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              prefixIcon: Icon(Icons.email_outlined, color: tokens.textMuted),
             ),
             validator: (v) {
-              if (v == null || v.trim().isEmpty) return 'Please enter your email';
+              if (v == null || v.trim().isEmpty) {
+                return 'Please enter your email';
+              }
               if (!v.contains('@')) return 'Please enter a valid email';
               return null;
             },
@@ -518,19 +632,24 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
           TextFormField(
             controller: _passwordController,
             obscureText: _obscurePassword,
-            style: const TextStyle(color: Colors.white),
+            style: TextStyle(color: tokens.textPrimary),
             decoration: InputDecoration(
               labelText: 'Password',
-              prefixIcon: const Icon(Icons.lock_outline, color: Colors.grey),
+              prefixIcon: Icon(Icons.lock_outline, color: tokens.textMuted),
               suffixIcon: IconButton(
-                icon: Icon(_obscurePassword ? Icons.visibility : Icons.visibility_off, color: Colors.grey),
-                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                icon: Icon(
+                  _obscurePassword
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                  color: tokens.textMuted,
+                ),
+                onPressed: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
               ),
-              filled: true,
-              fillColor: const Color.fromRGBO(24, 23, 23, 1),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            validator: (v) => (v == null || v.length < 8) ? 'Password must be at least 8 characters' : null,
+            validator: (v) => (v == null || v.length < 8)
+                ? 'Password must be at least 8 characters'
+                : null,
           ),
           const SizedBox(height: 32),
           Row(
@@ -538,25 +657,44 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
               OutlinedButton(
                 onPressed: () => setState(() => _currentStep = 0),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  foregroundColor: tokens.textPrimary,
+                  side: BorderSide(color: tokens.borderStrong),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 16,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 child: const Text('Back'),
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: _isLoading ? null : _createAdminAndSendVerification,
+                  onPressed:
+                      _isLoading ? null : _createAdminAndSendVerification,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color.fromRGBO(41, 116, 188, 1),
-                    foregroundColor: Colors.white,
+                    backgroundColor: activeAccent,
+                    foregroundColor: PcTokens.contrastOn(activeAccent),
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   child: _isLoading
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : const Text('Next: Verify Email', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: PcTokens.contrastOn(activeAccent),
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Text(
+                          'Next: Verify Email',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
                 ),
               ),
             ],
@@ -567,7 +705,7 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
   }
 
   // Step 3: Verify Email
-  Widget _buildEmailVerificationStep() {
+  Widget _buildEmailVerificationStep(PcTokens tokens, Color activeAccent) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -576,40 +714,60 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
             width: 72,
             height: 72,
             decoration: BoxDecoration(
-              color: Colors.blue.withOpacity(0.15),
+              color: activeAccent.withValues(alpha: 0.12),
               shape: BoxShape.circle,
+              border: Border.all(color: activeAccent.withValues(alpha: 0.28)),
             ),
-            child: const Icon(Icons.mark_email_read_outlined, size: 40, color: Color.fromRGBO(41, 116, 188, 1)),
+            child: Icon(
+              Icons.mark_email_read_outlined,
+              size: 38,
+              color: activeAccent,
+            ),
           ),
         ),
         const SizedBox(height: 20),
-        const Text(
+        Text(
           'Verify Your Email Address',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            color: tokens.textPrimary,
+          ),
         ),
         const SizedBox(height: 10),
         Text(
           'We have sent a verification link to ${_emailController.text.trim()}.\nPlease click the link to confirm your identity before your firm is created.',
           textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.grey[400], fontSize: 13, height: 1.5),
+          style: TextStyle(
+            color: tokens.textSecondary,
+            fontSize: 13.5,
+            height: 1.5,
+          ),
         ),
         const SizedBox(height: 24),
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: const Color.fromRGBO(24, 23, 23, 1),
+            color: tokens.surfaceSubtle,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[800]!),
+            border: Border.all(color: tokens.border),
           ),
           child: Row(
-            children: const [
-              SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-              SizedBox(width: 14),
+            children: [
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: activeAccent,
+                ),
+              ),
+              const SizedBox(width: 14),
               Expanded(
                 child: Text(
                   'Waiting for confirmation... Click the link in your email.',
-                  style: TextStyle(fontSize: 12, color: Colors.white70),
+                  style: TextStyle(fontSize: 12.5, color: tokens.textSecondary),
                 ),
               ),
             ],
@@ -619,45 +777,58 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
         ElevatedButton(
           onPressed: _checkEmailVerificationManual,
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color.fromRGBO(41, 116, 188, 1),
-            foregroundColor: Colors.white,
+            backgroundColor: activeAccent,
+            foregroundColor: PcTokens.contrastOn(activeAccent),
             padding: const EdgeInsets.symmetric(vertical: 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
-          child: const Text("I've Verified My Email", style: TextStyle(fontWeight: FontWeight.bold)),
+          child: const Text(
+            "I've Verified My Email",
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
         ),
         const SizedBox(height: 12),
         TextButton(
           onPressed: () async {
             await FirebaseAuth.instance.currentUser?.sendEmailVerification();
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Verification link resent to your email.')),
-              );
-            }
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Verification link resent to your email.'),
+              ),
+            );
           },
-          child: const Text('Resend Verification Email', style: TextStyle(color: Color.fromRGBO(41, 116, 188, 1))),
+          child: Text(
+            'Resend Verification Email',
+            style: TextStyle(color: activeAccent, fontWeight: FontWeight.w600),
+          ),
         ),
       ],
     );
   }
 
   // Step 4: Terms & Creation
-  Widget _buildTermsAndConfirmStep() {
+  Widget _buildTermsAndConfirmStep(PcTokens tokens, Color activeAccent) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text(
+        Text(
           'Terms of Service & Plan',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            color: tokens.textPrimary,
+          ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color.fromRGBO(24, 23, 23, 1),
+            color: tokens.surfaceSubtle,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey[800]!),
+            border: Border.all(color: tokens.border),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -665,15 +836,32 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
               Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
-                      color: Colors.blue.withOpacity(0.2),
+                      color: tokens.infoSoft,
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: const Text('PLAN: TRIAL TIER', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 11)),
+                    child: Text(
+                      'PLAN: TRIAL TIER',
+                      style: TextStyle(
+                        color: tokens.infoAccent,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11,
+                      ),
+                    ),
                   ),
                   const Spacer(),
-                  const Text('5 Team Seats Included', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  Text(
+                    '5 Team Seats Included',
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -682,53 +870,79 @@ class _RegisterFirmPageState extends ConsumerState<RegisterFirmPage> {
                 '• Maximum 5 team seats during initial trial period\n'
                 '• Enterprise encryption & platform suspension abuse protections\n'
                 '• Payment and billing integration can be added later',
-                style: TextStyle(color: Colors.grey[400], fontSize: 12, height: 1.6),
+                style: TextStyle(
+                  color: tokens.textSecondary,
+                  fontSize: 12.5,
+                  height: 1.6,
+                ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 18),
 
         // Bot protection badge
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: Colors.green.withOpacity(0.1),
+            color: tokens.online.withValues(alpha: 0.10),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Colors.green.withOpacity(0.3)),
+            border: Border.all(color: tokens.online.withValues(alpha: 0.30)),
           ),
-          child: Row(
-            children: const [
-              Icon(Icons.shield_outlined, color: Colors.greenAccent, size: 20),
+          child: const Row(
+            children: [
+              Icon(Icons.shield_outlined, color: Color(0xFF059669), size: 20),
               SizedBox(width: 10),
-              Text('Protected by Firebase App Check & reCAPTCHA', style: TextStyle(color: Colors.greenAccent, fontSize: 12)),
+              Expanded(
+                child: Text(
+                  'Protected by Firebase App Check & reCAPTCHA',
+                  style: TextStyle(
+                    color: Color(0xFF059669),
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
             ],
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 16),
 
         CheckboxListTile(
           value: _termsAccepted,
           onChanged: (val) => setState(() => _termsAccepted = val ?? false),
-          activeColor: const Color.fromRGBO(41, 116, 188, 1),
+          activeColor: activeAccent,
           contentPadding: EdgeInsets.zero,
-          title: const Text(
+          title: Text(
             'I accept the ProntoChat Master Services Agreement and Workspace Terms of Service.',
-            style: TextStyle(color: Colors.white, fontSize: 13),
+            style: TextStyle(color: tokens.textPrimary, fontSize: 13),
           ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 20),
         ElevatedButton(
-          onPressed: (_isLoading || !_termsAccepted) ? null : _finalizeFirmCreation,
+          onPressed:
+              (_isLoading || !_termsAccepted) ? null : _finalizeFirmCreation,
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color.fromRGBO(41, 116, 188, 1),
-            foregroundColor: Colors.white,
+            backgroundColor: activeAccent,
+            foregroundColor: PcTokens.contrastOn(activeAccent),
             padding: const EdgeInsets.symmetric(vertical: 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
           ),
           child: _isLoading
-              ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-              : const Text('Complete Registration & Open Console', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              ? SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    color: PcTokens.contrastOn(activeAccent),
+                    strokeWidth: 2,
+                  ),
+                )
+              : const Text(
+                  'Complete Registration & Open Console',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                ),
         ),
       ],
     );

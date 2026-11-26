@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/firm.dart';
 import '../providers/auth_provider.dart';
+import '../theme/pc_tokens.dart';
 import '../widgets/chat/unified_chat_view.dart';
 
 class ChatPage extends StatelessWidget {
@@ -27,6 +28,7 @@ class ChatPage extends StatelessWidget {
     final auth = context.read<AuthProvider>();
     final currentUid = auth.currentUserId ?? '';
     final currentUserName = auth.user?.displayName ?? 'You';
+    final tokens = context.pcTokens;
 
     return UnifiedChatView(
       kind: UnifiedChatKind.direct,
@@ -39,7 +41,7 @@ class ChatPage extends StatelessWidget {
       currentUid: currentUid,
       currentUserName: currentUserName,
       currentUserRole: 'employee',
-      primaryColor: const Color.fromRGBO(41, 116, 188, 1),
+      primaryColor: tokens.primary,
     );
   }
 }

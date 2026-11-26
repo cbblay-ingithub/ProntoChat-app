@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../services/notices_service.dart';
 import '../../models/notice_model.dart';
+import '../../theme/pc_tokens.dart';
 
 /// Interactive reaction bar supporting exactly 5 specified emojis:
 /// 👍, ✅, ❤️, 🎉, 👀.
@@ -93,7 +94,6 @@ class _NoticeReactionsWidgetState extends State<NoticeReactionsWidget> {
         currentEmoji: previousEmoji,
       );
     } catch (e) {
-      // Revert optimistic update on error
       if (mounted) {
         setState(() {
           _userEmoji = previousEmoji;
@@ -109,6 +109,9 @@ class _NoticeReactionsWidgetState extends State<NoticeReactionsWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.pcTokens;
+    final accent = PcTokens.readableAccentOnLight(widget.primaryColor);
+
     return StreamBuilder<NoticeReaction?>(
       stream: NoticesService.instance.streamUserReaction(
         widget.firmId,
@@ -118,16 +121,17 @@ class _NoticeReactionsWidgetState extends State<NoticeReactionsWidget> {
       builder: (context, snapshot) {
         if (snapshot.hasData && snapshot.data != null) {
           _userEmoji = snapshot.data!.emoji;
-        } else if (snapshot.connectionState == ConnectionState.active && snapshot.data == null) {
+        } else if (snapshot.connectionState == ConnectionState.active &&
+            snapshot.data == null) {
           _userEmoji = null;
         }
 
         return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            color: const Color.fromRGBO(34, 33, 33, 1),
+            color: tokens.surface,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withOpacity(0.06)),
+            border: Border.all(color: tokens.border),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -135,19 +139,22 @@ class _NoticeReactionsWidgetState extends State<NoticeReactionsWidget> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'Reactions',
                     style: TextStyle(
-                      color: Colors.white70,
+                      color: tokens.textSecondary,
                       fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                   if (_isLoadingCounts)
-                    const SizedBox(
+                    SizedBox(
                       width: 14,
                       height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.grey),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 1.5,
+                        color: tokens.textMuted,
+                      ),
                     ),
                 ],
               ),
@@ -164,16 +171,19 @@ class _NoticeReactionsWidgetState extends State<NoticeReactionsWidget> {
                     borderRadius: BorderRadius.circular(20),
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 180),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: isSelected
-                            ? widget.primaryColor.withOpacity(0.22)
-                            : const Color.fromRGBO(44, 43, 43, 1),
+                            ? accent.withValues(alpha: 0.12)
+                            : tokens.surfaceSubtle,
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
                           color: isSelected
-                              ? widget.primaryColor.withOpacity(0.6)
-                              : Colors.white.withOpacity(0.08),
+                              ? accent.withValues(alpha: 0.45)
+                              : tokens.border,
                           width: isSelected ? 1.4 : 1.0,
                         ),
                       ),
@@ -189,9 +199,12 @@ class _NoticeReactionsWidgetState extends State<NoticeReactionsWidget> {
                             Text(
                               '$count',
                               style: TextStyle(
-                                color: isSelected ? widget.primaryColor : Colors.white70,
+                                color:
+                                    isSelected ? accent : tokens.textSecondary,
                                 fontSize: 13,
-                                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                fontWeight: isSelected
+                                    ? FontWeight.w700
+                                    : FontWeight.w600,
                               ),
                             ),
                           ],

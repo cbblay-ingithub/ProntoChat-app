@@ -2,9 +2,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../models/firm.dart';
 import '../../providers/dashboard/dashboard_providers.dart';
 import '../../services/snackbar_service.dart';
+import '../../theme/pronto_tokens.dart';
 import '../common/pc_logo.dart';
 import 'dashboard_tokens.dart';
 
@@ -13,7 +15,6 @@ import 'dashboard_tokens.dart';
 class DashboardHeaderStrip extends ConsumerStatefulWidget {
   final Firm firm;
   final String? adminName;
-  final Color primaryColor;
   final DateTime? lastFetched;
   final bool isRefreshing;
 
@@ -21,13 +22,13 @@ class DashboardHeaderStrip extends ConsumerStatefulWidget {
     super.key,
     required this.firm,
     this.adminName,
-    required this.primaryColor,
     this.lastFetched,
     this.isRefreshing = false,
   });
 
   @override
-  ConsumerState<DashboardHeaderStrip> createState() => _DashboardHeaderStripState();
+  ConsumerState<DashboardHeaderStrip> createState() =>
+      _DashboardHeaderStripState();
 }
 
 class _DashboardHeaderStripState extends ConsumerState<DashboardHeaderStrip> {
@@ -42,8 +43,18 @@ class _DashboardHeaderStripState extends ConsumerState<DashboardHeaderStrip> {
 
   String _formatDate(DateTime date) {
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${date.day} ${months[date.month - 1]} ${date.year}';
   }
@@ -61,12 +72,14 @@ class _DashboardHeaderStripState extends ConsumerState<DashboardHeaderStrip> {
     if (_localRefreshing) return;
     setState(() => _localRefreshing = true);
 
-    final initiated = await ref.read(dashboardMetricsProvider.notifier).refreshDashboard();
+    final initiated =
+        await ref.read(dashboardMetricsProvider.notifier).refreshDashboard();
 
     if (mounted) {
       setState(() => _localRefreshing = false);
       if (!initiated) {
-        SnackbarService().showSnackbar('Metrics were refreshed recently. Please wait 30s.');
+        SnackbarService()
+            .showSnackbar('Metrics were refreshed recently. Please wait 30s.');
       } else {
         SnackbarService().showSnackbar('Dashboard refreshed with latest data');
       }
@@ -75,9 +88,16 @@ class _DashboardHeaderStripState extends ConsumerState<DashboardHeaderStrip> {
 
   @override
   Widget build(BuildContext context) {
-    final email = FirebaseAuth.instance.currentUser?.email ?? '';
-    final hasLogo = (widget.firm.logo != null && widget.firm.logo!.key.isNotEmpty) ||
-        (widget.firm.logoUrl != null && widget.firm.logoUrl!.isNotEmpty);
+    final tokens = context.prontoTokens;
+    final cs = Theme.of(context).colorScheme;
+    String email = '';
+    try {
+      email = FirebaseAuth.instance.currentUser?.email ?? '';
+    } catch (_) {}
+
+    final hasLogo =
+        (widget.firm.logo != null && widget.firm.logo!.key.isNotEmpty) ||
+            (widget.firm.logoUrl != null && widget.firm.logoUrl!.isNotEmpty);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -89,26 +109,24 @@ class _DashboardHeaderStripState extends ConsumerState<DashboardHeaderStrip> {
             vertical: DashboardTokens.space12,
           ),
           decoration: BoxDecoration(
-            color: DashboardTokens.surfaceDark,
+            color: tokens.cardBg,
             borderRadius: BorderRadius.circular(DashboardTokens.radiusLg),
-            border: Border.all(color: DashboardTokens.surfaceBorder),
+            border: Border.all(color: tokens.cardBorder),
           ),
           child: Row(
             children: [
-              // 1. Right-sized firm logo (36x36)
               PcLogo(
                 logo: widget.firm.logo,
                 legacyUrl: widget.firm.logoUrl,
-                size: 36,
+                size: 38,
                 borderRadius: DashboardTokens.radiusSm,
                 variant: MediaVariant.logoSm,
                 firmName: widget.firm.name,
-                primaryColor: widget.primaryColor,
+                primaryColor: cs.primary,
               ),
 
               const SizedBox(width: DashboardTokens.space12),
 
-              // 2. Firm Title, Greeting, Admin, and Plan
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -119,24 +137,27 @@ class _DashboardHeaderStripState extends ConsumerState<DashboardHeaderStrip> {
                         Flexible(
                           child: Text(
                             widget.firm.name,
-                            style: const TextStyle(
-                              color: DashboardTokens.textPrimary,
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
+                            style: TextStyle(
+                              color: tokens.textPrimary,
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.w800,
                               letterSpacing: -0.2,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: DashboardTokens.space8),
-                        _buildPlanBadge(widget.firm.plan),
+                        _buildPlanBadge(cs, widget.firm.plan),
                         if (!isCompact) ...[
                           const SizedBox(width: DashboardTokens.space8),
-                          Text(
-                            '•  Member since ${_formatDate(widget.firm.createdAt)}',
-                            style: const TextStyle(
-                              color: DashboardTokens.textMuted,
-                              fontSize: 11.5,
+                          Flexible(
+                            child: Text(
+                              '•  Member since ${_formatDate(widget.firm.createdAt)}',
+                              style: TextStyle(
+                                color: tokens.textMuted,
+                                fontSize: 12,
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
@@ -145,20 +166,26 @@ class _DashboardHeaderStripState extends ConsumerState<DashboardHeaderStrip> {
                     const SizedBox(height: 3),
                     Row(
                       children: [
-                        Text(
-                          '${_getGreeting()}, ${widget.adminName ?? "Admin"}',
-                          style: const TextStyle(
-                            color: DashboardTokens.textSecondary,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
+                        Flexible(
+                          child: Text(
+                            '${_getGreeting()}, ${widget.adminName ?? "Admin"}',
+                            style: TextStyle(
+                              color: tokens.textSecondary,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         if (email.isNotEmpty && !isCompact) ...[
-                          Text(
-                            ' ($email)',
-                            style: const TextStyle(
-                              color: DashboardTokens.textMuted,
-                              fontSize: 11.5,
+                          Flexible(
+                            child: Text(
+                              ' ($email)',
+                              style: TextStyle(
+                                color: tokens.textMuted,
+                                fontSize: 12,
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
@@ -168,55 +195,72 @@ class _DashboardHeaderStripState extends ConsumerState<DashboardHeaderStrip> {
                 ),
               ),
 
-              // 3. Trailing Actions: Add Logo (if missing) + Last Updated & Refresh Button
               if (!hasLogo) ...[
                 TextButton.icon(
                   onPressed: () => context.go('/admin/brand'),
-                  icon: Icon(Icons.add_photo_alternate_outlined, size: 14, color: widget.primaryColor),
+                  icon: Icon(
+                    Icons.add_photo_alternate_outlined,
+                    size: 15,
+                    color: cs.primary,
+                  ),
                   label: Text(
                     isCompact ? 'Logo' : 'Add Logo',
-                    style: TextStyle(color: widget.primaryColor, fontSize: 12),
+                    style: TextStyle(
+                      color: cs.primary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     minimumSize: Size.zero,
                   ),
                 ),
                 const SizedBox(width: DashboardTokens.space8),
               ],
 
-              // Relative last-refreshed status
               if (!isCompact)
                 Text(
                   _formatRelativeTime(widget.lastFetched),
-                  style: const TextStyle(
-                    color: DashboardTokens.textMuted,
-                    fontSize: 11,
+                  style: TextStyle(
+                    color: tokens.textMuted,
+                    fontSize: 11.5,
                   ),
                 ),
 
               const SizedBox(width: DashboardTokens.space8),
 
-              // Throttled Refresh Button
               Tooltip(
                 message: 'Refresh metrics (throttled to 30s)',
+                preferBelow: false,
                 child: IconButton(
                   icon: _localRefreshing || widget.isRefreshing
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 14,
                           height: 14,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(DashboardTokens.accentGreen),
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(cs.primary),
                           ),
                         )
-                      : const Icon(Icons.refresh_rounded, size: 18, color: DashboardTokens.textSecondary),
-                  onPressed: _localRefreshing || widget.isRefreshing ? null : _handleRefresh,
+                      : Icon(
+                          Icons.refresh_rounded,
+                          size: 18,
+                          color: tokens.textSecondary,
+                        ),
+                  onPressed: _localRefreshing || widget.isRefreshing
+                      ? null
+                      : _handleRefresh,
                   style: IconButton.styleFrom(
                     padding: const EdgeInsets.all(DashboardTokens.space8),
-                    backgroundColor: Colors.white.withOpacity(0.04),
+                    backgroundColor: tokens.cardSubtleBg,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(DashboardTokens.radiusSm),
+                      borderRadius:
+                          BorderRadius.circular(DashboardTokens.radiusSm),
                     ),
                   ),
                 ),
@@ -228,20 +272,19 @@ class _DashboardHeaderStripState extends ConsumerState<DashboardHeaderStrip> {
     );
   }
 
-  Widget _buildPlanBadge(String plan) {
+  Widget _buildPlanBadge(ColorScheme cs, String plan) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
-        color: DashboardTokens.accentGreen.withOpacity(0.12),
+        color: cs.secondaryContainer,
         borderRadius: BorderRadius.circular(DashboardTokens.radiusSm),
-        border: Border.all(color: DashboardTokens.accentGreen.withOpacity(0.3)),
       ),
       child: Text(
         plan.toUpperCase(),
-        style: const TextStyle(
-          color: DashboardTokens.accentGreen,
-          fontSize: 9.5,
-          fontWeight: FontWeight.bold,
+        style: TextStyle(
+          color: cs.onSecondaryContainer,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
           letterSpacing: 0.5,
         ),
       ),

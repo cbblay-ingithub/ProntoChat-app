@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/media_ref.dart';
 import '../../services/media_service.dart';
+import '../../theme/pc_tokens.dart';
 
 /// Image carousel for notices supporting up to 4 images.
 /// Uses named transformation `notice_card` (800px) in feed/detail cards,
@@ -37,8 +38,8 @@ class _NoticeImageCarouselState extends State<NoticeImageCarousel> {
     Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
-        barrierColor: Colors.black.withOpacity(0.95),
-        pageBuilder: (context, _, __) => NoticeFullscreenViewer(
+        barrierColor: Colors.black.withValues(alpha: 0.95),
+        pageBuilder: (context, _, _) => NoticeFullscreenViewer(
           mediaList: widget.mediaList,
           initialIndex: initialIndex,
           title: widget.title,
@@ -54,6 +55,7 @@ class _NoticeImageCarouselState extends State<NoticeImageCarousel> {
   Widget build(BuildContext context) {
     if (widget.mediaList.isEmpty) return const SizedBox.shrink();
 
+    final tokens = context.pcTokens;
     final radius = widget.borderRadius ?? BorderRadius.circular(14);
 
     return ClipRRect(
@@ -61,7 +63,11 @@ class _NoticeImageCarouselState extends State<NoticeImageCarousel> {
       child: Container(
         height: widget.height,
         width: double.infinity,
-        color: const Color.fromRGBO(20, 20, 20, 1),
+        decoration: BoxDecoration(
+          color: tokens.surfaceSubtle,
+          borderRadius: radius,
+          border: Border.all(color: tokens.border),
+        ),
         child: Stack(
           children: [
             PageView.builder(
@@ -86,22 +92,27 @@ class _NoticeImageCarouselState extends State<NoticeImageCarousel> {
                       loadingBuilder: (context, child, progress) {
                         if (progress == null) return child;
                         return Container(
-                          color: const Color.fromRGBO(30, 30, 30, 1),
+                          color: tokens.surfaceSubtle,
                           child: Center(
                             child: CircularProgressIndicator(
                               value: progress.expectedTotalBytes != null
-                                  ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                                  ? progress.cumulativeBytesLoaded /
+                                      progress.expectedTotalBytes!
                                   : null,
-                              color: Colors.white60,
+                              color: tokens.primary,
                             ),
                           ),
                         );
                       },
                       errorBuilder: (context, error, stackTrace) {
                         return Container(
-                          color: const Color.fromRGBO(30, 30, 30, 1),
-                          child: const Center(
-                            child: Icon(Icons.broken_image_outlined, color: Colors.grey, size: 36),
+                          color: tokens.surfaceSubtle,
+                          child: Center(
+                            child: Icon(
+                              Icons.broken_image_outlined,
+                              color: tokens.textMuted,
+                              size: 36,
+                            ),
                           ),
                         );
                       },
@@ -117,18 +128,23 @@ class _NoticeImageCarouselState extends State<NoticeImageCarousel> {
                 top: 10,
                 right: 10,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.65),
+                    color: Colors.black.withValues(alpha: 0.65),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white.withOpacity(0.12)),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.14),
+                    ),
                   ),
                   child: Text(
                     '${_currentIndex + 1}/${widget.mediaList.length}',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 11,
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
@@ -150,7 +166,9 @@ class _NoticeImageCarouselState extends State<NoticeImageCarousel> {
                       width: isActive ? 16 : 6,
                       height: 6,
                       decoration: BoxDecoration(
-                        color: isActive ? Colors.white : Colors.white.withOpacity(0.35),
+                        color: isActive
+                            ? Colors.white
+                            : Colors.white.withValues(alpha: 0.45),
                         borderRadius: BorderRadius.circular(3),
                       ),
                     );
@@ -227,7 +245,8 @@ class _NoticeFullscreenViewerState extends State<NoticeFullscreenViewer> {
                       return Center(
                         child: CircularProgressIndicator(
                           value: progress.expectedTotalBytes != null
-                              ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                              ? progress.cumulativeBytesLoaded /
+                                  progress.expectedTotalBytes!
                               : null,
                           color: Colors.white70,
                         ),
@@ -238,11 +257,18 @@ class _NoticeFullscreenViewerState extends State<NoticeFullscreenViewer> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.broken_image_rounded, color: Colors.grey, size: 54),
+                            Icon(
+                              Icons.broken_image_rounded,
+                              color: Colors.grey,
+                              size: 54,
+                            ),
                             SizedBox(height: 12),
                             Text(
                               'Unable to load high-resolution image.',
-                              style: TextStyle(color: Colors.white70, fontSize: 14),
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 14,
+                              ),
                             ),
                           ],
                         ),
@@ -270,7 +296,10 @@ class _NoticeFullscreenViewerState extends State<NoticeFullscreenViewer> {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Colors.black.withOpacity(0.85), Colors.transparent],
+                  colors: [
+                    Colors.black.withValues(alpha: 0.85),
+                    Colors.transparent,
+                  ],
                 ),
               ),
               child: Row(
@@ -289,15 +318,18 @@ class _NoticeFullscreenViewerState extends State<NoticeFullscreenViewer> {
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
                   if (widget.mediaList.length > 1)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.15),
+                        color: Colors.white.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
@@ -305,7 +337,7 @@ class _NoticeFullscreenViewerState extends State<NoticeFullscreenViewer> {
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 13,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),

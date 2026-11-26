@@ -4,10 +4,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../models/firm.dart';
-import '../../models/media_ref.dart';
 import '../../widgets/common/pc_logo.dart';
 import '../../services/db_service.dart';
 import '../../providers/auth_provider.dart' as app_auth;
+import '../../theme/pc_tokens.dart';
 
 /// Employee Onboarding Screen (/join).
 /// Handles QR scans, invite deep links, or manual firm entry.
@@ -95,12 +95,12 @@ class _JoinScreenState extends State<JoinScreen> {
   }
 
   Color _parseFirmColor(String? hexString) {
-    if (hexString == null) return const Color.fromRGBO(41, 116, 188, 1);
+    if (hexString == null) return PcTokens.defaultBrandBlue;
     try {
       final clean = hexString.replaceAll('#', '');
       return Color(int.parse('FF$clean', radix: 16));
     } catch (_) {
-      return const Color.fromRGBO(41, 116, 188, 1);
+      return PcTokens.defaultBrandBlue;
     }
   }
 
@@ -121,7 +121,9 @@ class _JoinScreenState extends State<JoinScreen> {
     try {
       // 1. Create or obtain authenticated user
       User? user = FirebaseAuth.instance.currentUser;
-      if (user != null && !user.isAnonymous && user.email?.toLowerCase() == email) {
+      if (user != null &&
+          !user.isAnonymous &&
+          user.email?.toLowerCase() == email) {
         // Already signed in with this email
       } else {
         if (user != null && user.isAnonymous) {
@@ -129,7 +131,8 @@ class _JoinScreenState extends State<JoinScreen> {
         }
 
         try {
-          final credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          final credential =
+              await FirebaseAuth.instance.createUserWithEmailAndPassword(
             email: email,
             password: password,
           );
@@ -137,9 +140,9 @@ class _JoinScreenState extends State<JoinScreen> {
           await user?.updateDisplayName(name);
         } on FirebaseAuthException catch (e) {
           if (e.code == 'email-already-in-use') {
-            // Sign in with existing credentials to attach membership
             try {
-              final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
+              final cred =
+                  await FirebaseAuth.instance.signInWithEmailAndPassword(
                 email: email,
                 password: password,
               );
@@ -169,13 +172,13 @@ class _JoinScreenState extends State<JoinScreen> {
       );
 
       // 3. Refresh user session in provider
-      if (mounted) {
-        final authProvider = Provider.of<app_auth.AuthProvider>(context, listen: false);
-        await authProvider.refreshUserProfile();
+      if (!mounted) return;
+      final authProvider =
+          Provider.of<app_auth.AuthProvider>(context, listen: false);
+      await authProvider.refreshUserProfile();
 
-        // 4. Onboarding complete — navigate straight to Home!
-        context.go('/home');
-      }
+      if (!mounted) return;
+      context.go('/home');
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -191,18 +194,310 @@ class _JoinScreenState extends State<JoinScreen> {
     }
   }
 
+  InputDecoration _inputDecoration({
+    required PcTokens tokens,
+    required Color activeAccent,
+    required String label,
+    required IconData icon,
+    String? hint,
+    String? helper,
+    Widget? suffixIcon,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: TextStyle(color: tokens.textSecondary),
+      hintText: hint,
+      hintStyle: TextStyle(color: tokens.textMuted, letterSpacing: 0),
+      helperText: helper,
+      helperStyle: TextStyle(color: tokens.textMuted, fontSize: 11),
+      prefixIcon: Icon(icon, color: tokens.textMuted),
+      suffixIcon: suffixIcon,
+      filled: true,
+      fillColor: tokens.surfaceSubtle,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: tokens.border),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: tokens.border),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: activeAccent, width: 1.6),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    final primaryColor = _parseFirmColor(_loadedFirm?.primaryColor);
+    final tokens = context.pcTokens;
+    final width = MediaQuery.sizeOf(context).width;
+    final isWide = !PcBreakpoints.isCompact(width);
+    final rawPrimary = _parseFirmColor(_loadedFirm?.primaryColor);
+    final activeAccent = PcTokens.readableAccentOnLight(rawPrimary);
+    final onAccent = PcTokens.contrastOn(activeAccent);
+
+    final formBody = Form(
+      key: _formKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Company Branding Header
+          Center(
+            child: PcLogo(
+              logo: _loadedFirm?.logo,
+              legacyUrl: _loadedFirm?.logoUrl,
+              size: 72,
+              borderRadius: 20,
+              variant: MediaVariant.logoLg,
+              firmName: _loadedFirm?.name ?? '',
+              primaryColor: activeAccent,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          Text(
+            _loadedFirm != null
+                ? 'Join ${_loadedFirm!.name}'
+                : 'Join Your Company Workspace',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              color: tokens.textPrimary,
+              letterSpacing: -0.3,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            (_loadedFirm?.welcomeText != null &&
+                    _loadedFirm!.welcomeText!.trim().isNotEmpty)
+                ? _loadedFirm!.welcomeText!.trim()
+                : (_loadedFirm != null
+                    ? 'Enter your pre-authorized code to activate access'
+                    : 'Enter your company ID and one-time code'),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13.5,
+              color: tokens.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Error Banner
+          if (_errorMessage != null) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: tokens.urgentBg,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: tokens.urgentBorder),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.error_outline,
+                    color: tokens.urgentText,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _errorMessage!,
+                      style: TextStyle(
+                        color: tokens.urgentText,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          // Firm ID Field (if not already loaded)
+          if (_loadedFirm == null) ...[
+            TextFormField(
+              key: const Key('join_firm_id_field'),
+              controller: _firmIdController,
+              style: TextStyle(color: tokens.textPrimary),
+              decoration: _inputDecoration(
+                tokens: tokens,
+                activeAccent: activeAccent,
+                label: 'Firm ID',
+                hint: 'e.g. firm_xyz123',
+                icon: Icons.vpn_key_outlined,
+                suffixIcon: _isLoadingFirm
+                    ? SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: Center(
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: activeAccent,
+                            ),
+                          ),
+                        ),
+                      )
+                    : IconButton(
+                        icon: Icon(Icons.arrow_forward, color: activeAccent),
+                        onPressed: () =>
+                            _fetchFirmDetails(_firmIdController.text),
+                      ),
+              ),
+              validator: (val) => (val == null || val.trim().isEmpty)
+                  ? 'Please enter your Firm ID'
+                  : null,
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // One-Time Code Field
+          TextFormField(
+            key: const Key('join_code_field'),
+            controller: _codeController,
+            style: TextStyle(
+              color: tokens.textPrimary,
+              letterSpacing: 1.5,
+              fontWeight: FontWeight.w700,
+            ),
+            decoration: _inputDecoration(
+              tokens: tokens,
+              activeAccent: activeAccent,
+              label: 'Staff Onboarding Code',
+              hint: '6-digit code (valid for 5 mins)',
+              helper: 'Staff codes auto-reset every 5 minutes',
+              icon: Icons.password_outlined,
+            ),
+            validator: (val) => (val == null || val.trim().isEmpty)
+                ? 'Please enter your code'
+                : null,
+          ),
+          const SizedBox(height: 16),
+
+          // Full Name Field
+          TextFormField(
+            key: const Key('join_name_field'),
+            controller: _nameController,
+            style: TextStyle(color: tokens.textPrimary),
+            decoration: _inputDecoration(
+              tokens: tokens,
+              activeAccent: activeAccent,
+              label: 'Full Name',
+              icon: Icons.person_outline,
+            ),
+            validator: (val) => (val == null || val.trim().isEmpty)
+                ? 'Please enter your name'
+                : null,
+          ),
+          const SizedBox(height: 16),
+
+          // Email Field
+          TextFormField(
+            key: const Key('join_email_field'),
+            controller: _emailController,
+            keyboardType: TextInputType.emailAddress,
+            style: TextStyle(color: tokens.textPrimary),
+            decoration: _inputDecoration(
+              tokens: tokens,
+              activeAccent: activeAccent,
+              label: 'Company Email',
+              hint: 'name@company.com',
+              icon: Icons.email_outlined,
+            ),
+            validator: (val) {
+              if (val == null || val.trim().isEmpty) {
+                return 'Please enter your email';
+              }
+              if (!val.contains('@')) return 'Please enter a valid email';
+              return null;
+            },
+          ),
+          const SizedBox(height: 16),
+
+          // Password Field
+          TextFormField(
+            key: const Key('join_password_field'),
+            controller: _passwordController,
+            obscureText: !_isPasswordVisible,
+            style: TextStyle(color: tokens.textPrimary),
+            decoration: _inputDecoration(
+              tokens: tokens,
+              activeAccent: activeAccent,
+              label: 'Create Password',
+              icon: Icons.lock_outline,
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _isPasswordVisible
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                  color: tokens.textMuted,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _isPasswordVisible = !_isPasswordVisible;
+                  });
+                },
+              ),
+            ),
+            validator: (val) {
+              if (val == null || val.length < 6) {
+                return 'Password must be at least 6 characters';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 24),
+
+          // Join Company Button
+          SizedBox(
+            height: 52,
+            child: ElevatedButton(
+              key: const Key('join_submit_button'),
+              onPressed: _isSubmitting ? null : _handleJoin,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: activeAccent,
+                foregroundColor: onAccent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                elevation: 0,
+              ),
+              child: _isSubmitting
+                  ? SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        color: onAccent,
+                      ),
+                    )
+                  : const Text(
+                      'Activate & Join Workspace',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
 
     return Scaffold(
-      backgroundColor: const Color.fromRGBO(24, 23, 23, 1),
+      backgroundColor: tokens.canvas,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          icon: Icon(Icons.arrow_back, color: tokens.textPrimary),
           onPressed: () {
             if (kIsWeb) {
               context.go('/sign-in');
@@ -215,243 +510,30 @@ class _JoinScreenState extends State<JoinScreen> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            child: Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: isWide ? 32 : 20,
+              vertical: 16,
+            ),
+            child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 480),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Company Branding Header
-                    Center(
-                      child: PcLogo(
-                        logo: _loadedFirm?.logo,
-                        legacyUrl: _loadedFirm?.logoUrl,
-                        size: 72,
-                        borderRadius: 20,
-                        variant: MediaVariant.logoLg,
-                        firmName: _loadedFirm?.name ?? '',
-                        primaryColor: primaryColor,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    Text(
-                      _loadedFirm != null
-                          ? 'Join ${_loadedFirm!.name}'
-                          : 'Join Your Company Workspace',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      (_loadedFirm?.welcomeText != null && _loadedFirm!.welcomeText!.trim().isNotEmpty)
-                          ? _loadedFirm!.welcomeText!.trim()
-                          : (_loadedFirm != null
-                              ? 'Enter your pre-authorized code to activate access'
-                              : 'Enter your company ID and one-time code'),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: (_loadedFirm?.welcomeText != null && _loadedFirm!.welcomeText!.trim().isNotEmpty)
-                            ? Colors.grey[300]
-                            : Colors.grey[400],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Error Banner
-                    if (_errorMessage != null) ...[
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.red[900]?.withOpacity(0.25),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.red[700]!),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.error_outline, color: Colors.redAccent, size: 20),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                _errorMessage!,
-                                style: const TextStyle(color: Colors.redAccent, fontSize: 13),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                    ],
-
-                    // Firm ID Field (if not already loaded)
-                    if (_loadedFirm == null) ...[
-                      TextFormField(
-                        key: const Key('join_firm_id_field'),
-                        controller: _firmIdController,
-                        style: const TextStyle(color: Colors.white),
-                        decoration: InputDecoration(
-                          labelText: 'Firm ID',
-                          labelStyle: TextStyle(color: Colors.grey[400]),
-                          hintText: 'e.g. firm_xyz123',
-                          hintStyle: TextStyle(color: Colors.grey[600]),
-                          prefixIcon: const Icon(Icons.vpn_key_outlined, color: Colors.grey),
-                          suffixIcon: _isLoadingFirm
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: Center(
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  ),
-                                )
-                              : IconButton(
-                                  icon: const Icon(Icons.arrow_forward, color: Colors.white),
-                                  onPressed: () => _fetchFirmDetails(_firmIdController.text),
-                                ),
-                          filled: true,
-                          fillColor: const Color.fromRGBO(34, 33, 33, 1),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        validator: (val) =>
-                            (val == null || val.trim().isEmpty) ? 'Please enter your Firm ID' : null,
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-
-                    // One-Time Code Field
-                    TextFormField(
-                      key: const Key('join_code_field'),
-                      controller: _codeController,
-                      style: const TextStyle(color: Colors.white, letterSpacing: 1.5, fontWeight: FontWeight.bold),
-                      decoration: InputDecoration(
-                        labelText: 'Staff Onboarding Code',
-                        labelStyle: TextStyle(color: Colors.grey[400]),
-                        hintText: '6-digit code (valid for 5 mins)',
-                        hintStyle: TextStyle(color: Colors.grey[600], letterSpacing: 0),
-                        helperText: 'Staff codes auto-reset every 5 minutes',
-                        helperStyle: TextStyle(color: Colors.grey[500], fontSize: 11),
-                        prefixIcon: const Icon(Icons.password_outlined, color: Colors.grey),
-                        filled: true,
-                        fillColor: const Color.fromRGBO(34, 33, 33, 1),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      validator: (val) =>
-                          (val == null || val.trim().isEmpty) ? 'Please enter your code' : null,
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Full Name Field
-                    TextFormField(
-                      key: const Key('join_name_field'),
-                      controller: _nameController,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'Full Name',
-                        labelStyle: TextStyle(color: Colors.grey[400]),
-                        prefixIcon: const Icon(Icons.person_outline, color: Colors.grey),
-                        filled: true,
-                        fillColor: const Color.fromRGBO(34, 33, 33, 1),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      validator: (val) =>
-                          (val == null || val.trim().isEmpty) ? 'Please enter your name' : null,
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Email Field
-                    TextFormField(
-                      key: const Key('join_email_field'),
-                      controller: _emailController,
-                      keyboardType: TextInputType.emailAddress,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'Company Email',
-                        labelStyle: TextStyle(color: Colors.grey[400]),
-                        hintText: 'name@company.com',
-                        hintStyle: TextStyle(color: Colors.grey[600]),
-                        prefixIcon: const Icon(Icons.email_outlined, color: Colors.grey),
-                        filled: true,
-                        fillColor: const Color.fromRGBO(34, 33, 33, 1),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      validator: (val) {
-                        if (val == null || val.trim().isEmpty) return 'Please enter your email';
-                        if (!val.contains('@')) return 'Please enter a valid email';
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Password Field
-                    TextFormField(
-                      key: const Key('join_password_field'),
-                      controller: _passwordController,
-                      obscureText: !_isPasswordVisible,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: 'Create Password',
-                        labelStyle: TextStyle(color: Colors.grey[400]),
-                        prefixIcon: const Icon(Icons.lock_outline, color: Colors.grey),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
-                            color: Colors.grey,
+              child: isWide
+                  ? Container(
+                      padding: const EdgeInsets.all(36),
+                      decoration: BoxDecoration(
+                        color: tokens.surface,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: tokens.border),
+                        boxShadow: [
+                          BoxShadow(
+                            color: tokens.textPrimary.withValues(alpha: 0.04),
+                            blurRadius: 24,
+                            offset: const Offset(0, 8),
                           ),
-                          onPressed: () {
-                            setState(() {
-                              _isPasswordVisible = !_isPasswordVisible;
-                            });
-                          },
-                        ),
-                        filled: true,
-                        fillColor: const Color.fromRGBO(34, 33, 33, 1),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        ],
                       ),
-                      validator: (val) {
-                        if (val == null || val.length < 6) {
-                          return 'Password must be at least 6 characters';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Join Company Button
-                    SizedBox(
-                      height: 52,
-                      child: ElevatedButton(
-                        key: const Key('join_submit_button'),
-                        onPressed: _isSubmitting ? null : _handleJoin,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: primaryColor,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          elevation: 0,
-                        ),
-                        child: _isSubmitting
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Text(
-                                'Activate & Join Workspace',
-                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                              ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+                      child: formBody,
+                    )
+                  : formBody,
             ),
           ),
         ),
